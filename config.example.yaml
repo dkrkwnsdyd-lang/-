@@ -1,0 +1,39 @@
+# config.example.yaml 을 config.yaml 로 복사해서 사용하세요. (config.yaml 은 git 에 올라가지 않습니다)
+# 토큰은 환경변수로도 넣을 수 있습니다: INSTAGRAM_ACCESS_TOKEN, THREADS_ACCESS_TOKEN, TIKTOK_ACCESS_TOKEN 등
+
+general:
+  # 출력 폴더(output/)가 인터넷에서 보이는 주소. Threads 는 필수, Instagram 은 선택.
+  # 예) 웹 화면을 ngrok 으로 공개했다면: https://xxxx.ngrok-free.app/outputs
+  public_base_url: ""
+
+video:
+  width: 1080
+  height: 1920
+  fps: 30
+  seconds_per_image: 3.0
+  transition: 0.5
+  ken_burns: true
+  fit: blur            # blur | crop
+  font_path: ""        # 비우면 맑은고딕/애플고딕/나눔고딕 등을 자동으로 찾음
+  bgm_volume: 0.8
+  max_duration: 60
+
+youtube:
+  client_secrets_file: client_secret.json   # Google Cloud 콘솔에서 받은 OAuth 클라이언트(데스크톱 앱)
+  token_file: youtube_token.json            # youtube-auth 실행 후 자동 생성
+  category_id: 22                           # 22 = People & Blogs
+  made_for_kids: false
+
+instagram:
+  access_token: ""     # instagram_content_publish 권한이 있는 토큰
+  user_id: ""          # Instagram 비즈니스/크리에이터 계정 ID
+  api_version: v21.0
+  graph_host: https://graph.facebook.com   # Instagram 로그인 방식 토큰이면 https://graph.instagram.com
+
+threads:
+  access_token: ""     # threads_basic, threads_content_publish 권한
+  user_id: ""
+
+tiktok:
+  access_token: ""     # video.publish 권한 (심사 전 앱은 비공개로만 게시됨)
+  privacy_level: ""    # 비우면 공개범위 선택값 사용. 심사 전이면 SELF_ONLY

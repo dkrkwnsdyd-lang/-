@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>숏폼 메이커</title>
+<style>
+  :root { --bg:#f5f5f7; --card:#fff; --text:#1d1d1f; --muted:#6e6e73; --line:#e3e3e8; --accent:#ff2d55; --ok:#1a7f37; --bad:#c62828; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111113; --card:#1c1c1f; --text:#f2f2f5; --muted:#a0a0a8; --line:#2e2e33; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif; }
+  header { padding:24px 16px 8px; max-width:1100px; margin:auto; }
+  header h1 { margin:0; font-size:24px; }
+  header p { margin:6px 0 0; color:var(--muted); }
+  main { max-width:1100px; margin:auto; padding:16px; display:grid; grid-template-columns: 1fr 360px; gap:16px; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:16px; }
+  .card h2 { margin:0 0 12px; font-size:16px; }
+  #drop { border:2px dashed var(--line); border-radius:12px; padding:28px 12px; text-align:center; color:var(--muted); cursor:pointer; }
+  #drop.over { border-color:var(--accent); color:var(--accent); }
+  .row { display:flex; gap:8px; margin-top:10px; }
+  input[type=text], input[type=url], input[type=number], textarea, select { width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:8px; background:transparent; color:var(--text); font:inherit; }
+  label { display:block; font-size:13px; color:var(--muted); margin:10px 0 4px; }
+  button { white-space:nowrap; flex:none; font:inherit; border:0; border-radius:8px; padding:9px 14px; cursor:pointer; background:var(--line); color:var(--text); }
+  button.primary { background:var(--accent); color:#fff; font-weight:600; width:100%; padding:12px; margin-top:14px; }
+  button:disabled { opacity:.5; cursor:default; }
+  #items { list-style:none; padding:0; margin:12px 0 0; }
+  #items li { display:flex; gap:10px; align-items:center; padding:8px; border:1px solid var(--line); border-radius:10px; margin-bottom:8px; background:var(--card); }
+  #items li.dragging { opacity:.4; }
+  #items img { width:64px; height:64px; object-fit:cover; border-radius:6px; flex:none; cursor:grab; }
+  #items .num { width:20px; text-align:center; color:var(--muted); flex:none; }
+  #items .x { flex:none; background:transparent; color:var(--muted); padding:6px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  video { width:100%; border-radius:12px; background:#000; aspect-ratio:9/16; }
+  .plat { display:flex; align-items:center; gap:8px; padding:6px 0; }
+  .plat small { color:var(--muted); display:block; }
+  .status { margin-top:10px; font-size:14px; white-space:pre-wrap; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  .check { display:flex; gap:6px; align-items:center; margin-top:10px; font-size:14px; }
+  .check input { width:auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📱 숏폼 메이커</h1>
+  <p>사진만 넣으면 세로 영상을 만들어 유튜브 쇼츠 · 인스타 릴스 · 쓰레드 · 틱톡에 올립니다.</p>
+</header>
+<main>
+  <section>
+    <div class="card">
+      <h2>1. 사진 넣기</h2>
+      <div id="drop">여기로 사진을 끌어놓거나 클릭해서 선택하세요<br><small>순서는 끌어서 바꿀 수 있어요</small></div>
+      <input id="file" type="file" accept="image/*" multiple hidden>
+      <div class="row">
+        <input id="url" type="url" placeholder="이미지 URL 또는 유튜브 영상 URL (썸네일 사용)">
+        <button id="addUrl" type="button">추가</button>
+      </div>
+      <ul id="items"></ul>
+    </div>
+
+    <div class="card">
+      <h2>2. 영상 설정</h2>
+      <label for="title">제목 (영상 상단에 표시 + 게시 제목)</label>
+      <input id="title" type="text" placeholder="예: 오늘의 하이라이트">
+      <div class="grid2">
+        <div><label for="seconds">사진당 시간(초)</label><input id="seconds" type="number" value="3" min="0.5" max="15" step="0.5"></div>
+        <div><label for="transition">전환 효과(초)</label><input id="transition" type="number" value="0.5" min="0" max="2" step="0.1"></div>
+      </div>
+      <label for="fit">사진 배치</label>
+      <select id="fit">
+        <option value="blur">흐린 배경 + 사진 전체 보이기 (가로 사진 추천)</option>
+        <option value="crop">화면 꽉 채우기 (가장자리 잘림)</option>
+      </select>
+      <label for="bgm">배경음악 (선택)</label>
+      <input id="bgm" type="file" accept="audio/*">
+      <div class="check"><input id="kb" type="checkbox" checked><label for="kb" style="margin:0">천천히 확대/이동 효과</label></div>
+      <button id="render" class="primary" type="button">영상 만들기</button>
+      <div id="renderStatus" class="status"></div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="card">
+      <h2>3. 미리보기</h2>
+      <video id="preview" controls playsinline></video>
+      <a id="download" href="#" download hidden>영상 파일 받기</a>
+    </div>
+    <div class="card">
+      <h2>4. 게시하기</h2>
+      <div id="platforms"></div>
+      <label for="desc">설명</label>
+      <textarea id="desc" rows="3"></textarea>
+      <label for="tags">해시태그 (쉼표로 구분)</label>
+      <input id="tags" type="text" placeholder="여행, 브이로그">
+      <label for="privacy">공개 범위</label>
+      <select id="privacy">
+        <option value="public">공개</option>
+        <option value="unlisted">일부 공개</option>
+        <option value="private">비공개</option>
+      </select>
+      <button id="publish" class="primary" type="button" disabled>선택한 플랫폼에 올리기</button>
+      <div id="publishStatus" class="status"></div>
+    </div>
+  </aside>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let items = [];        // {kind:'f'|'u', file?, url?, thumb, caption}
+let videoName = null;
+
+function ytId(u) {
+  const m = u.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
+function renderItems() {
+  const ul = $("items");
+  ul.innerHTML = "";
+  items.forEach((it, i) => {
+    const li = document.createElement("li");
+    li.draggable = true;
+    li.dataset.i = i;
+    li.innerHTML = `<span class="num">${i + 1}</span><img alt=""><input type="text" placeholder="이 사진의 자막 (선택)"><button class="x" title="삭제">✕</button>`;
+    li.querySelector("img").src = it.thumb;
+    const cap = li.querySelector("input");
+    cap.value = it.caption || "";
+    cap.oninput = () => { it.caption = cap.value; };
+    li.querySelector(".x").onclick = () => { items.splice(i, 1); renderItems(); };
+    li.ondragstart = () => { li.classList.add("dragging"); ul.dataset.from = i; };
+    li.ondragend = () => li.classList.remove("dragging");
+    li.ondragover = (e) => e.preventDefault();
+    li.ondrop = (e) => {
+      e.preventDefault();
+      const from = +ul.dataset.from, to = i;
+      if (Number.isNaN(from) || from === to) return;
+      const [moved] = items.splice(from, 1);
+      items.splice(to, 0, moved);
+      renderItems();
+    };
+    ul.appendChild(li);
+  });
+}
+
+function addFiles(list) {
+  for (const f of list) {
+    if (!f.type.startsWith("image/")) continue;
+    items.push({ kind: "f", file: f, thumb: URL.createObjectURL(f), caption: "" });
+  }
+  renderItems();
+}
+
+const drop = $("drop");
+drop.onclick = () => $("file").click();
+$("file").onchange = (e) => { addFiles(e.target.files); e.target.value = ""; };
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); addFiles(e.dataTransfer.files); };
+
+$("addUrl").onclick = () => {
+  const u = $("url").value.trim();
+  if (!u) return;
+  const id = ytId(u);
+  items.push({ kind: "u", url: u, thumb: id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : u, caption: "" });
+  $("url").value = "";
+  renderItems();
+};
+
+async function loadPlatforms() {
+  const res = await fetch("/api/platforms");
+  const list = await res.json();
+  $("platforms").innerHTML = "";
+  for (const p of list) {
+    const row = document.createElement("label");
+    row.className = "plat";
+    row.innerHTML = `<input type="checkbox" value="${p.id}" ${p.ready ? "checked" : ""}><span>${p.label}${p.ready ? "" : `<small>⚠ ${p.hint}</small>`}</span>`;
+    $("platforms").appendChild(row);
+  }
+}
+
+$("render").onclick = async () => {
+  if (!items.length) { $("renderStatus").textContent = "사진을 먼저 넣어주세요."; return; }
+  const fd = new FormData();
+  const urls = [];
+  items.forEach((it) => it.kind === "f" ? fd.append("files", it.file) : urls.push(it.url));
+  fd.append("urls", urls.join("\n"));
+  fd.append("order", items.map((it) => it.kind).join(","));
+  fd.append("captions", items.map((it) => (it.caption || "").replace(/\n/g, " ")).join("\n"));
+  fd.append("title", $("title").value);
+  fd.append("seconds", $("seconds").value);
+  fd.append("transition", $("transition").value);
+  fd.append("fit", $("fit").value);
+  fd.append("ken_burns", $("kb").checked);
+  if ($("bgm").files[0]) fd.append("bgm", $("bgm").files[0]);
+
+  $("render").disabled = true;
+  $("renderStatus").className = "status";
+  $("renderStatus").textContent = "영상 만드는 중... (사진 수에 따라 수십 초 걸려요)";
+  try {
+    const res = await fetch("/api/render", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "실패");
+    videoName = data.name;
+    $("preview").src = data.url + "?t=" + Date.now();
+    $("download").href = data.url;
+    $("download").hidden = false;
+    $("publish").disabled = false;
+    $("renderStatus").className = "status ok";
+    $("renderStatus").textContent = "완료! 미리보기를 확인하세요.";
+  } catch (e) {
+    $("renderStatus").className = "status bad";
+    $("renderStatus").textContent = "오류: " + e.message;
+  } finally {
+    $("render").disabled = false;
+  }
+};
+
+$("publish").onclick = async () => {
+  const platforms = [...document.querySelectorAll("#platforms input:checked")].map((i) => i.value);
+  if (!platforms.length) { $("publishStatus").textContent = "플랫폼을 선택하세요."; return; }
+  if (!$("title").value.trim()) { $("publishStatus").textContent = "제목을 입력하세요."; return; }
+  $("publish").disabled = true;
+  $("publishStatus").className = "status";
+  $("publishStatus").textContent = "업로드 중... (플랫폼 처리에 몇 분 걸릴 수 있어요)";
+  try {
+    const res = await fetch("/api/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: videoName, title: $("title").value, description: $("desc").value,
+        tags: $("tags").value, privacy: $("privacy").value, platforms,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "실패");
+    const box = $("publishStatus");
+    box.innerHTML = "";
+    for (const r of data) {
+      const div = document.createElement("div");
+      div.className = r.ok ? "ok" : "bad";
+      div.textContent = `${r.ok ? "✅" : "❌"} ${r.label}: ${r.ok ? (r.url || r.post_id) : r.error}`;
+      box.appendChild(div);
+    }
+  } catch (e) {
+    $("publishStatus").className = "status bad";
+    $("publishStatus").textContent = "오류: " + e.message;
+  } finally {
+    $("publish").disabled = false;
+  }
+};
+
+loadPlatforms();
+</script>
+</body>
+</html>

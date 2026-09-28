@@ -1,0 +1,12 @@
+Pillow>=10.0
+numpy>=1.24
+imageio-ffmpeg>=0.5
+requests>=2.31
+PyYAML>=6.0
+# 웹 UI
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+# YouTube 업로드
+google-api-python-client>=2.100
+google-auth-oauthlib>=1.2

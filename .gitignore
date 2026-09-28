@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+config.yaml
+client_secret*.json
+youtube_token.json
+output/
+uploads/
+*.mp4
