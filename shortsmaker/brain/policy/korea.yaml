@@ -1,0 +1,19 @@
+# 한국: 표시광고법, 추천·보증 등에 관한 표시·광고 심사지침(경제적 이해관계 표시), 식품표시광고법, 의료기기법, 화장품법
+claim_rules:
+  absolute:     {patterns: ["100%\\s*효과", "무조건", "절대\\s*안전", "부작용\\s*(없|0)", "완벽하게\\s*해결"], status: HIGH_RISK}
+  medical:      {patterns: ["완치", "치료(?!\\s*(목적|용도)이?\\s*아)", "질병\\s*예방", "통증\\s*(완화|제거|해소)", "혈압(을|이)?\\s*(낮|내려)", "혈당(을|이)?\\s*(낮|내려)", "탈모\\s*(치료|완치|개선)", "지방\\s*분해", "살\\s*빠(져|지)"], status: HIGH_RISK, categories: [health_supplement, medical_device, cosmetics]}
+  financial:    {patterns: ["100%\\s*수익", "원금\\s*보장", "확정\\s*수익", "무조건\\s*수익"], status: HIGH_RISK}
+  superlative:  {patterns: ["국내\\s*최초", "세계\\s*최초", "업계\\s*1위", "판매\\s*1위", "(?<![가-힣])1위", "최고의", "유일한", "가장\\s*많이\\s*팔린"], status: UNVERIFIED}
+  numbers:      {patterns: ["누적\\s*판매\\s*[0-9,]+", "후기\\s*[0-9,]+\\s*개", "리뷰\\s*[0-9,]+", "[0-9]+\\s*만\\s*개\\s*판매", "점유율"], status: UNVERIFIED}
+  certification: {patterns: ["특허", "인증(을|받|완료)", "KC\\s*인증", "FDA"], status: UNVERIFIED}
+disclosure_rules:
+  COUPANG_PARTNERS: "이 게시물은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다."
+  NAVER_SHOPPING_CONNECT: "이 게시물은 네이버 쇼핑 커넥트 활동으로 판매 시 수수료를 제공받습니다."
+  BRAND_SPONSORSHIP: "[광고] 이 게시물은 브랜드로부터 제품/대가를 제공받아 제작되었습니다."
+  OTHER_AFFILIATE: "이 게시물은 제휴 마케팅 활동으로 수수료를 제공받을 수 있습니다."
+  placement: "게시물 첫 부분(더보기 전)에 표시, 영상 내에도 '광고' 표기 권장"
+health_rules:
+  sensitive_topics: [다이어트, 건강, 피부, 탈모, 마사지, 의료기기, 혈압, 혈당, 수면]
+  note: "일반 공산품/화장품/식품이 질병 예방·치료 효능을 표방하면 위반 소지"
+copyright_rules: ["타 제작자 영상은 REFERENCE_ONLY", "권리 불명 음원 금지"]
+spam_rules: ["동일 문구 다중 게시 금지", "과도한 해시태그 금지"]

@@ -1,0 +1,5 @@
+prohibited_categories: [illegal_drugs, weapons, counterfeit, illegal_medicine, spyware_hacking, financial_scam, nicotine_tobacco, gambling, alcohol]
+restricted_categories: [adult, health_supplement, medical_device, cosmetics]
+link_rules: "프로필 링크 / 틱톡샵 정책 별도"
+disclosure_rules: "콘텐츠 공개(브랜드 콘텐츠) 토글 + 캡션 고지"
+spam_rules: "과장 효능/비포애프터 규제 엄격"

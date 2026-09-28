@@ -1,0 +1,34 @@
+# MODEL REGISTRY - 모델명은 여기에만 둔다. 코드에 하드코딩 금지.
+# last_verified: 이 환경에서 실제 호출로 확인한 날짜 (null = 미검증)
+# 모델 ID 는 각 사의 현재 모델 목록 API 로 확인 후 수정할 것.
+- {provider: openai, task: llm, model: "gpt-5-mini", priority: 1, enabled: true, cost_level: 2, quality_level: 4,
+   capabilities: [json, vision], fallback_model: "gpt-4.1-mini", cost_per_1k_in: 0.00025, cost_per_1k_out: 0.002, last_verified: null}
+- {provider: google, task: llm, model: "gemini-2.5-flash", priority: 2, enabled: true, cost_level: 1, quality_level: 4,
+   capabilities: [json, vision, video_understanding, youtube_url], fallback_model: null, cost_per_1k_in: 0.0003, cost_per_1k_out: 0.0025, last_verified: null}
+- {provider: groq, task: llm_cheap, model: "llama-3.3-70b-versatile", priority: 1, enabled: true, cost_level: 1, quality_level: 3,
+   capabilities: [json], fallback_model: null, cost_per_1k_in: 0.00059, cost_per_1k_out: 0.00079, last_verified: null}
+- {provider: google, task: vision, model: "gemini-2.5-flash", priority: 1, enabled: true, cost_level: 1, quality_level: 4,
+   capabilities: [vision, video_understanding, youtube_url], fallback_model: null, cost_per_1k_in: 0.0003, cost_per_1k_out: 0.0025, last_verified: null}
+- {provider: openai, task: vision, model: "gpt-5-mini", priority: 2, enabled: true, cost_level: 2, quality_level: 4,
+   capabilities: [vision], fallback_model: null, cost_per_1k_in: 0.00025, cost_per_1k_out: 0.002, last_verified: null}
+- {provider: elevenlabs, task: tts, model: "eleven_multilingual_v2", priority: 1, enabled: true, cost_level: 3, quality_level: 5,
+   capabilities: [korean], fallback_model: null, cost_per_1k_chars: 0.18, last_verified: null}
+- {provider: openai, task: tts, model: "gpt-4o-mini-tts", priority: 2, enabled: true, cost_level: 1, quality_level: 3,
+   capabilities: [korean], fallback_model: null, cost_per_1k_chars: 0.015, last_verified: null}
+- {provider: pexels, task: broll, model: "videos/search", priority: 1, enabled: true, cost_level: 0, quality_level: 3,
+   capabilities: [stock_video], fallback_model: null, last_verified: null}
+- {provider: pixabay, task: broll, model: "videos", priority: 2, enabled: true, cost_level: 0, quality_level: 2,
+   capabilities: [stock_video], fallback_model: null, last_verified: null}
+# 영상 생성: 공식 API 문서로 요청 형식을 검증하기 전까지 adapter 비활성. 라우터는 image_motion 으로 폴백.
+- {provider: google_video, task: video, model: "veo (verify current id)", priority: 2, enabled: false, cost_level: 5, quality_level: 5,
+   capabilities: [text_to_video, image_to_video, first_last_frame], fallback_model: null, last_verified: null}
+- {provider: seedance, task: video, model: "seedance (verify current id)", priority: 1, enabled: false, cost_level: 3, quality_level: 4,
+   capabilities: [image_to_video, first_last_frame, reference_image], fallback_model: null, last_verified: null}
+- {provider: higgsfield, task: video, model: "higgsfield (verify current id)", priority: 3, enabled: false, cost_level: 4, quality_level: 5,
+   capabilities: [image_to_video, cinematic_camera], fallback_model: null, last_verified: null}
+- {provider: local, task: video, model: "image_motion_v2", priority: 9, enabled: true, cost_level: 0, quality_level: 3,
+   capabilities: [image_to_video, product_lossless, first_last_frame], fallback_model: null, last_verified: "2026-09-28"}
+- {provider: local, task: llm, model: "rule_director_v1", priority: 9, enabled: true, cost_level: 0, quality_level: 2,
+   capabilities: [json], fallback_model: null, last_verified: "2026-09-28"}
+- {provider: local, task: vision, model: "pixel_stats_v1", priority: 9, enabled: true, cost_level: 0, quality_level: 1,
+   capabilities: [vision_basic], fallback_model: null, last_verified: "2026-09-28"}

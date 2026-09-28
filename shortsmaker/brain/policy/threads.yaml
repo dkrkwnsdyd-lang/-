@@ -1,0 +1,5 @@
+prohibited_categories: [illegal_drugs, weapons, counterfeit, illegal_medicine, spyware_hacking, financial_scam, nicotine_tobacco, gambling]
+restricted_categories: [alcohol, adult, health_supplement, medical_device]
+link_rules: "본문 링크 가능 (Meta 정책 준수)"
+disclosure_rules: "본문 앞부분 고지"
+spam_rules: "동일 문구 반복 게시 금지"

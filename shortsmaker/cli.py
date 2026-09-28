@@ -70,6 +70,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("youtube-auth", help="YouTube 계정 로그인 (최초 1회)")
 
+    st = sub.add_parser("studio", help="SHOP SHORTS V2: 상품 사진/URL -> 고품질 쇼핑 쇼츠 + 플랫폼별 버전")
+    st.add_argument("photos", nargs="*", help="상품 사진 파일")
+    st.add_argument("--url", default="", help="상품 페이지 URL")
+    st.add_argument("--name", default="")
+    st.add_argument("--features", default="", help="핵심 특징, 쉼표 구분 (사실만)")
+    st.add_argument("--problem", default="", help="해결하는 불편")
+    st.add_argument("--category", default="", help="생활/주방/전자기기/뷰티/운동 등 (안전 검사용)")
+    st.add_argument("--affiliate", default="NONE",
+                    choices=["NONE", "COUPANG_PARTNERS", "NAVER_SHOPPING_CONNECT", "BRAND_SPONSORSHIP", "OTHER_AFFILIATE"])
+    st.add_argument("--rights", default="OWNED", choices=["OWNED", "SELLER_PROVIDED", "LICENSED", "UNKNOWN"])
+    st.add_argument("--reference", default="", help="참고 영상 URL 또는 mp4 (구조만 분석)")
+    st.add_argument("--mode", default="PRO", choices=["FAST", "PRO"])
+    st.add_argument("--platforms", default="youtube,instagram,tiktok,threads")
+    st.add_argument("--bgm", default=None, help="배경음악 (권리 보유 음원만)")
+
+    sub.add_parser("api-status", help="API Control Center (키/모델/상태, 무료 확인만)")
+    sub.add_parser("db-rollback", help="마지막 DB 마이그레이션 되돌리기")
+
     web = sub.add_parser("web", help="웹 화면 실행")
     web.add_argument("--host", default="127.0.0.1")
     web.add_argument("--port", type=int, default=8000)
@@ -114,6 +132,28 @@ def _publish(video: Path, args, cfg) -> int:
     return 1 if failed else 0
 
 
+def _studio(args) -> int:
+    import json
+    from .studio.pipeline import run_job
+    inputs = {"photos": args.photos, "url": args.url, "name": args.name, "features": args.features,
+              "problem": args.problem, "category_hint": args.category, "affiliate": args.affiliate,
+              "photo_rights": args.rights, "reference_url": args.reference, "bgm_path": args.bgm}
+    r = run_job(inputs, args.mode, _split(args.platforms, ","), out_root="output/v2",
+                progress_cb=lambda m: print("  ·", m, flush=True))
+    if r["status"] == "FAILED":
+        print(f"실패: {r.get('error')}", file=sys.stderr)
+        return 1
+    s = r["qa"]["scores"]
+    print(f"\n{r['status']}  QUALITY {s['overall']}  " + " ".join(f"{k}={v}" for k, v in s.items() if k != "overall"))
+    for k, v in r["qa"].get("notes", {}).items():
+        print(f"  - {k}: {', '.join(v)}")
+    print(f"MASTER: {r['master']}")
+    for pf, e in r["exports"].items():
+        print(f"  {pf:10} {e['verdict']:18} {e['file'] or ''} {'; '.join(e['reasons'])}")
+    print(f"비용: ${r['cost']:.4f}   결과: output/v2/{r['job_id']}/result.json")
+    return 0 if r["status"] == "COMPLETE" else 3
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     cfg = load_config(args.config)
@@ -139,6 +179,17 @@ def _run(args, cfg) -> int:
         get_credentials(yt.get("client_secrets_file", "client_secret.json"),
                         yt.get("token_file", "youtube_token.json"), interactive=True)
         print("YouTube 로그인 완료")
+        return 0
+    if args.command == "studio":
+        return _studio(args)
+    if args.command == "api-status":
+        from .providers import Router
+        for row in Router().control_center(test=True):
+            print(f"{row['provider']:12} {row['status']:22} {row['authentication']:14} {row['active_model']}")
+        return 0
+    if args.command == "db-rollback":
+        from .db import DB
+        print("rolled back:", DB("data/shorts.db").rollback())
         return 0
     if args.command == "web":
         import uvicorn

@@ -1,4 +1,4 @@
-"""웹 화면: 사진 올리기 -> 미리보기 -> 플랫폼 선택해서 게시."""
+"""웹 화면. / = SHOP SHORTS V2 스튜디오, /classic = 기존 사진 슬라이드 메이커, /control = API Control Center."""
 from __future__ import annotations
 
 import re
@@ -61,8 +61,19 @@ def create_app(cfg: dict | None = None, output_dir: str | Path = "output",
     app.mount("/outputs", StaticFiles(directory=output_dir), name="outputs")
 
     @app.get("/")
+    def studio_page():
+        return FileResponse(STATIC / "studio.html")
+
+    @app.get("/classic")
     def index():
         return FileResponse(STATIC / "index.html")
+
+    @app.get("/control")
+    def control_page():
+        return FileResponse(STATIC / "control.html")
+
+    from .studio_api import register_studio
+    register_studio(app, cfg, output_dir, upload_dir)
 
     @app.get("/api/platforms")
     def platforms():

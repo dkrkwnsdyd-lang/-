@@ -1,0 +1,5 @@
+prohibited_categories: [illegal_drugs, weapons, counterfeit, illegal_medicine, spyware_hacking, financial_scam, nicotine_tobacco, gambling]
+restricted_categories: [alcohol, adult, health_supplement, medical_device]
+link_rules: "캡션 링크 클릭 불가 - 프로필 링크 유도"
+disclosure_rules: "브랜디드 콘텐츠(유료 파트너십) 라벨 + 캡션 앞부분 고지"
+spam_rules: "해시태그 과다 사용 지양 (3~5개)"

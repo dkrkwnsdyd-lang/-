@@ -1,0 +1,10 @@
+angles:            # 판매 각도 후보 - 제품 정보에 근거가 있을 때만 사용
+  pain_relief:  "불편/문제를 없애 준다"
+  time_saving:  "시간을 줄여 준다"
+  convenience:  "쓰기 쉽다/간편하다"
+  design:       "보기 좋다/공간에 어울린다"
+  portability:  "작고 가볍다/휴대"
+  value:        "가격 대비 만족 (근거 없는 최저가 주장 금지)"
+  gift:         "선물용"
+  upgrade:      "기존 방식보다 나은 점"
+scoring: {evidence: 0.4, visual_demonstrability: 0.35, emotional_pull: 0.25}

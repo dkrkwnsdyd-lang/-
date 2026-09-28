@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API Control Center</title>
+<style>
+  :root { --bg:#f4f4f6; --card:#fff; --text:#18181b; --muted:#6b6b76; --line:#e4e4ea; --ok:#16a34a; --bad:#dc2626; --warn:#d97706; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f0f12; --card:#1a1a1f; --text:#f2f2f5; --muted:#a1a1aa; --line:#2c2c33; } }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif; }
+  main { max-width:1120px; margin:auto; padding:22px 16px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  p { color:var(--muted); margin:0 0 14px; font-size:14px; }
+  .bar { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+  button { font:inherit; border:0; border-radius:10px; padding:9px 14px; cursor:pointer; background:var(--line); color:var(--text); }
+  .wrap { overflow-x:auto; background:var(--card); border:1px solid var(--line); border-radius:14px; }
+  table { border-collapse:collapse; width:100%; font-size:13px; min-width:900px; }
+  th, td { text-align:left; padding:10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  #fb { font-size:13px; white-space:pre-wrap; margin-top:12px; color:var(--muted); }
+  a { color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>API Control Center</h1>
+  <p>키는 서버 환경변수(.env)에만 저장되고 화면에는 마스킹되어 표시됩니다. 유료 영상 생성 API 는 상태 확인으로 호출하지 않습니다. <a href="/">← 스튜디오</a></p>
+  <div class="bar"><button id="all">Test All</button><button id="fallback">Test Fallback</button></div>
+  <div class="wrap"><table><thead><tr><th>Provider</th><th>Status</th><th>Auth</th><th>Active Model</th><th>Tasks / Capabilities</th>
+    <th>Latency</th><th>Last Success</th><th>Last Error</th><th>Cost</th><th>Enabled</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+  <div id="fb"></div>
+</main>
+<script>
+const cls = (s) => s === "ok" ? "ok" : s === "error" ? "bad" : s === "not_configured" ? "" : "warn";
+function draw(rows) {
+  document.getElementById("rows").innerHTML = rows.map(r => `<tr>
+    <td><b>${r.provider}</b></td><td class="${cls(r.status)}">${r.status}</td><td>${r.authentication}</td>
+    <td>${r.active_model || "-"}</td><td>${r.tasks.join(", ")}<br><small>${r.capabilities.join(", ")}</small></td>
+    <td>${r.latency ?? "-"}</td><td>${r.last_success || "-"}</td><td class="bad">${r.last_error || ""}</td>
+    <td>${r.cost_level ?? "-"}</td><td>${r.enabled ? "✓" : "–"}</td>
+    <td><button onclick="testOne('${r.provider}')">Test</button></td></tr>`).join("");
+}
+async function load(test) { draw(await (await fetch("/api/v2/control-center" + (test ? "?test=true" : ""))).json()); }
+async function testOne(p) {
+  const rows = await (await fetch("/api/v2/control-center/test?provider=" + p, { method:"POST" })).json();
+  const all = await (await fetch("/api/v2/control-center")).json();
+  draw(all.map(r => rows.find(x => x.provider === r.provider) || r));
+}
+document.getElementById("all").onclick = () => load(true);
+document.getElementById("fallback").onclick = async () => {
+  const r = await (await fetch("/api/v2/control-center/test-fallback", { method:"POST" })).json();
+  document.getElementById("fb").textContent = (r.ok ? "✅ 폴백 정상: " : "❌ 폴백 실패: ") + JSON.stringify(r.trace);
+};
+load(false);
+</script>
+</body>
+</html>

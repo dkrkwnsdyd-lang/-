@@ -1,0 +1,5 @@
+prohibited_categories: [illegal_drugs, weapons, counterfeit, illegal_medicine, spyware_hacking, financial_scam, nicotine_tobacco, gambling]
+restricted_categories: [alcohol, adult, health_supplement, medical_device]
+link_rules: "설명란/고정댓글 링크. 쇼츠 설명란 링크는 클릭이 제한될 수 있음"
+disclosure_rules: "유료 프로모션 포함 체크 + 설명란 첫 줄 고지"
+spam_rules: "반복 업로드/오해 소지 메타데이터 금지"

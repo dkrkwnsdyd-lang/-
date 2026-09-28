@@ -1,0 +1,26 @@
+# 참고 영상에서 '문장'이 아니라 '공식'만 저장한다.
+patterns:
+  existing_behavior_negation:
+    formula: "아직도 {pain_action} 하세요?"
+    fits: [PROBLEM_SOLUTION, BEFORE_AFTER]
+  unexpected_result:
+    formula: "{product_short} 하나 바꿨더니 {result}"
+    fits: [BEFORE_AFTER, SURPRISE_EXPLANATION]
+  question_reveal:
+    formula: "{pain_point}, 이유가 뭘까요?"
+    fits: [QUESTION_REVEAL, MYTH_REALITY]
+  myth_bust:
+    formula: "{myth}? 사실은 아니에요"
+    fits: [MYTH_REALITY]
+  test_challenge:
+    formula: "{product_short}, 진짜 {claim_test} 될까?"
+    fits: [TEST, DEMONSTRATION]
+  discovery:
+    formula: "이거 모르고 {pain_action} 했던 사람?"
+    fits: [DISCOVERY, PROBLEM_SOLUTION]
+  pov:
+    formula: "{situation}일 때 제일 필요한 것"
+    fits: [DISCOVERY, DEMONSTRATION]
+  comparison:
+    formula: "{alt_option} vs {product_short}, 차이 보이세요?"
+    fits: [COMPARISON]

@@ -1,4 +1,31 @@
-# 📱 숏폼 메이커 (Shorts Maker)
+# 🛍️ SHOP SHORTS AI V2
+
+상품 **URL 또는 사진 몇 장**으로 **고품질 쇼핑 쇼츠(MASTER 1개 → 플랫폼별 버전 4개)** 를 만듭니다.
+목표는 "기능이 많은 것"이 아니라 **사람이 만든 것처럼 자연스럽고, 제품이 정확하고, 바로 올릴 수 있는 영상 1개**입니다.
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env            # (선택) API 키 - 없어도 로컬 모드로 동작
+python -m shortsmaker web       # http://127.0.0.1:8000  (스튜디오 / API Control Center: /control)
+
+# 명령줄
+python -m shortsmaker studio 정면.jpg 옆.jpg 사용장면.jpg \
+    --name "무선 미니 마사지건" --features "4단계 강도 조절,USB-C 충전" \
+    --problem "운동 끝나면 어깨가 뭉쳐요" --category 운동 --mode PRO
+```
+
+파이프라인: 사진 분석 → PRODUCT LOCK → 판매 각도 → 스토리(10패턴) → 훅 3후보 → 장면 설계(20필드) →
+스토리보드 QA → 영상 라우터 → 멀티 테이크/베스트 테이크 → AI 편집(첫 3초 규칙) → 다이내믹 자막 →
+렌더 → **최종 품질 QA (통과해야 COMPLETE)** → 플랫폼별 문구/CTA/음량 → **컴플라이언스(주장·고지·권리)** → export
+
+- 결과: `output/v2/<작업ID>/` — `youtube.mp4`, `instagram.mp4`, `tiktok.mp4`, `threads.mp4`, `v*/MASTER.mp4`, `result.json`
+- 현재 상태/다음 작업: `PROJECT_STATUS.md`, `NEXT_TASKS.md`, `API_STATUS.md`, `TEST_RESULTS.md`
+- API 키가 없으면: 규칙 기반 기획 + 원본 사진 모션(제품 변형 0) + 자체 음악/효과음. 보이스오버/사람 등장 장면은 provider 연결 후.
+- 카테고리를 입력하지 않으면 안전 판정이 UNKNOWN 이 되어 export 가 보류됩니다 (자동 GREEN 금지).
+
+---
+
+# (V1) 📱 숏폼 메이커 - 사진 슬라이드 영상 (`/classic`)
 
 사진만 넣으면 **세로형 숏폼 영상(1080x1920)** 을 자동으로 만들고,
 **유튜브 쇼츠 · 인스타그램 릴스 · 쓰레드 · 틱톡**에 한 번에 올릴 수 있는 도구입니다.

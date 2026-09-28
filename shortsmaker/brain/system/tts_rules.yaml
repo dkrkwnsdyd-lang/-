@@ -1,0 +1,5 @@
+style: "친구에게 추천하듯, 짧은 문장, 존댓말 구어체"
+max_chars_per_scene: 28
+speed: 1.08
+banned_openers: ["안녕하세요", "오늘 소개해드릴", "여러분"]
+pause_after_hook: 0.15

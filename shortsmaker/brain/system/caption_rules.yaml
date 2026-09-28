@@ -1,0 +1,9 @@
+max_chars_per_line: 13
+max_lines: 2
+words_per_second: [2.5, 4.0]
+emphasis_color: "#FFD43B"
+base_color: "#FFFFFF"
+stroke: 0.09          # 폰트 크기 대비 외곽선
+pop_seconds: 0.12
+first_caption_at: 0.35
+avoid_product_box: true

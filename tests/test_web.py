@@ -28,3 +28,16 @@ def test_render_and_publish_validation(photos, tmp_path):
 def test_render_requires_input(tmp_path):
     client = TestClient(create_app({}, tmp_path / "out", tmp_path / "up"))
     assert client.post("/api/render", data={"title": "x"}).status_code == 400
+
+
+def test_v2_pages_and_control_center(tmp_path):
+    client = TestClient(create_app({}, tmp_path / "out", tmp_path / "up"))
+    assert "SHOP SHORTS" in client.get("/").text
+    assert client.get("/classic").status_code == 200
+    assert client.get("/control").status_code == 200
+    rows = client.get("/api/v2/control-center").json()
+    assert {r["provider"] for r in rows} >= {"openai", "google", "groq", "elevenlabs", "pexels", "pixabay"}
+    fb = client.post("/api/v2/control-center/test-fallback").json()
+    assert fb["ok"] and fb["trace"][0]["ok"] is False
+    assert client.post("/api/v2/jobs", data={"mode": "PRO"}).status_code == 400
+    assert client.get("/api/v2/jobs/nope").status_code == 404

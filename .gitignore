@@ -8,3 +8,5 @@ youtube_token.json
 output/
 uploads/
 *.mp4
+.env
+data/

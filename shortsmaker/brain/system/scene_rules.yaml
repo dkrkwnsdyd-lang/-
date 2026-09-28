@@ -1,0 +1,14 @@
+required_fields: [scene_id, duration, purpose, subject, action, environment, product_state,
+  camera_type, camera_angle, camera_motion, shot_size, lighting, emotion, visual_hook,
+  transition, tts_line, caption, reference_image, negative_prompt, continuity_rules]
+default_negative: [extra fingers, warped product, changed logo, duplicated object,
+  floating product, text artifacts, deformed hands, melted edges]
+no_repeat_same_framing: true      # 연속 장면 같은 구도 금지
+beat_to_shot:                     # 이미지 모션(사진 기반)일 때 비트별 기본 샷
+  hook: [punch_in, macro, whip_reveal]
+  problem: [problem_card, rack_focus]
+  reveal: [hero_push, whip_reveal]
+  demo: [detail_pan, macro]
+  detail: [macro, detail_pan, parallax]
+  benefit: [parallax, light_sweep]
+  cta: [cta_card]

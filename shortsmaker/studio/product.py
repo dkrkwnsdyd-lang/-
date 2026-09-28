@@ -1,0 +1,264 @@
+"""PRODUCT INPUT / 사진 분석 / PRODUCT LOCK(제품 아이덴티티).
+
+사진만 보고 판매량·리뷰수·효능·인증·특허를 만들어내지 않는다. 모르면 UNKNOWN.
+"""
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+
+import numpy as np
+import requests
+from PIL import Image, ImageFilter, ImageOps
+
+UNKNOWN = "UNKNOWN"
+
+
+@dataclass
+class ProductInput:
+    name: str = ""
+    description: str = ""
+    features: list[str] = field(default_factory=list)
+    problem: str = ""                 # 이 제품이 해결하는 불편 (사용자 입력)
+    target: str = ""                  # 누가 쓰는지
+    price: str = ""
+    url: str = ""
+    photos: list[str] = field(default_factory=list)
+    photo_rights: str = "OWNED"       # OWNED | SELLER_PROVIDED | LICENSED | STOCK_LICENSED | UNKNOWN
+    reference_url: str = ""
+    affiliate: str = "NONE"           # NONE | COUPANG_PARTNERS | NAVER_SHOPPING_CONNECT | BRAND_SPONSORSHIP | OTHER_AFFILIATE
+    category_hint: str = ""
+    claim_sources: dict[str, str] = field(default_factory=dict)  # 주장 -> 근거(URL/문서)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ProductInput":
+        d = dict(d)
+        if isinstance(d.get("features"), str):
+            d["features"] = [f.strip() for f in re.split(r"[\n,]", d["features"]) if f.strip()]
+        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+
+    def text(self) -> str:
+        return " ".join([self.name, self.description, " ".join(self.features), self.problem, self.category_hint])
+
+
+# ------------------------------------------------------------------ URL import
+
+def import_from_url(url: str, session: requests.Session | None = None) -> dict:
+    """상품 페이지의 공개 메타데이터(og:*, JSON-LD Product)만 읽는다. 차단/로그인 우회는 하지 않는다.
+
+    실패하면 {} 를 돌려주고, 호출자는 URL + 사진 + 수동 입력으로 진행한다.
+    """
+    session = session or requests.Session()
+    try:
+        resp = session.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0 ShopShortsImporter"})
+    except requests.RequestException:
+        return {}
+    if resp.status_code != 200:
+        return {}
+    html = resp.text
+    out: dict = {}
+
+    def meta(prop: str) -> str | None:
+        m = re.search(rf'<meta[^>]+(?:property|name)=["\']{re.escape(prop)}["\'][^>]+content=["\']([^"\']+)', html, re.I) \
+            or re.search(rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']{re.escape(prop)}["\']', html, re.I)
+        return m.group(1).strip() if m else None
+
+    out["name"] = meta("og:title") or ""
+    out["description"] = meta("og:description") or meta("description") or ""
+    img = meta("og:image")
+    out["images"] = [img] if img else []
+    for block in re.findall(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', html, re.S | re.I):
+        try:
+            data = json.loads(block.strip())
+        except ValueError:
+            continue
+        for item in data if isinstance(data, list) else [data]:
+            if isinstance(item, dict) and item.get("@type") == "Product":
+                out["name"] = item.get("name") or out["name"]
+                out["description"] = item.get("description") or out["description"]
+                imgs = item.get("image")
+                if imgs:
+                    out["images"] = imgs if isinstance(imgs, list) else [imgs]
+                offers = item.get("offers") or {}
+                if isinstance(offers, dict) and offers.get("price"):
+                    out["price"] = f"{offers.get('price')} {offers.get('priceCurrency', '')}".strip()
+    return {k: v for k, v in out.items() if v}
+
+
+# ------------------------------------------------------------------ photo analysis
+
+@dataclass
+class PhotoAnalysis:
+    path: str
+    width: int
+    height: int
+    sharpness: float
+    brightness: float
+    dominant_colors: list[str]
+    background: str                   # plain | busy
+    product_box: tuple[float, float, float, float]   # 0~1 (x0, y0, x1, y1)
+    photo_angle: str = UNKNOWN
+    product_category: str = UNKNOWN
+    shape: str = UNKNOWN
+    logo: str = UNKNOWN
+    material: str = UNKNOWN
+    visible_features: list[str] = field(default_factory=list)
+    controls: str = UNKNOWN
+    size_hint: str = UNKNOWN
+    usage_hint: str = UNKNOWN
+    cutout: dict = field(default_factory=dict)   # 배경 제거 신뢰도 (PRODUCT LOCK)
+    analyzer: str = "pixel_stats_v1"
+
+
+def _hex(rgb) -> str:
+    return "#%02x%02x%02x" % tuple(int(c) for c in rgb)
+
+
+def sharpness_of(gray: np.ndarray) -> float:
+    lap = (-4 * gray[1:-1, 1:-1] + gray[:-2, 1:-1] + gray[2:, 1:-1] + gray[1:-1, :-2] + gray[1:-1, 2:])
+    return float(lap.var())
+
+
+def product_mask(img: Image.Image, size: int = 256) -> tuple[np.ndarray, str]:
+    """배경색과의 차이로 제품 영역 추정. (mask 0~1, 'plain'|'busy')"""
+    small = ImageOps.contain(img.convert("RGB"), (size, size))
+    a = np.asarray(small).astype(np.float32)
+    border = np.concatenate([a[0], a[-1], a[:, 0], a[:, -1]])
+    bg = np.median(border, axis=0)
+    border_spread = float(np.mean(np.linalg.norm(border - bg, axis=1)))
+    dist = np.linalg.norm(a - bg, axis=2)
+    thr = max(38.0, border_spread * 2.2)
+    mask = (dist > thr).astype(np.float32)
+    kind = "plain" if border_spread < 18 else "busy"
+    return mask, kind
+
+
+def analyze_photo(path: str | Path) -> PhotoAnalysis:
+    with Image.open(path) as im:
+        img = ImageOps.exif_transpose(im).convert("RGB")
+    w, h = img.size
+    gray = np.asarray(ImageOps.contain(img, (512, 512)).convert("L")).astype(np.float32)
+    mask, kind = product_mask(img)
+    ys, xs = np.nonzero(mask)
+    if kind == "plain" and len(xs) > mask.size * 0.02:
+        # 이상치 제거를 위해 백분위 사용
+        x0, x1 = np.percentile(xs, [1, 99]) / mask.shape[1]
+        y0, y1 = np.percentile(ys, [1, 99]) / mask.shape[0]
+        box = (max(0, x0 - 0.02), max(0, y0 - 0.02), min(1, x1 + 0.02), min(1, y1 + 0.02))
+    else:
+        box = (0.08, 0.08, 0.92, 0.92)   # 배경이 복잡하면 중앙 대부분을 제품 영역으로 가정
+    pal = ImageOps.contain(img, (96, 96)).quantize(colors=5, method=Image.Quantize.MEDIANCUT)
+    counts = sorted(pal.getcolors(), reverse=True)
+    palette = pal.getpalette()
+    colors = [_hex(palette[i * 3:i * 3 + 3]) for _, i in counts[:4]]
+    return PhotoAnalysis(str(path), w, h, round(sharpness_of(gray), 1), round(float(gray.mean()), 1),
+                         colors, kind, tuple(round(float(v), 3) for v in box), cutout=cutout_reliability(img))
+
+
+# ------------------------------------------------------------------ PRODUCT LOCK
+
+@dataclass
+class ProductIdentity:
+    product_id: str
+    name: str
+    front_reference: str | None
+    side_reference: str | None
+    detail_reference: str | None
+    usage_reference: str | None
+    logo_reference: str | None
+    color_reference: list[str]
+    dimensions_hint: str
+    distinctive_features: list[str]
+    control_position: str
+    photos: list[dict]
+    missing_angles: list[str]
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    def lock_prompt(self) -> str:
+        """영상 생성 provider 에 모든 장면마다 강제로 붙이는 제품 고정 조건."""
+        feats = ", ".join(self.distinctive_features[:5]) or "as in reference photo"
+        return (f"Exact same product as reference ({self.name}). Keep identical color {', '.join(self.color_reference[:3])}, "
+                f"same logo, same button/control position ({self.control_position}), same proportions and shape. "
+                f"Distinctive: {feats}. Do not redesign, recolor, or add parts.")
+
+
+def build_identity(product: ProductInput, analyses: list[PhotoAnalysis], product_id: str) -> ProductIdentity:
+    if not analyses:
+        raise ValueError("제품 사진이 최소 1장 필요합니다 (PRODUCT LOCK)")
+
+    def score_front(a: PhotoAnalysis) -> float:
+        x0, y0, x1, y1 = a.product_box
+        centered = 1 - abs((x0 + x1) / 2 - 0.5) - abs((y0 + y1) / 2 - 0.5)
+        return min(a.sharpness, 400) / 400 + centered + (0.3 if a.background == "plain" else 0)
+
+    ranked = sorted(analyses, key=score_front, reverse=True)
+    front = ranked[0]
+    detail = max(analyses, key=lambda a: a.sharpness * min(a.width, a.height))
+    busy = [a for a in analyses if a.background == "busy"]
+    usage = busy[0] if busy else None
+    others = [a for a in ranked if a is not front]
+    missing = [n for n, v in [("side", others), ("usage", usage)] if not v]
+    return ProductIdentity(
+        product_id=product_id,
+        name=product.name or UNKNOWN,
+        front_reference=front.path,
+        side_reference=others[0].path if others else None,
+        detail_reference=detail.path,
+        usage_reference=usage.path if usage else None,
+        logo_reference=None,
+        color_reference=front.dominant_colors,
+        dimensions_hint=UNKNOWN,
+        distinctive_features=list(product.features),
+        control_position=UNKNOWN,
+        photos=[asdict(a) for a in analyses],
+        missing_angles=missing,
+    )
+
+
+def cutout_reliability(img: Image.Image) -> dict:
+    """배경 제거를 믿어도 되는지. 제품이 배경색과 비슷하면(흰 제품+흰 배경) 제품 일부가 지워져
+    형태가 바뀌므로 PRODUCT LOCK 위반 -> 사용하지 않는다."""
+    small = ImageOps.contain(img.convert("RGB"), (256, 256))
+    a = np.asarray(small).astype(np.float32)
+    border = np.concatenate([a[0], a[-1], a[:, 0], a[:, -1]])
+    bg = np.median(border, axis=0)
+    dist = np.linalg.norm(a - bg, axis=2)
+    mask, kind = product_mask(img)
+    ys, xs = np.nonzero(mask)
+    if kind != "plain" or len(xs) < mask.size * 0.02:
+        return {"ok": False, "reason": "busy_or_empty"}
+    y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    box = dist[y0:y1, x0:x1]
+    ambiguous = float(((box > 8) & (box < 38)).mean())      # 배경과 애매하게 다른 픽셀 비율
+    solidity = float(mask[y0:y1, x0:x1].mean())
+    ok = ambiguous < 0.12 and solidity > 0.25
+    return {"ok": ok, "ambiguous": round(ambiguous, 3), "solidity": round(solidity, 3),
+            "reason": "" if ok else "low_contrast_product"}
+
+
+def cutout(img: Image.Image, feather: float = 2.0) -> Image.Image | None:
+    """단색 배경 제품 사진이면 배경을 투명하게 (RGBA). 복잡한 배경/신뢰 불가면 None."""
+    from PIL import ImageDraw
+
+    if not cutout_reliability(img)["ok"]:
+        return None
+    mask, kind = product_mask(img, size=512)
+    if kind != "plain" or mask.mean() < 0.02 or mask.mean() > 0.9:
+        return None
+    small = Image.fromarray((mask * 255).astype(np.uint8))
+    small = small.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MinFilter(5))
+    # 테두리에서 이어진 배경만 배경으로 본다 -> 제품 안쪽의 배경색 비슷한 부분(구멍)은 채워짐
+    w, h = small.size
+    for x, y in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (w // 2, 0), (w // 2, h - 1), (0, h // 2), (w - 1, h // 2)]:
+        if small.getpixel((x, y)) == 0:
+            ImageDraw.floodfill(small, (x, y), 128)
+    arr = np.asarray(small)
+    filled = np.where(arr == 128, 0, 255).astype(np.uint8)
+    m = Image.fromarray(filled).resize(img.size, Image.BILINEAR).filter(ImageFilter.GaussianBlur(feather))
+    out = img.convert("RGBA")
+    out.putalpha(m)
+    return out

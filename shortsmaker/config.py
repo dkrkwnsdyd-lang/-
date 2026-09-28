@@ -25,7 +25,22 @@ ENV_OVERRIDES = {
 }
 
 
+def load_dotenv(path: str | os.PathLike = ".env") -> None:
+    """.env 파일의 KEY=VALUE 를 환경변수로 (이미 설정된 값은 유지)."""
+    p = Path(path)
+    if not p.exists():
+        return
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        if v.strip() and k.strip() not in os.environ:
+            os.environ[k.strip()] = v.strip().strip('"').strip("'")
+
+
 def load_config(path: str | os.PathLike | None = None) -> dict[str, Any]:
+    load_dotenv()
     cfg_path = Path(path) if path else Path(os.environ.get("SHORTSMAKER_CONFIG", DEFAULT_CONFIG_PATH))
     cfg: dict[str, Any] = {}
     if cfg_path.exists():

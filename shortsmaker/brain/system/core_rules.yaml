@@ -1,0 +1,18 @@
+# SYSTEM RULES - 사람이 관리하는 고정 규칙. 자동 학습으로 바뀌지 않는다.
+principles:
+  - "제품 정확성 > 영상 화려함"
+  - "렌더 성공 != 완료. 품질 기준 통과 = 완료"
+  - "근거 없는 판매량/후기수/1위/효능/인증/특허/수치를 만들지 않는다"
+  - "광고 설명문이 아니라 사람이 말하듯 짧게"
+  - "참고 영상은 구조만 쓰고 문장/화면을 복제하지 않는다"
+duration_rules:            # 쇼츠 길이 자동 결정 (초)
+  simple: [12, 15]
+  standard: [18, 25]
+  story: [25, 35]
+  max_without_reason: 35
+modes:
+  FAST: {duration: [15, 20], angles: 1, scenes: [4, 5], takes: 1, qa: basic}
+  PRO:  {duration: [18, 35], angles: [4, 8], scenes: [5, 8], takes: {hook: 3, demo: 2, other: 1}, qa: full}
+retry:
+  MAX_SCENE_RETRY: 2
+  MAX_FINAL_RETRY: 2

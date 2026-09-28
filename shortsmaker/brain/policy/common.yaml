@@ -1,0 +1,16 @@
+# 플랫폼 공통 위험 카테고리 키워드 (단순 키워드 매칭은 1차 신호일 뿐, 판정은 카테고리 + 문맥으로)
+categories:
+  illegal_drugs:     {keywords: [마약, 대마, 필로폰, cannabis, weed], risk: RED}
+  nicotine_tobacco:  {keywords: [전자담배, 담배, 니코틴, 액상, vape, 궐련], risk: RED}
+  weapons:           {keywords: [총기, 권총, 소총, 탄약, 실탄, 폭발물, 화약, 석궁, 전기충격기, 가스총, 도검], risk: RED}
+  gambling:          {keywords: [도박, 카지노, 토토, 베팅, 슬롯], risk: RED}
+  counterfeit:       {keywords: [레플리카, 이미테이션, 짝퉁, "st 제품", 미러급], risk: RED}
+  illegal_medicine:  {keywords: [전문의약품, 비아그라, 발기부전, 처방없이, 스테로이드], risk: RED}
+  adult:             {keywords: [성인용품, 성인 용품], risk: YELLOW}
+  spyware_hacking:   {keywords: [몰래카메라, 도청, 해킹툴, 위치추적 몰래, 스파이앱], risk: RED}
+  financial_scam:    {keywords: [원금보장, 확정수익, 리딩방, 코인 리딩], risk: RED}
+  alcohol:           {keywords: [소주, 맥주, 와인, 위스키, 전통주, 주류], risk: YELLOW}
+  health_supplement: {keywords: [건강기능식품, 영양제, 유산균, 다이어트, 보조제], risk: YELLOW}
+  medical_device:    {keywords: [의료기기, 혈압계, 혈당, 저주파, 마사지건, 안마기, 체온계], risk: YELLOW}
+  cosmetics:         {keywords: [화장품, 세럼, 크림, 앰플, 탈모 샴푸, 선크림], risk: YELLOW}
+  general_goods:     {keywords: [], risk: GREEN}

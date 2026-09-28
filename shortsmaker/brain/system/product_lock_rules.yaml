@@ -1,0 +1,4 @@
+check: [color, logo, control_position, shape, proportions, distinctive_features]
+min_product_lock_score: 90
+image_motion_is_lossless: true   # 원본 사진을 움직이는 방식은 제품 형태가 바뀌지 않는다
+reject_generated_angle_if_below: 90

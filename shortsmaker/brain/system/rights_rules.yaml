@@ -1,0 +1,6 @@
+statuses: [OWNED, SELLER_PROVIDED, LICENSED, STOCK_LICENSED, REFERENCE_ONLY, UNKNOWN]
+usable_in_render: [OWNED, SELLER_PROVIDED, LICENSED, STOCK_LICENSED]
+warn_in_render: [UNKNOWN]
+never_in_render: [REFERENCE_ONLY]
+default_for_other_creator_video: REFERENCE_ONLY
+disallowed_automation: ["자막 제거 후 재업로드", "크롭/미러/속도변경만 한 재업로드"]

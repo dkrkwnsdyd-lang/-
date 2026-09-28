@@ -1,0 +1,11 @@
+shots:
+  punch_in:     {camera_type: digital, shot_size: close-up, motion: fast punch zoom, energy: high}
+  macro:        {camera_type: macro, shot_size: extreme close-up, motion: slow drift, energy: mid}
+  whip_reveal:  {camera_type: handheld, shot_size: medium, motion: whip pan in, energy: high}
+  hero_push:    {camera_type: studio, shot_size: medium, motion: slow dolly-in, energy: mid}
+  detail_pan:   {camera_type: slider, shot_size: close-up, motion: lateral slide, energy: mid}
+  parallax:     {camera_type: slider, shot_size: medium, motion: parallax, energy: low}
+  light_sweep:  {camera_type: studio, shot_size: medium, motion: light sweep, energy: low}
+  rack_focus:   {camera_type: studio, shot_size: medium, motion: rack focus, energy: mid}
+  problem_card: {camera_type: none, shot_size: full, motion: slow push, energy: mid}
+  cta_card:     {camera_type: studio, shot_size: medium, motion: settle, energy: low}

@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SHOP SHORTS AI</title>
+<style>
+  :root { --bg:#f4f4f6; --card:#fff; --text:#18181b; --muted:#6b6b76; --line:#e4e4ea; --accent:#ff2d55;
+          --ok:#16a34a; --warn:#d97706; --bad:#dc2626; --unk:#6b7280; --bar:#ececf1; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f0f12; --card:#1a1a1f; --text:#f2f2f5; --muted:#a1a1aa; --line:#2c2c33; --bar:#2a2a31; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif; }
+  header { max-width:1120px; margin:auto; padding:22px 16px 6px; display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:22px; letter-spacing:-.3px; }
+  header nav a { color:var(--muted); font-size:14px; margin-left:12px; text-decoration:none; }
+  main { max-width:1120px; margin:auto; padding:12px 16px 40px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px; margin-bottom:16px; }
+  .card h2 { margin:0 0 12px; font-size:15px; }
+  #drop { border:2px dashed var(--line); border-radius:14px; padding:26px 12px; text-align:center; color:var(--muted); cursor:pointer; }
+  #drop.over { border-color:var(--accent); color:var(--accent); }
+  #thumbs { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  #thumbs div { position:relative; }
+  #thumbs img { width:72px; height:72px; object-fit:cover; border-radius:8px; display:block; }
+  #thumbs button { position:absolute; top:-6px; right:-6px; border-radius:50%; width:22px; height:22px; padding:0; font-size:12px; }
+  input[type=text], input[type=url], textarea, select { width:100%; padding:10px 11px; border:1px solid var(--line); border-radius:10px; background:transparent; color:var(--text); font:inherit; }
+  label.f { display:block; font-size:13px; color:var(--muted); margin:12px 0 5px; }
+  .or { text-align:center; color:var(--muted); font-size:13px; margin:10px 0; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media (max-width:640px) { .row2 { grid-template-columns:1fr; } }
+  .seg { display:flex; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .seg label { flex:1; text-align:center; padding:11px; cursor:pointer; font-weight:600; }
+  .seg input { display:none; }
+  .seg input:checked + span { color:var(--accent); }
+  .seg label:has(input:checked) { background:color-mix(in srgb, var(--accent) 10%, transparent); }
+  .seg small { display:block; font-weight:400; color:var(--muted); font-size:12px; margin-top:2px; }
+  .plats { display:flex; gap:14px; flex-wrap:wrap; margin-top:4px; }
+  .plats label { display:flex; gap:6px; align-items:center; font-size:14px; }
+  details summary { cursor:pointer; color:var(--muted); font-size:14px; margin-top:14px; }
+  button { font:inherit; border:0; border-radius:10px; padding:10px 14px; cursor:pointer; background:var(--line); color:var(--text); }
+  button.primary { width:100%; background:var(--accent); color:#fff; font-weight:700; font-size:16px; padding:14px; margin-top:16px; }
+  button:disabled { opacity:.5; cursor:default; }
+  #progress { display:none; }
+  .steps { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .steps span { font-size:12px; padding:4px 8px; border-radius:999px; background:var(--bar); color:var(--muted); }
+  .steps span.SUCCESS { background:color-mix(in srgb, var(--ok) 18%, transparent); color:var(--ok); }
+  .steps span.RUNNING { background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent); }
+  .steps span.FAILED { background:color-mix(in srgb, var(--bad) 18%, transparent); color:var(--bad); }
+  .steps span.RETRY { background:color-mix(in srgb, var(--warn) 18%, transparent); color:var(--warn); }
+  #log { font-size:13px; color:var(--muted); margin-top:8px; white-space:pre-wrap; }
+  #result { display:none; }
+  .res { display:grid; grid-template-columns:320px 1fr; gap:16px; }
+  @media (max-width:800px) { .res { grid-template-columns:1fr; } }
+  video { width:100%; aspect-ratio:9/16; background:#000; border-radius:14px; }
+  .big { display:flex; align-items:baseline; gap:10px; }
+  .big b { font-size:44px; line-height:1; }
+  .status-pill { font-size:13px; padding:4px 10px; border-radius:999px; font-weight:600; }
+  .score { display:grid; grid-template-columns:110px 1fr 36px; align-items:center; gap:8px; margin:7px 0; font-size:14px; }
+  .score .track { height:8px; background:var(--bar); border-radius:99px; overflow:hidden; }
+  .score .fill { height:100%; border-radius:99px; }
+  .score em { font-style:normal; text-align:right; font-variant-numeric:tabular-nums; }
+  .safety { display:grid; grid-template-columns:1fr 1fr; gap:6px 16px; font-size:14px; }
+  .note { font-size:13px; color:var(--muted); margin:4px 0; }
+  .pf { border-top:1px solid var(--line); padding:12px 0; }
+  .pf:first-child { border-top:0; }
+  .pf pre { white-space:pre-wrap; font:inherit; font-size:13px; background:var(--bar); border-radius:10px; padding:10px; margin:8px 0; max-height:160px; overflow:auto; }
+  .pf .head { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+  a.btn { display:inline-block; padding:7px 12px; border-radius:9px; background:var(--line); color:var(--text); text-decoration:none; font-size:13px; }
+  img.sheet { width:100%; border-radius:12px; }
+  .warn { color:var(--warn); } .bad { color:var(--bad); } .ok { color:var(--ok); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛍️ SHOP SHORTS AI</h1>
+  <nav><a href="/control">API Control Center</a><a href="/classic">사진 슬라이드(구버전)</a></nav>
+</header>
+<main>
+  <section class="card" id="form">
+    <label class="f" for="url">상품 URL</label>
+    <input id="url" type="url" placeholder="https://… (공개 페이지의 상품명/대표 이미지를 읽어옵니다)">
+    <div class="or">또는</div>
+    <div id="drop">상품 사진을 끌어놓거나 클릭해서 선택 (여러 장 가능: 정면·옆·디테일·사용 장면)</div>
+    <input id="file" type="file" accept="image/*" multiple hidden>
+    <div id="thumbs"></div>
+
+    <details>
+      <summary>상품 정보 입력 (선택 · 입력할수록 대본이 좋아져요)</summary>
+      <div class="row2">
+        <div><label class="f" for="name">상품명</label><input id="name" type="text" placeholder="무선 미니 마사지건"></div>
+        <div><label class="f" for="category">카테고리 (안전 검사용)</label>
+          <select id="category"><option value="">선택 안 함 (UNKNOWN)</option>
+            <option>생활</option><option>주방</option><option>전자기기</option><option>뷰티</option><option>운동</option>
+            <option>패션</option><option>인테리어</option><option>반려동물</option><option>건강</option><option>식품</option><option>의료기기</option>
+          </select></div>
+      </div>
+      <label class="f" for="features">핵심 특징 (한 줄에 하나 · 사실만)</label>
+      <textarea id="features" rows="3" placeholder="4단계 강도 조절&#10;USB-C 충전"></textarea>
+      <label class="f" for="problem">해결하는 불편 (선택)</label>
+      <input id="problem" type="text" placeholder="운동 끝나면 어깨가 뭉쳐요">
+      <div class="row2">
+        <div><label class="f" for="affiliate">광고/제휴 여부</label>
+          <select id="affiliate"><option value="NONE">없음</option><option value="COUPANG_PARTNERS">쿠팡 파트너스</option>
+            <option value="NAVER_SHOPPING_CONNECT">네이버 쇼핑 커넥트</option><option value="BRAND_SPONSORSHIP">브랜드 협찬</option>
+            <option value="OTHER_AFFILIATE">기타 제휴</option></select></div>
+        <div><label class="f" for="rights">사진 권리</label>
+          <select id="rights"><option value="OWNED">직접 촬영</option><option value="SELLER_PROVIDED">판매자 제공</option>
+            <option value="LICENSED">라이선스 보유</option><option value="UNKNOWN">잘 모름</option></select></div>
+      </div>
+    </details>
+
+    <label class="f">제작 모드</label>
+    <div class="seg">
+      <label><input type="radio" name="mode" value="FAST"><span>FAST<small>15~20초 · 1 스토리 · 빠르게</small></span></label>
+      <label><input type="radio" name="mode" value="PRO" checked><span>PRO<small>멀티 테이크 · 베스트 선택 · 최종 QA</small></span></label>
+    </div>
+
+    <label class="f" for="ref">참고 영상 URL (선택 · 구조만 분석, 복제하지 않음)</label>
+    <input id="ref" type="url" placeholder="https://youtube.com/shorts/…">
+
+    <label class="f">게시할 플랫폼</label>
+    <div class="plats">
+      <label><input type="checkbox" value="youtube" checked> YouTube Shorts</label>
+      <label><input type="checkbox" value="instagram" checked> Instagram Reels</label>
+      <label><input type="checkbox" value="tiktok" checked> TikTok</label>
+      <label><input type="checkbox" value="threads" checked> Threads</label>
+    </div>
+    <button class="primary" id="go">쇼츠 제작</button>
+    <div id="err" class="note bad"></div>
+  </section>
+
+  <section class="card" id="progress">
+    <h2>제작 중… <span id="pmode" class="note"></span></h2>
+    <div class="steps" id="steps"></div>
+    <div id="log"></div>
+  </section>
+
+  <section id="result">
+    <div class="res">
+      <div class="card">
+        <video id="master" controls playsinline></video>
+        <p class="note">MASTER SHORT · <span id="dur"></span></p>
+        <a class="btn" id="masterDl" download>마스터 받기</a>
+      </div>
+      <div>
+        <div class="card">
+          <div class="big"><span>QUALITY SCORE</span><b id="overall">–</b><span id="statusPill" class="status-pill"></span></div>
+          <div id="scores"></div>
+          <div id="qaNotes"></div>
+        </div>
+        <div class="card">
+          <h2>PLATFORM SAFETY</h2>
+          <div class="safety" id="safety"></div>
+          <div id="safetyNotes"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card"><h2>플랫폼별 버전</h2><div id="platforms"></div></div>
+    <div class="card"><h2>스토리보드 (최종 컷)</h2><img class="sheet" id="sheet" alt="스토리보드"><div id="plan" class="note"></div></div>
+    <div class="card"><h2>제작 기록</h2><div id="details" class="note"></div></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const LABEL = { hook:"Hook", visual_quality:"Visual", product_consistency:"Product Lock", story:"Story", pacing:"Pacing",
+                caption:"Caption", audio:"Audio", ai_artifact:"AI Artifact", cta:"CTA" };
+const PF = { youtube:"YouTube", instagram:"Instagram", tiktok:"TikTok", threads:"Threads" };
+const ICON = { PASS:"🟢", PASS_WITH_WARNING:"🟡", REQUIRES_EDIT:"🟠", BLOCKED:"🔴", UNKNOWN:"⚪" };
+let files = [];
+
+function drawThumbs() {
+  $("thumbs").innerHTML = "";
+  files.forEach((f, i) => {
+    const d = document.createElement("div");
+    d.innerHTML = `<img alt=""><button title="삭제">✕</button>`;
+    d.querySelector("img").src = URL.createObjectURL(f);
+    d.querySelector("button").onclick = () => { files.splice(i, 1); drawThumbs(); };
+    $("thumbs").appendChild(d);
+  });
+}
+const drop = $("drop");
+drop.onclick = () => $("file").click();
+$("file").onchange = (e) => { files.push(...[...e.target.files].filter(f => f.type.startsWith("image/"))); e.target.value = ""; drawThumbs(); };
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); files.push(...[...e.dataTransfer.files].filter(f => f.type.startsWith("image/"))); drawThumbs(); };
+
+$("go").onclick = async () => {
+  $("err").textContent = "";
+  if (!files.length && !$("url").value.trim()) { $("err").textContent = "상품 URL 또는 사진을 넣어주세요."; return; }
+  const fd = new FormData();
+  files.forEach(f => fd.append("photos", f));
+  const v = (id) => $(id).value;
+  fd.append("url", v("url")); fd.append("name", v("name")); fd.append("features", v("features"));
+  fd.append("problem", v("problem")); fd.append("category", v("category")); fd.append("affiliate", v("affiliate"));
+  fd.append("photo_rights", v("rights")); fd.append("reference_url", v("ref"));
+  fd.append("mode", document.querySelector("input[name=mode]:checked").value);
+  fd.append("platforms", [...document.querySelectorAll(".plats input:checked")].map(i => i.value).join(","));
+  $("go").disabled = true;
+  try {
+    const res = await fetch("/api/v2/jobs", { method:"POST", body:fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "실패");
+    $("progress").style.display = "block";
+    $("result").style.display = "none";
+    poll(data.job_id);
+  } catch (e) { $("err").textContent = e.message; $("go").disabled = false; }
+};
+
+async function poll(id) {
+  const res = await fetch(`/api/v2/jobs/${id}`);
+  const d = await res.json();
+  $("pmode").textContent = d.mode || "";
+  $("steps").innerHTML = (d.steps || []).map(s => `<span class="${s.status}">${s.step}</span>`).join("");
+  $("log").textContent = (d.log || []).join("\n");
+  if (["RUNNING", "PENDING"].includes(d.status) || !d.result) { setTimeout(() => poll(id), 1500); return; }
+  $("go").disabled = false;
+  $("progress").style.display = "none";
+  showResult(d);
+}
+
+function color(v, th) { return v >= th ? "var(--ok)" : v >= th - 15 ? "var(--warn)" : "var(--bad)"; }
+
+function showResult(d) {
+  const r = d.result;
+  $("result").style.display = "block";
+  if (r.status === "FAILED") {
+    $("overall").textContent = "–";
+    $("statusPill").textContent = "실패"; $("statusPill").className = "status-pill bad";
+    $("scores").innerHTML = `<p class="bad">${r.error || "오류"}</p>`;
+    return;
+  }
+  $("master").src = r.master_url; $("masterDl").href = r.master_url;
+  $("dur").textContent = `${r.plan.story_pattern} · ${(r.qa.video.duration || 0).toFixed(1)}초 · 비용 $${(r.cost || 0).toFixed(3)}`;
+  const s = r.qa.scores;
+  $("overall").textContent = s.overall;
+  const pill = $("statusPill");
+  pill.textContent = r.status === "COMPLETE" ? "품질 통과" : "품질 미달";
+  pill.style.background = r.status === "COMPLETE" ? "color-mix(in srgb, var(--ok) 18%, transparent)" : "color-mix(in srgb, var(--bad) 18%, transparent)";
+  pill.style.color = r.status === "COMPLETE" ? "var(--ok)" : "var(--bad)";
+  const th = { hook:80, visual_quality:85, product_consistency:90, story:80, pacing:80, caption:80, audio:70, ai_artifact:85, cta:80 };
+  $("scores").innerHTML = Object.keys(LABEL).map(k =>
+    `<div class="score"><span>${LABEL[k]}</span><div class="track"><div class="fill" style="width:${s[k]}%;background:${color(s[k], th[k])}"></div></div><em>${s[k]}</em></div>`).join("");
+  $("qaNotes").innerHTML = Object.entries(r.qa.notes || {}).map(([k, v]) => `<p class="note">• ${LABEL[k] || k}: ${v.join(", ")}</p>`).join("")
+    + `<p class="note">측정 방식: ${r.qa.method}</p>`;
+  const c = r.compliance;
+  const disc = c.disclosure.required ? (c.disclosure.status === "PASS" ? "🟢" : "🟠") : "🟢";
+  const rights = { PASS:"🟢", PASS_WITH_WARNING:"🟡", BLOCKED:"🔴" }[c.rights.status] || "⚪";
+  const claims = { PASS:"🟢", UNVERIFIED:"🟡", HIGH_RISK:"🔴" }[c.claims_status] || "⚪";
+  $("safety").innerHTML = Object.entries(c.platforms).map(([p, v]) => `<div>${PF[p]} ${ICON[v.verdict]}</div>`).join("")
+    + `<div>Affiliate Disclosure ${disc}</div><div>Copyright ${rights}</div><div>Claims ${claims}</div><div>상품 위험도 ${c.product.risk}</div>`;
+  const reasons = [...new Set(Object.values(c.platforms).flatMap(v => v.reasons))];
+  $("safetyNotes").innerHTML = reasons.map(x => `<p class="note">• ${x}</p>`).join("");
+  $("platforms").innerHTML = Object.entries(r.exports).map(([p, e]) => {
+    const cp = r.copies[p] || {};
+    const text = p === "youtube" ? `제목: ${cp.title}\n\n${cp.description}` : (cp.caption || cp.post || "");
+    return `<div class="pf"><div class="head"><b>${PF[p]} ${ICON[e.verdict]}</b>
+      ${e.url ? `<span><a class="btn" href="${e.url}" download>MP4 받기</a> <button onclick="publish('${d.job_id}','${p}',this)">게시</button></span>` : `<span class="note">${e.reasons.join(", ")}</span>`}</div>
+      <pre>${text.replace(/</g, "&lt;")}</pre></div>`;
+  }).join("");
+  $("sheet").src = r.storyboard_url;
+  $("plan").innerHTML = `스토리: ${r.plan.story_pattern} · 훅: ${r.plan.hook_type} · 판매 각도: ${r.plan.best_angle} · 제품 공개 ${r.plan.reveal_at}s`;
+  $("details").innerHTML = (r.takes || []).map(t => `<p>${t.scene_id} · take ${t.takes.map(x => x.name + " " + x.total).join(" / ")} → ${t.reason}</p>`).join("")
+    + (r.qa_history || []).map(h => `<p>v${h.version}: overall ${h.scores.overall} ${h.failed.length ? "실패 " + h.failed.join(",") : "통과"} ${h.repair ? "→ 수정: " + h.repair.join("; ") : ""}</p>`).join("")
+    + Object.entries(r.routes || {}).slice(0, 1).map(([k, v]) => `<p>영상 라우팅: ${v.provider}/${v.model} — ${v.reason}</p>`).join("");
+}
+
+async function publish(job, pf, btn) {
+  if (!confirm(`${PF[pf]}에 게시할까요?`)) return;
+  btn.disabled = true;
+  const res = await fetch(`/api/v2/jobs/${job}/publish`, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ platforms:[pf] }) });
+  const data = await res.json();
+  const r = data[0] || {};
+  alert(r.ok ? `게시 완료: ${r.url || r.post_id}` : `게시 실패: ${r.error}`);
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>
