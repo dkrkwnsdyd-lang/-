@@ -114,8 +114,9 @@ def take_variants(scene, identity: ProductIdentity, n: int) -> list[dict]:
     variants = [base]
     alt_shots = [o for o in options if o != scene.shot] + [scene.shot]
     alt_sources = [p for p in photos if p != scene.reference_image] + [scene.reference_image]
+    fixed_src = scene.beat in ("cta", "benefit") and scene.reference_image   # 사용 장면 사진은 benefit 에 고정
     for i in range(1, n):
-        src = alt_sources[(i - 1) % len(alt_sources)] if scene.beat not in ("cta",) else scene.reference_image
+        src = fixed_src or alt_sources[(i - 1) % len(alt_sources)]
         pool = [x for x in alt_shots if x not in ZOOM_SHOTS or zoomable(identity, src)] or [scene.shot]
         variants.append({"shot": pool[(i - 1) % len(pool)],
                          "source": src,

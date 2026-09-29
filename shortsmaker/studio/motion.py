@@ -178,6 +178,10 @@ def _hero_parts(cache: PlateCache, path: str, scale: float, fg_ratio: float, cen
     src = cache.source(path)
     cut = cache.cutout(path)
     if cut is not None:
+        if path in cache.boxes:   # 사용자가 지정한 제품만 (예: 묶음 사진에서 대표 1개)
+            bx0, by0, bx1, by1 = cache.boxes[path]
+            cw, chh = cut.size
+            cut = cut.crop((int(bx0 * cw), int(by0 * chh), int(bx1 * cw), int(by1 * chh)))
         bbox = cut.getchannel("A").getbbox() or (0, 0, *cut.size)
         fg = cut.crop(bbox)
         colors = np.asarray(fg.convert("RGB").resize((32, 32))).reshape(-1, 3)

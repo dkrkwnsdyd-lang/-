@@ -102,7 +102,7 @@ def _repair(plan, qa: dict, identity=None) -> list[str]:
             actions.append(f"{sid} 반복 화면 -> {sc.shot} 를 {new} 로")
             sc.shot = new
             used.append(new)
-            if len(photos) > 1 and sc.reference_image in photos:
+            if len(photos) > 1 and sc.reference_image in photos and sc.beat != "benefit":
                 sc.reference_image = photos[(photos.index(sc.reference_image) + 1) % len(photos)]
     # 길이
     lo, hi = plan.target_duration

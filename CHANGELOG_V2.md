@@ -52,6 +52,8 @@
 
 - Added: 웹 스튜디오에서 사진을 눌러 제품 위치를 드래그로 지정 (`studio.html` boxes → `studio_api.create_job` → `product_boxes`). 이미지 끌어가기 때문에 드래그가 끊기던 버그 수정
 
+- 물티슈 실사진 반영: `product_short` 수량 토큰 제외, 확대 컷 최소 해상도(`MIN_ZOOM_SIDE=900`), benefit 은 사용 장면 사진 고정, 사용자 박스가 배경 제거 결과도 자름, 문제/근거 없을 때 자막(`rule_director`), '유아' 카테고리
+
 ### Known Issues
 - 외부 AI(LLM/TTS/영상 생성) 실호출 미검증 — 키 없음 + 샌드박스 네트워크 차단
 - 사람/손이 나오는 실제 사용 장면은 영상 생성 provider 연결 전까지 만들 수 없음 (현재는 원본 사진 모션)

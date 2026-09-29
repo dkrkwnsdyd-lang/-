@@ -12,7 +12,7 @@ from .product import ProductInput
 
 PLATFORMS = ("youtube", "instagram", "tiktok", "threads")
 CATEGORY_HINTS = {  # UI 카테고리 -> 정책 카테고리
-    "생활": "general_goods", "주방": "general_goods", "전자기기": "general_goods", "패션": "general_goods",
+    "생활": "general_goods", "유아": "general_goods", "육아": "general_goods", "주방": "general_goods", "전자기기": "general_goods", "패션": "general_goods",
     "반려동물": "general_goods", "문구": "general_goods", "인테리어": "general_goods",
     "뷰티": "cosmetics", "화장품": "cosmetics", "운동": "general_goods", "건강": "health_supplement",
     "식품": "health_supplement", "의료기기": "medical_device", "주류": "alcohol",

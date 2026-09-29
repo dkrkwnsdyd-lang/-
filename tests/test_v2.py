@@ -312,3 +312,31 @@ def test_product_region_keeps_portrait_aspect(tmp_path):
     c.boxes[str(img)] = (0.1, 0.4, 0.9, 0.7)      # 가로로 넓적한 제품 영역
     r = c.product_region(str(img), pad=0.04, aspect=0.78)
     assert abs(r.width / r.height - 0.78) < 0.02
+
+
+def test_product_short_skips_quantity_tokens():
+    from shortsmaker.studio.director import product_short
+    assert product_short("Comet Signature 베이비 물티슈 100매") == "물티슈"
+    assert product_short("비타민 세럼 30ml") == "세럼"
+    assert product_short("무선 미니 마사지건") == "마사지건"
+    assert product_short("") == "이 제품"
+
+
+def test_low_res_photo_is_not_zoomable(tmp_path):
+    from PIL import Image
+    from shortsmaker.studio.director import zoomable
+    small = tmp_path / "small.png"
+    Image.new("RGB", (590, 590), "white").save(small)
+    big = tmp_path / "big.png"
+    Image.new("RGB", (1600, 1600), "white").save(big)
+    p = ProductInput(name="물티슈", photos=[str(small), str(big)])
+    ident = build_identity(p, [analyze_photo(small), analyze_photo(big)], "P")
+    assert not zoomable(ident, str(small)) and zoomable(ident, str(big))
+
+
+def test_no_problem_means_no_dangling_then_and_no_invented_benefit():
+    p = ProductInput(name="Comet Signature 베이비 물티슈 100매", features=["100매 구성", "여닫는 캡 뚜껑"],
+                     category_hint="유아")
+    text = json.dumps(rule_director(p, "PRO"), ensure_ascii=False)
+    assert "그럴 땐" not in text and "쓰는 법" not in text and "간단" not in text
+    assert "바로 이 물티슈" in text

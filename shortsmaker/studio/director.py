@@ -113,8 +113,10 @@ class CreativePlan:
 # ---------------------------------------------------------------- 공통 유틸
 
 def product_short(name: str) -> str:
+    """상품명에서 부르기 좋은 짧은 이름 (끝의 수량/용량 표기는 제외: '… 물티슈 100매' -> '물티슈')."""
     words = [w for w in re.split(r"\s+", name.strip()) if w]
-    return words[-1] if words else "이 제품"
+    core = [w for w in words if not re.search(r"\d", w)] or words
+    return core[-1] if core else "이 제품"
 
 
 def clean_sentence(text: str) -> str:
@@ -223,8 +225,8 @@ def hook_candidates(p: ProductInput, story: str) -> list[dict]:
         out.append({"type": "test_challenge", "text": f"이 {short}, 진짜 되는지 보세요",
                     "caption": f"이 {short}\n[[진짜]] 될까?"})
     else:
-        out.append({"type": "discovery", "text": f"이 {short}, 아직 모르는 사람 많아요",
-                    "caption": f"이 {short}\n아직 [[모르세요]]?"})
+        out.append({"type": "discovery", "text": f"이 {short}, 아직 안 써보셨어요?",
+                    "caption": f"이 {short}\n아직 [[안 써봤다면]]?"})
     out += [
         {"type": "pov", "text": f"{feat} {short}, 직접 보여드릴게요" if feat else f"{short}, 직접 보여드릴게요",
          "caption": f"[[{feat or short}]]\n직접 보세요"},
@@ -283,18 +285,24 @@ def rule_director(p: ProductInput, mode: str) -> dict:
         tail = tail_phrase(prob)
         beats.append({"beat": "problem", "tts_line": f"매번 {prob}… 은근 스트레스죠",
                       "caption": f"매번 [[{tail}]]\n은근 스트레스"})
-    beats.append({"beat": "reveal", "tts_line": "그럴 땐 이거 하나면 돼요",
-                  "caption": f"그럴 땐 [[{short}]]"})
+    if p.problem:
+        beats.append({"beat": "reveal", "tts_line": "그럴 땐 이거 하나면 돼요", "caption": f"그럴 땐 [[{short}]]"})
+    else:   # 문제 제시가 없는데 '그럴 땐'은 성립하지 않음
+        beats.append({"beat": "reveal", "tts_line": f"바로 이 {short}예요", "caption": f"바로 이 [[{short}]]"})
     n_feat = 1 if mode == "FAST" else 3
     for i, (tts, cap) in enumerate(feats[:n_feat]):
         beats.append({"beat": "demo" if i == 0 else "detail", "tts_line": tts, "caption": cap})
     if mode != "FAST" or len(beats) < 4:
-        tts, cap = BENEFIT_LINES.get(best, BENEFIT_LINES["convenience"])
+        if angles[0]["evidence"]:
+            tts, cap = BENEFIT_LINES.get(best, BENEFIT_LINES["convenience"])
+        else:   # 근거 있는 장점이 없으면 효과를 주장하지 않고 실제 모습만 보여준다
+            tts, cap = "실제로 놓으면 이런 모습이에요", "실제 [[모습]]은 이렇게"
         beats.append({"beat": "benefit", "tts_line": tts, "caption": cap})
     beats.append({"beat": "cta", "tts_line": "자세한 정보는 링크에서 확인하세요", "caption": "정보는 [[링크]]에서"})
     return {"angles": angles, "best_angle": best, "story_pattern": story, "hook_candidates": hooks,
             "beats": beats, "tension": p.problem or "제품이 정말 되는지에 대한 궁금증",
-            "payoff": BENEFIT_LINES.get(best, BENEFIT_LINES["convenience"])[0]}
+            "payoff": BENEFIT_LINES.get(best, BENEFIT_LINES["convenience"])[0] if angles[0]["evidence"]
+            else "제품의 실제 모습을 보여준다"}
 
 
 # ---------------------------------------------------------------- LLM director
@@ -329,6 +337,7 @@ def llm_director(router, p: ProductInput, identity: ProductIdentity, mode: str) 
 # ---------------------------------------------------------------- SCENE DIRECTOR V2
 
 ZOOM_SHOTS = ("macro", "detail_pan")
+MIN_ZOOM_SIDE = 900
 SAFE_ALT = ["hero_push", "parallax", "light_sweep", "rack_focus"]
 
 
@@ -337,6 +346,8 @@ def zoomable(identity: ProductIdentity, path: str | None) -> bool:
     복잡한 배경 사진은 확대하면 배경(나무/사물)을 잡아서 제품이 아닌 곳을 보여준다."""
     for ph in identity.photos:
         if ph["path"] == path:
+            if min(ph["width"], ph["height"]) < MIN_ZOOM_SIDE:   # 저해상도 원본은 확대하면 뭉개진다
+                return False
             return ph["background"] == "plain" or bool(ph.get("focus"))
     return False
 
