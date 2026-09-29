@@ -199,6 +199,9 @@ def choose_story(p: ProductInput, mode: str) -> str:
     return "DISCOVERY"
 
 
+TESTABLE_KEYWORDS = ["강도", "충전", "배터리", "세척", "흡입", "보온", "보냉", "방수", "소음", "속도", "모드", "진동", "무선"]
+
+
 def hook_candidates(p: ProductInput, story: str) -> list[dict]:
     short = product_short(p.name)
     feat = clean_sentence(p.features[0]) if p.features else ""
@@ -214,9 +217,15 @@ def hook_candidates(p: ProductInput, story: str) -> list[dict]:
             {"type": "discovery", "text": f"{prob}, 저만 그런 거 아니죠?",
              "caption": f"{tail}\n[[나만]] 그래?"},
         ]
+    # '진짜 되는지'는 기능/성능을 시험할 수 있는 제품에만 (컵·바구니 같은 제품엔 어색함)
+    testable = any(k in p.text() for k in TESTABLE_KEYWORDS)
+    if testable:
+        out.append({"type": "test_challenge", "text": f"이 {short}, 진짜 되는지 보세요",
+                    "caption": f"이 {short}\n[[진짜]] 될까?"})
+    else:
+        out.append({"type": "discovery", "text": f"이 {short}, 아직 모르는 사람 많아요",
+                    "caption": f"이 {short}\n아직 [[모르세요]]?"})
     out += [
-        {"type": "test_challenge", "text": f"이 {short}, 진짜 되는지 보세요",
-         "caption": f"이 {short}\n[[진짜]] 될까?"},
         {"type": "pov", "text": f"{feat} {short}, 직접 보여드릴게요" if feat else f"{short}, 직접 보여드릴게요",
          "caption": f"[[{feat or short}]]\n직접 보세요"},
     ]

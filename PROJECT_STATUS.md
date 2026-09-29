@@ -51,7 +51,6 @@ TTS, Job Queue 등)은 **이 저장소와 접근 가능한 다른 저장소(`dkr
 
 ## Known Bugs
 - 합성 테스트 이미지의 바닥 그림자가 제품과 함께 잘려 나와 떠 있는 원반처럼 보일 수 있음(실사진에서 재확인 필요)
-- TEST 계열 훅("진짜 되는지 보세요")이 기능 없는 제품(컵 등)에 어색함
 - 로컬 QA 는 장면-자막 의미 일치(예: "USB-C 충전" 자막인데 포트가 안 보임)를 판단하지 못함
 - 문제(problem) 장면은 실제 불편 상황 영상이 없어 흐린 제품 + 자막으로 대체
 
@@ -73,7 +72,7 @@ Multi/Best Take → (TTS) → AI Editor → 렌더(body + CTA) → 믹스 → MA
 플랫폼 문구 → Compliance → 플랫폼별 CTA 렌더 + concat + LUFS export
 
 ## Last Successful Test
-2026-09-28 — pytest 44 passed, 실영상 배치 16개 (13 COMPLETE / 3 QUALITY_FAIL: FAST 2개 단조로움, 저해상도 실사진 1개) — TEST_RESULTS.md
+2026-09-28 — pytest 45 passed, 실영상 배치 16개 (13 COMPLETE / 3 QUALITY_FAIL: FAST 2개 단조로움, 저해상도 실사진 1개) — TEST_RESULTS.md
 
 ## Important Decisions
 - 기존 코드 재작성 없이 확장 (V1 화면은 `/classic` 로 유지)

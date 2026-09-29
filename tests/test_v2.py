@@ -274,3 +274,11 @@ def test_repair_targets_scene_and_respects_low_res(gun):
     # 다시 돌려도 macro 로 되돌아가지 않음
     _repair(plan, qa, identity)
     assert s3.shot not in ("macro", "detail_pan")
+
+
+def test_test_hook_only_for_testable_products():
+    from shortsmaker.studio.director import hook_candidates
+    cup = ProductInput(name="도자기 커피잔 세트", features=["손잡이가 넓은 머그"])
+    gun = ProductInput(name="무선 미니 마사지건", features=["4단계 강도 조절"])
+    assert "test_challenge" not in [h["type"] for h in hook_candidates(cup, "DISCOVERY")]
+    assert "test_challenge" in [h["type"] for h in hook_candidates(gun, "DISCOVERY")]

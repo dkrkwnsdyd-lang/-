@@ -45,6 +45,8 @@
 - PHOTO ONLY: 정보 없을 때 '궁금증→공개' 구조 (`director.mystery_director`), 디렉터 샷 힌트 우선
 - 훅 문장 끝부분 추출(`director.tail_phrase`), COMPARISON 오판정, Threads 문구 어색함
 
+- 훅: '진짜 되는지 보세요'는 시험 가능한 제품(강도/충전/세척 등)에만, 그 외는 discovery 훅 (`director.TESTABLE_KEYWORDS`)
+
 ### Known Issues
 - 외부 AI(LLM/TTS/영상 생성) 실호출 미검증 — 키 없음 + 샌드박스 네트워크 차단
 - 사람/손이 나오는 실제 사용 장면은 영상 생성 provider 연결 전까지 만들 수 없음 (현재는 원본 사진 모션)
