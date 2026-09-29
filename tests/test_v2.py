@@ -355,3 +355,11 @@ def test_platform_copy_hashtags_and_dedup():
     assert c["youtube"]["title"].count("물티슈") == 1
     assert c["threads"]["post"].count("100매") == 1
     assert all("쿠팡 파트너스" in (v.get("description") or v.get("caption") or v.get("post")) for v in c.values())
+
+
+def test_unknown_rights_message_is_actionable():
+    g = _gate(ProductInput(name="물티슈", category_hint="유아"), {"s": "x"},
+              assets=[{"path": "a.png", "rights": "UNKNOWN"}, {"path": "b.png", "rights": "UNKNOWN"}])
+    reasons = g["platforms"]["youtube"]["reasons"]
+    assert g["platforms"]["youtube"]["verdict"] == "PASS_WITH_WARNING"
+    assert any("2장" in r and "사진 권리" in r for r in reasons)

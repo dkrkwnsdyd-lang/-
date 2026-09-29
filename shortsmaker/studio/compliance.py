@@ -127,7 +127,9 @@ def platform_verdicts(risk: dict, claims: list[dict], health: list[str], disclos
                     reasons += health
                 if rights["status"] == "PASS_WITH_WARNING":
                     verdict = "PASS_WITH_WARNING"
-                    reasons.append("권리 불명 자산 포함")
+                    reasons.append(f"사진 {len(rights['unknown'])}장의 사용 권리 미확인 - 게시 전 확인 필요 "
+                                   "(마켓/쿠팡 상품 이미지는 판매자·플랫폼 이용약관에 따라 영상 제작·재게시가 제한될 수 있음. "
+                                   "직접 촬영, 판매자 제공, 라이선스 보유 중 하나로 확인되면 '사진 권리'를 바꿔서 다시 실행)")
         out[pf] = {"verdict": verdict, "reasons": reasons, "disclosure_hint": pol["disclosure_rules"]}
     return out
 

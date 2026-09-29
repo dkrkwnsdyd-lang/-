@@ -9,6 +9,10 @@
 - DO NOT REDO: 파이프라인/QA/Compliance 구조
 - AFTER THIS: 2번
 
+## 1-B. 쿠팡 이미지 권리 (사용자 확인 필요)
+- 사용자 사진은 쿠팡 상품 이미지. 게시 전 쿠팡 파트너스 약관(이미지 사용 조건) 확인 또는 판매자 허락/직접 촬영 사진 필요
+- 나중에: Coupang Partners API 로 상품 정보/이미지를 가져오는 정식 경로 연동 검토 (Seller API / Partners / 페이지 import 를 혼동하지 말 것)
+
 ## 2. LLM provider 연결 (OpenAI 또는 Gemini)
 - NEXT TASK: `.env` 에 키 입력 → `/control` Test All → `model_registry.yaml` 모델 ID 를 실제 목록과 대조해 수정, `last_verified` 기입
 - FILES TO OPEN: `shortsmaker/providers/model_registry.yaml`, `shortsmaker/providers/llm.py`, `shortsmaker/studio/director.py` (`llm_director`)
