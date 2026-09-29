@@ -340,3 +340,18 @@ def test_no_problem_means_no_dangling_then_and_no_invented_benefit():
     text = json.dumps(rule_director(p, "PRO"), ensure_ascii=False)
     assert "그럴 땐" not in text and "쓰는 법" not in text and "간단" not in text
     assert "바로 이 물티슈" in text
+
+
+def test_platform_copy_hashtags_and_dedup():
+    from shortsmaker.studio import adapter
+    p = ProductInput(name="Comet Signature 베이비 물티슈 100매", features=["100매 구성", "여닫는 캡 뚜껑"],
+                     category_hint="유아", affiliate="COUPANG_PARTNERS")
+
+    class Plan:
+        hook_candidates = [{"text": "이 물티슈, 아직 안 써보셨어요?"}]
+    c = adapter.platform_copy(Plan(), p)
+    assert "#100매" not in c["youtube"]["hashtags"] and "#여닫는" not in c["instagram"]["hashtags"]
+    assert "#Comet" in c["instagram"]["hashtags"]
+    assert c["youtube"]["title"].count("물티슈") == 1
+    assert c["threads"]["post"].count("100매") == 1
+    assert all("쿠팡 파트너스" in (v.get("description") or v.get("caption") or v.get("post")) for v in c.values())

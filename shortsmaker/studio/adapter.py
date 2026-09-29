@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -21,10 +22,11 @@ def profiles() -> dict:
 def _tags(p, profile: dict) -> list[str]:
     lo, hi = profile["hashtag_style"]["count"]
     base = list(profile["hashtag_style"].get("always", []))
-    cands = [product_short(p.name), p.category_hint] + [w for f in p.features[:3] for w in f.split()[:1]]
+    brand = next((w for w in p.name.split() if w.isascii() and w.isalpha() and len(w) > 2), "")
+    cands = [product_short(p.name), brand, p.category_hint]
     for c in cands:
         c = (c or "").replace(" ", "").strip("#")
-        if c and c not in base and len(c) <= 12:
+        if c and c not in base and len(c) <= 12 and not re.search(r"\d", c):
             base.append(c)
     return [f"#{t}" for t in base[:hi]] if hi else []
 
@@ -51,12 +53,13 @@ def platform_copy(plan, p, router=None) -> dict[str, dict]:
     short = product_short(p.name)
     bullet = "\n".join(f"· {f}" for f in feats)
     data = {
-        "youtube": {"title": f"{hook} | {short}",
+        "youtube": {"title": hook if short in hook else f"{hook} | {short}",
                     "description": f"{p.name}\n\n{bullet}\n\n{prof['youtube']['cta_text']}"},
         "instagram": {"caption": f"{hook}\n.\n{p.name}\n{bullet}\n.\n{prof['instagram']['cta_text']} 🛒"},
         "tiktok": {"caption": f"{short} 이거 봤어요? {feats[0] if feats else ''} {prof['tiktok']['cta_text']}".strip()},
         "threads": {"post": (f"{p.problem.rstrip('.?!')}… 저만 그런 거 아니죠? " if p.problem else f"{short} 찾는 분 있을까 해서요. ")
-                            + f"{p.name}{', ' + feats[0] if feats else ''}. {prof['threads']['cta_text']}"},
+                            + f"{p.name}{', ' + feats[0] if feats and not all(t in p.name for t in feats[0].split()[:1]) else ''}. "
+                            + prof['threads']['cta_text']},
     }
     return _finalize(data, disclosure, p, prof)
 
