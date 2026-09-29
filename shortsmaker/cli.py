@@ -84,6 +84,8 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--mode", default="PRO", choices=["FAST", "PRO"])
     st.add_argument("--platforms", default="youtube,instagram,tiktok,threads")
     st.add_argument("--bgm", default=None, help="배경음악 (권리 보유 음원만)")
+    st.add_argument("--box", action="append", default=[], metavar="파일명=x0,y0,x1,y1",
+                    help="복잡한 배경 사진의 제품 위치(0~1). 예: 정면.jpg=0.14,0.33,0.94,0.75 (확대 컷 허용)")
 
     sub.add_parser("api-status", help="API Control Center (키/모델/상태, 무료 확인만)")
     sub.add_parser("db-rollback", help="마지막 DB 마이그레이션 되돌리기")
@@ -137,7 +139,8 @@ def _studio(args) -> int:
     from .studio.pipeline import run_job
     inputs = {"photos": args.photos, "url": args.url, "name": args.name, "features": args.features,
               "problem": args.problem, "category_hint": args.category, "affiliate": args.affiliate,
-              "photo_rights": args.rights, "reference_url": args.reference, "bgm_path": args.bgm}
+              "photo_rights": args.rights, "reference_url": args.reference, "bgm_path": args.bgm,
+              "product_boxes": {k: [float(x) for x in v.split(",")] for k, v in (b.split("=", 1) for b in args.box)}}
     r = run_job(inputs, args.mode, _split(args.platforms, ","), out_root="output/v2",
                 progress_cb=lambda m: print("  ·", m, flush=True))
     if r["status"] == "FAILED":

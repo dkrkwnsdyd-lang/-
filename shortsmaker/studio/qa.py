@@ -16,6 +16,7 @@ from PIL import Image, ImageOps
 
 from .. import brain
 from ..video import ffmpeg_exe
+from .director import ZOOM_SHOTS, zoomable
 from .product import ProductIdentity, sharpness_of
 
 # ------------------------------------------------------------------ frame metrics
@@ -72,6 +73,9 @@ def storyboard_qa(scenes, identity: ProductIdentity) -> list[dict]:
         if ph["sharpness"] < q["min_sharpness"]:
             issues.append(f"흐림 (sharpness {ph['sharpness']})")
             scores["commercial_quality"] -= 15
+        if s.shot in ZOOM_SHOTS and not zoomable(identity, ref):
+            issues.append("복잡한 배경 사진 - 제품 위치를 알 수 없어 확대 컷은 배경을 잡음 -> 히어로 계열로 교체")
+            fixes["shot"] = "hero_push" if s.beat != "hook" else "punch_in"
         # 매크로는 원본에서 잘라 쓰므로 고해상도가 필요
         if s.shot in ("macro", "detail_pan") and short < 1000:
             issues.append("매크로 샷에 원본 해상도 부족 -> 히어로 샷으로 교체")
@@ -111,8 +115,10 @@ def take_variants(scene, identity: ProductIdentity, n: int) -> list[dict]:
     alt_shots = [o for o in options if o != scene.shot] + [scene.shot]
     alt_sources = [p for p in photos if p != scene.reference_image] + [scene.reference_image]
     for i in range(1, n):
-        variants.append({"shot": alt_shots[(i - 1) % len(alt_shots)],
-                         "source": alt_sources[(i - 1) % len(alt_sources)] if scene.beat not in ("cta",) else scene.reference_image,
+        src = alt_sources[(i - 1) % len(alt_sources)] if scene.beat not in ("cta",) else scene.reference_image
+        pool = [x for x in alt_shots if x not in ZOOM_SHOTS or zoomable(identity, src)] or [scene.shot]
+        variants.append({"shot": pool[(i - 1) % len(pool)],
+                         "source": src,
                          "zoom": (1.0, 1.12) if i % 2 else (1.06, 1.0), "pan": (-1.0 if i % 2 else 1.0, 0.0)})
     return variants[:n]
 

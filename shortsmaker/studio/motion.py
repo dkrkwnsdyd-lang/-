@@ -15,7 +15,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 from .. import brain
 from ..video import ffmpeg_exe
@@ -88,6 +88,7 @@ class Shot:
 
 class PlateCache:
     def __init__(self):
+        self.boxes: dict[str, tuple[float, float, float, float]] = {}   # 제품 위치를 아는 사진만
         self.src: dict[str, Image.Image] = {}
         self.cut: dict[str, Image.Image | None] = {}
         self.plates: dict[tuple, Image.Image] = {}
@@ -97,6 +98,30 @@ class PlateCache:
             with Image.open(path) as im:
                 self.src[path] = ImageOps.exif_transpose(im).convert("RGB")
         return self.src[path]
+
+    def product_region(self, path: str, pad: float = 0.05, aspect: float | None = None) -> Image.Image | None:
+        """제품 위치를 알면 제품 주변만 잘라낸 이미지 (원본 해상도).
+        aspect(가로/세로)를 주면 제품 중심으로 그 비율까지 주변을 넓혀서 세로 화면에 어울리게 한다."""
+        box = self.boxes.get(path)
+        if not box:
+            return None
+        src = self.source(path)
+        w, h = src.size
+        x0, y0, x1, y1 = box
+        if aspect:
+            bw, bh = (x1 - x0) * w * (1 + pad), (y1 - y0) * h * (1 + pad)
+            cw = max(bw, bh * aspect)
+            ch = cw / aspect
+            if cw > w:
+                cw, ch = w, w / aspect
+            if ch > h:
+                ch, cw = h, h * aspect
+            cx, cy = (x0 + x1) / 2 * w, (y0 + y1) / 2 * h
+            left = min(max(cx - cw / 2, 0), w - cw)
+            top = min(max(cy - ch / 2, 0), h - ch)
+            return src.crop((int(left), int(top), int(left + cw), int(top + ch)))
+        return src.crop((int(max(0, x0 - pad) * w), int(max(0, y0 - pad * 0.7) * h),
+                         int(min(1, x1 + pad) * w), int(min(1, y1 + pad * 0.7) * h)))
 
     def cutout(self, path: str) -> Image.Image | None:
         if path not in self.cut:
@@ -119,10 +144,11 @@ def studio_background(color_rgb: tuple[int, int, int], size: tuple[int, int]) ->
     return Image.fromarray(img.astype(np.uint8))
 
 
-def blurred_background(src: Image.Image, size: tuple[int, int], dark: float = 0.5) -> Image.Image:
+def blurred_background(src: Image.Image, size: tuple[int, int], dark: float = 0.62) -> Image.Image:
     small = ImageOps.fit(src, (size[0] // 8, size[1] // 8), Image.BILINEAR)
-    bg = small.filter(ImageFilter.GaussianBlur(6)).resize(size, Image.BILINEAR)
-    return Image.eval(bg, lambda v: int(v * dark + 12))
+    bg = small.filter(ImageFilter.GaussianBlur(4)).resize(size, Image.BILINEAR)
+    bg = ImageEnhance.Color(bg).enhance(1.15)
+    return Image.eval(bg, lambda v: int(v * dark + 10))
 
 
 def drop_shadow(alpha: Image.Image, blur: int = 30, opacity: int = 150) -> Image.Image:
@@ -159,11 +185,16 @@ def _hero_parts(cache: PlateCache, path: str, scale: float, fg_ratio: float, cen
         dom = tuple(int(c) for c in (colors[alpha].mean(axis=0) if alpha.any() else colors.mean(axis=0)))
         bg = studio_background(dom, (pw, ph))
     else:
-        fg = src
+        fg = cache.product_region(path, pad=0.04, aspect=0.78) or src
         bg = blurred_background(src, (pw, ph))
     v = _vignette_cached(pw, ph)
     bg = Image.composite(bg, Image.new("RGB", bg.size, (0, 0, 0)), v)
-    fg_fit = ImageOps.contain(fg, (int(pw * fg_ratio), int(ph * 0.52)), Image.LANCZOS)
+    # 배경 제거를 못 쓰는 사진은 원본 카드를 크게 (제품이 화면에서 작아 보이지 않게)
+    box_h = 0.52 if cut is not None else 0.66
+    box_w = fg_ratio if cut is not None else max(fg_ratio, 0.92)
+    if cut is None:
+        center_y = min(center_y, 0.53)
+    fg_fit = ImageOps.contain(fg, (int(pw * box_w), int(ph * box_h)), Image.LANCZOS)
     if fg_fit.mode == "RGBA":
         a = fg_fit.getchannel("A")
         fg_rgb = fg_fit.convert("RGB")
@@ -223,10 +254,15 @@ def macro_plate(cache: PlateCache, path: str, focus: tuple[float, float] | None)
         return cache.plates[key]
     src = _studio_version(cache, path)
     sw, sh = src.size
+    if focus is None and path in cache.boxes:
+        x0, y0, x1, y1 = cache.boxes[path]
+        focus = ((x0 + x1) / 2, (y0 + y1) / 2)
     if focus is None:
         focus = detail_focus(cache.source(path))
     # 제품 폭의 약 45% 정도를 화면 폭으로
     crop_w = max(int(min(sw, sh * 9 / 16) * 0.55), 64)
+    if path in cache.boxes:   # 제품 폭에 맞춰 (제품이 화면 폭을 채우도록)
+        crop_w = max(64, min(int((cache.boxes[path][2] - cache.boxes[path][0]) * sw * 0.62), int(sh * 9 / 16)))
     crop_h = int(crop_w * 16 / 9)
     if crop_h > sh:
         crop_h = sh
@@ -266,6 +302,9 @@ def pan_plate(cache: PlateCache, path: str) -> Image.Image:
     mask, kind = product_mask(raw)
     src = _studio_version(cache, path)
     ys, xs = np.nonzero(mask)
+    region_box = cache.product_region(path, pad=0.03)
+    if region_box is not None:
+        kind = "boxed"
     sw, sh = src.size
     if kind == "plain" and len(xs):
         x0, x1 = np.percentile(xs, [2, 98]) / mask.shape[1] * sw
@@ -273,6 +312,8 @@ def pan_plate(cache: PlateCache, path: str) -> Image.Image:
         pad = 0.08
         region = src.crop((max(0, int(x0 - pad * sw)), max(0, int(y0 - pad * sh)),
                            min(sw, int(x1 + pad * sw)), min(sh, int(y1 + pad * sh))))
+    elif kind == "boxed":
+        region = region_box
     else:
         region = src
     target_h = int(H * 1.08)

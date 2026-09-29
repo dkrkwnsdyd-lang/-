@@ -282,3 +282,33 @@ def test_test_hook_only_for_testable_products():
     gun = ProductInput(name="무선 미니 마사지건", features=["4단계 강도 조절"])
     assert "test_challenge" not in [h["type"] for h in hook_candidates(cup, "DISCOVERY")]
     assert "test_challenge" in [h["type"] for h in hook_candidates(gun, "DISCOVERY")]
+
+
+def test_busy_background_blocks_zoom_unless_box_given(tmp_path):
+    """복잡한 배경 사진은 제품 위치를 모르므로 확대 컷 금지, 위치를 알려주면 허용."""
+    from PIL import Image
+    import numpy as np
+    from shortsmaker.studio.director import ZOOM_SHOTS, zoomable
+    rng = np.random.default_rng(0)
+    busy = tmp_path / "busy.jpg"
+    Image.fromarray(rng.integers(0, 255, (1200, 900, 3), dtype=np.uint8)).save(busy)
+    p = ProductInput(name="독서대", features=["투명 아크릴 판"], category_hint="생활", photos=[str(busy)])
+    a = analyze_photo(busy)
+    assert a.background == "busy" and a.focus is None
+    ident = build_identity(p, [a], "P")
+    assert not zoomable(ident, str(busy))
+    plan = direct_scenes(rule_director(p, "PRO"), ident, p, "PRO")
+    assert not any(s.shot in ZOOM_SHOTS for s in plan.scenes)
+    a.focus, a.product_box, a.box_source = [0.5, 0.5], (0.2, 0.3, 0.8, 0.7), "user"
+    assert zoomable(build_identity(p, [a], "P"), str(busy))
+
+
+def test_product_region_keeps_portrait_aspect(tmp_path):
+    from PIL import Image
+    from shortsmaker.studio.motion import PlateCache
+    img = tmp_path / "x.jpg"
+    Image.new("RGB", (3000, 4000), "gray").save(img)
+    c = PlateCache()
+    c.boxes[str(img)] = (0.1, 0.4, 0.9, 0.7)      # 가로로 넓적한 제품 영역
+    r = c.product_region(str(img), pad=0.04, aspect=0.78)
+    assert abs(r.width / r.height - 0.78) < 0.02

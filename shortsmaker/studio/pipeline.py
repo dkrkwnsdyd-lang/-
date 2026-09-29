@@ -19,7 +19,7 @@ from ..db import DB
 from ..providers import Router
 from . import adapter, compliance
 from .audio import build_mix
-from .director import BEAT_DURATION, direct_scenes, llm_director, rule_director
+from .director import BEAT_DURATION, direct_scenes, llm_director, rule_director, zoomable
 from .editor import edit, edl_summary, time_words
 from .motion import MotionRenderer, caption_font_path
 from .product import ProductInput, analyze_photo, build_identity, import_from_url
@@ -91,7 +91,8 @@ def _repair(plan, qa: dict, identity=None) -> list[str]:
             targets = [s.scene_id for s in plan.scenes if s.beat not in ("hook", "cta")][1::2]
         used = [s.shot for s in plan.scenes]
         # 저해상도 원본이면 확대 샷(macro/detail_pan)은 후보에서 제외 -> 수리 결과가 서로 되돌리지 않게
-        pool = [x for x in ALT_SHOTS if not (hints.get("low_res") and x in ("macro", "detail_pan"))]
+        no_zoom = hints.get("low_res") or (identity is not None and not any(zoomable(identity, ph) for ph in photos))
+        pool = [x for x in ALT_SHOTS if not (no_zoom and x in ("macro", "detail_pan"))]
         for sid in targets:
             sc = next((s for s in plan.scenes if s.scene_id == sid), None)
             if not sc or sc.beat == "cta":
@@ -200,6 +201,12 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 photos.append(str(dst))
                 db.add_asset(job_id, str(dst), "product_photo", p.photo_rights, ph)
             analyses = [analyze_photo(ph) for ph in photos]
+            for orig, a in zip(p.photos, analyses):
+                box = p.product_boxes.get(Path(orig).name)
+                if box and len(box) == 4 and 0 <= box[0] < box[2] <= 1 and 0 <= box[1] < box[3] <= 1:
+                    a.product_box = tuple(box)
+                    a.focus = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
+                    a.box_source = "user"
             identity = build_identity(p, analyses, product_id=f"P-{job_id}")
             if not p.name:
                 p.name = "이 제품"
@@ -225,6 +232,7 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
             result["plan"] = plan.to_dict()
 
         renderer = MotionRenderer(width=render[0], height=render[1], fps=render[2])
+        renderer.cache.boxes = {ph["path"]: tuple(ph["product_box"]) for ph in identity.photos if ph.get("focus")}
         # 4 STORYBOARD + VISUAL QA (+ scene retry) ------------------------------
         with job.step("STORYBOARD"):
             sb = storyboard_qa(plan.scenes, identity)
@@ -289,7 +297,8 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
             renderer.captions.last_scale = 1.0
             renderer.captions.cache.clear()
             with job.step("EDIT"):
-                edl = edit(plan, takes, voice, label=label)
+                edl = edit(plan, takes, voice, label=label,
+                           zoomable_paths={ph['path'] for ph in identity.photos if zoomable(identity, ph['path'])})
             with job.step("RENDER"):
                 body = [s for s in edl["shots"] if s.scene_id != plan.scenes[-1].scene_id]
                 cta = [s for s in edl["shots"] if s.scene_id == plan.scenes[-1].scene_id]

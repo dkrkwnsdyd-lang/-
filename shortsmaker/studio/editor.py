@@ -40,8 +40,13 @@ def time_words(caption: str, start: float, span: float, voice_span: float | None
     return words
 
 
+SAFE_SPLIT_ALT = {"hero_push": "parallax", "parallax": "light_sweep", "light_sweep": "hero_push",
+                  "punch_in": "hero_push", "whip_reveal": "hero_push", "rack_focus": "hero_push",
+                  "problem_card": "problem_card", "cta_card": "cta_card"}
+
+
 def edit(plan: CreativePlan, takes: dict[str, dict], voice: dict[str, tuple[float, str]] | None = None,
-         label: str = "", cta_text: str | None = None) -> dict:
+         label: str = "", cta_text: str | None = None, zoomable_paths: set[str] | None = None) -> dict:
     """plan + 선택된 take 파라미터 -> EDL (shots, sfx events, timing)."""
     rules = brain.system("quality_rules")
     pacing = rules["pacing"]
@@ -87,7 +92,11 @@ def edit(plan: CreativePlan, takes: dict[str, dict], voice: dict[str, tuple[floa
 
         offset = 0.0
         for pi, pdur in enumerate(parts):
-            st = shot_type if pi == 0 else SPLIT_ALT.get(shot_type, "macro")
+            st = shot_type
+            if pi > 0:
+                st = SPLIT_ALT.get(shot_type, "macro")
+                if zoomable_paths is not None and st in ("macro", "detail_pan") and source not in zoomable_paths:
+                    st = SAFE_SPLIT_ALT.get(shot_type, "hero_push")
             local_words = [CaptionWord(w.text, round(w.start - offset, 3) if w.start - offset > 0 else -1.0,
                                        w.emphasis, w.line) for w in words]
             punch = []

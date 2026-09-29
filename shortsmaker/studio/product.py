@@ -31,6 +31,8 @@ class ProductInput:
     affiliate: str = "NONE"           # NONE | COUPANG_PARTNERS | NAVER_SHOPPING_CONNECT | BRAND_SPONSORSHIP | OTHER_AFFILIATE
     category_hint: str = ""
     claim_sources: dict[str, str] = field(default_factory=dict)  # 주장 -> 근거(URL/문서)
+    # 복잡한 배경 사진의 제품 위치 (파일명 -> [x0,y0,x1,y1], 0~1). 사용자 지정 또는 Vision LLM 이 채운다.
+    product_boxes: dict[str, list[float]] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict) -> "ProductInput":
@@ -109,6 +111,8 @@ class PhotoAnalysis:
     size_hint: str = UNKNOWN
     usage_hint: str = UNKNOWN
     cutout: dict = field(default_factory=dict)   # 배경 제거 신뢰도 (PRODUCT LOCK)
+    focus: list[float] | None = None             # 제품 위치를 알 때만 (확대 컷 허용)
+    box_source: str = ""                         # user | vision | auto
     analyzer: str = "pixel_stats_v1"
 
 

@@ -45,6 +45,9 @@ TTS, Job Queue 등)은 **이 저장소와 접근 가능한 다른 저장소(`dkr
 - Supabase 이전 (현재 SQLite, SQL 호환 작성)
 - Remotion (현재 FFmpeg 파이프 렌더러로 충분)
 
+## 실사진 첫 테스트 (2026-09-29)
+투명 아크릴 독서대 사진 2장으로 FAST/PRO/PHOTO ONLY 실행. 점수가 품질을 과대평가한 문제를 발견해 수정. TEST_RESULTS.md 참고.
+
 ## Blocked
 - GitHub push: Claude GitHub App 쓰기 권한 403 (코드는 로컬 커밋 + 번들 파일로 전달)
 - 외부 API 실테스트: 키 없음 + 샌드박스 네트워크 정책
@@ -72,7 +75,7 @@ Multi/Best Take → (TTS) → AI Editor → 렌더(body + CTA) → 믹스 → MA
 플랫폼 문구 → Compliance → 플랫폼별 CTA 렌더 + concat + LUFS export
 
 ## Last Successful Test
-2026-09-28 — pytest 45 passed, 실영상 배치 16개 (13 COMPLETE / 3 QUALITY_FAIL: FAST 2개 단조로움, 저해상도 실사진 1개) — TEST_RESULTS.md
+2026-09-28 — pytest 47 passed, 실영상 배치 16개 (13 COMPLETE / 3 QUALITY_FAIL: FAST 2개 단조로움, 저해상도 실사진 1개) — TEST_RESULTS.md
 
 ## Important Decisions
 - 기존 코드 재작성 없이 확장 (V1 화면은 `/classic` 로 유지)

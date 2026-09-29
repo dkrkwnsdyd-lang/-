@@ -328,6 +328,30 @@ def llm_director(router, p: ProductInput, identity: ProductIdentity, mode: str) 
 
 # ---------------------------------------------------------------- SCENE DIRECTOR V2
 
+ZOOM_SHOTS = ("macro", "detail_pan")
+SAFE_ALT = ["hero_push", "parallax", "light_sweep", "rack_focus"]
+
+
+def zoomable(identity: ProductIdentity, path: str | None) -> bool:
+    """확대 컷은 제품 위치를 알 수 있을 때만: 단색 배경 사진(제품 영역 추정 가능)이거나 focus 지정.
+    복잡한 배경 사진은 확대하면 배경(나무/사물)을 잡아서 제품이 아닌 곳을 보여준다."""
+    for ph in identity.photos:
+        if ph["path"] == path:
+            return ph["background"] == "plain" or bool(ph.get("focus"))
+    return False
+
+
+def safe_shot(beat: str, prev: str | None, index: int) -> str:
+    pool = [x for x in SAFE_ALT if x != prev]
+    if beat == "hook":
+        return "punch_in" if prev != "punch_in" else pool[0]
+    if beat == "reveal":
+        return "whip_reveal" if prev != "whip_reveal" else pool[0]
+    if beat == "cta":
+        return "cta_card"
+    return pool[index % len(pool)]
+
+
 def _pick_shot(beat: str, prev: str | None, index: int) -> str:
     options = brain.system("scene_rules")["beat_to_shot"][beat]
     for i in range(len(options)):
@@ -373,9 +397,11 @@ def direct_scenes(plan_data: dict, identity: ProductIdentity, p: ProductInput, m
         hinted = b.get("shot")
         shot = hinted if hinted in brain.system("camera_patterns")["shots"] and hinted != prev_shot \
             else _pick_shot(beat, prev_shot, i)
+        ref = _ref_for(beat, shot, identity, i)
+        if shot in ZOOM_SHOTS and not zoomable(identity, ref):
+            shot = safe_shot(beat, prev_shot, i)
         prev_shot = shot
         cam = cams[shot]
-        ref = _ref_for(beat, shot, identity, i)
         takes_rule = brain.system("core_rules")["modes"][mode]["takes"]
         takes = takes_rule if isinstance(takes_rule, int) else takes_rule.get(beat, takes_rule["other"])
         scenes.append(Scene(

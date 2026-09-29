@@ -1,6 +1,7 @@
 # NEXT_TASKS
 
-## 1. 실제 상품 사진 5개로 재테스트 (최우선)
+## 1. 실제 상품 사진 재테스트 (진행 중: 1개 완료 — 투명 아크릴 독서대, 2026-09-29)
+- 완료: 독서대(생활). 남은 것: 주방/전자기기/뷰티/운동. 단색 배경 사진과 사용 장면 사진이 있는 상품이 특히 필요
 - NEXT TASK: 생활/주방/전자기기/뷰티/운동 실제 상품 사진(정면·옆·디테일·사용 장면, 긴 변 1500px 이상)으로 FAST/PRO/PHOTO ONLY 실행
 - FILES TO OPEN: `TEST_RESULTS.md`, `shortsmaker/studio/pipeline.py`, `shortsmaker/studio/qa.py`
 - CURRENT PROBLEM: 샌드박스에서 실제 상품 사진을 받을 수 없어 합성 제품 이미지로만 검증됨
