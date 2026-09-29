@@ -50,6 +50,8 @@
 - 실사진 테스트 반영: 복잡한 배경 사진은 확대 컷 금지(`director.zoomable`, `qa.storyboard_qa`, `editor` 분할 컷), 원본 카드 확대 + 제품 중심 3:4 크롭(`motion._hero_parts`, `PlateCache.product_region`), 배경 블러 개선
 - Added: 제품 위치 박스 `ProductInput.product_boxes` / CLI `--box` (Vision LLM 이 채울 자리)
 
+- Added: 웹 스튜디오에서 사진을 눌러 제품 위치를 드래그로 지정 (`studio.html` boxes → `studio_api.create_job` → `product_boxes`). 이미지 끌어가기 때문에 드래그가 끊기던 버그 수정
+
 ### Known Issues
 - 외부 AI(LLM/TTS/영상 생성) 실호출 미검증 — 키 없음 + 샌드박스 네트워크 차단
 - 사람/손이 나오는 실제 사용 장면은 영상 생성 provider 연결 전까지 만들 수 없음 (현재는 원본 사진 모션)

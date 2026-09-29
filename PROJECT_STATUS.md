@@ -75,7 +75,7 @@ Multi/Best Take → (TTS) → AI Editor → 렌더(body + CTA) → 믹스 → MA
 플랫폼 문구 → Compliance → 플랫폼별 CTA 렌더 + concat + LUFS export
 
 ## Last Successful Test
-2026-09-28 — pytest 47 passed, 실영상 배치 16개 (13 COMPLETE / 3 QUALITY_FAIL: FAST 2개 단조로움, 저해상도 실사진 1개) — TEST_RESULTS.md
+2026-09-28 — pytest 48 passed, 실영상 배치 16개 (13 COMPLETE / 3 QUALITY_FAIL: FAST 2개 단조로움, 저해상도 실사진 1개) — TEST_RESULTS.md
 
 ## Important Decisions
 - 기존 코드 재작성 없이 확장 (V1 화면은 `/classic` 로 유지)

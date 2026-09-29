@@ -41,3 +41,10 @@ def test_v2_pages_and_control_center(tmp_path):
     assert fb["ok"] and fb["trace"][0]["ok"] is False
     assert client.post("/api/v2/jobs", data={"mode": "PRO"}).status_code == 400
     assert client.get("/api/v2/jobs/nope").status_code == 404
+
+
+def test_v2_job_boxes_validation(photos, tmp_path):
+    client = TestClient(create_app({}, tmp_path / "out", tmp_path / "up"))
+    files = [("photos", (photos[0].name, photos[0].read_bytes(), "image/jpeg"))]
+    bad = client.post("/api/v2/jobs", files=files, data={"boxes": "not json"})
+    assert bad.status_code == 400

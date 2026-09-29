@@ -42,6 +42,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         problem: str = Form(""), target: str = Form(""), price: str = Form(""), category: str = Form(""),
         affiliate: str = Form("NONE"), photo_rights: str = Form("OWNED"), reference_url: str = Form(""),
         mode: str = Form("PRO"), platforms: str = Form("youtube,instagram,tiktok,threads"),
+        boxes: str = Form(""),
     ):
         job_id = uuid.uuid4().hex[:10]
         up = Path(upload_dir) / f"v2_{job_id}"
@@ -57,12 +58,25 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
             saved.append(str(dst))
         if not saved and not url.strip():
             raise HTTPException(400, "상품 URL 또는 상품 사진이 필요합니다.")
+        # boxes: {"사진 순번": [x0,y0,x1,y1]} (0~1) -> 저장된 파일명 기준으로 변환
+        product_boxes: dict[str, list[float]] = {}
+        try:
+            raw = json.loads(boxes) if boxes.strip() else {}
+        except ValueError:
+            raise HTTPException(400, "제품 영역(boxes) 형식이 올바르지 않습니다.")
+        for idx, box in raw.items():
+            try:
+                i, b = int(idx), [float(v) for v in box]
+            except (ValueError, TypeError):
+                raise HTTPException(400, "제품 영역(boxes) 형식이 올바르지 않습니다.")
+            if 0 <= i < len(saved) and len(b) == 4 and 0 <= b[0] < b[2] <= 1 and 0 <= b[1] < b[3] <= 1:
+                product_boxes[Path(saved[i]).name] = b
         mode = mode.upper() if mode.upper() in ("FAST", "PRO") else "PRO"
         pfs = [p for p in platforms.split(",") if p in PLATFORMS] or list(PLATFORMS)
         inputs = {"name": name.strip(), "description": description.strip(), "features": features,
                   "problem": problem.strip(), "target": target.strip(), "price": price.strip(), "url": url.strip(),
                   "photos": saved, "photo_rights": photo_rights, "reference_url": reference_url.strip(),
-                  "affiliate": affiliate, "category_hint": category}
+                  "affiliate": affiliate, "category_hint": category, "product_boxes": product_boxes}
         live[job_id] = []
 
         def work():
