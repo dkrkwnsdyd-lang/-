@@ -51,14 +51,36 @@ def platform_status(cfg: dict) -> list[dict]:
 
 
 def create_app(cfg: dict | None = None, output_dir: str | Path = "output",
-               upload_dir: str | Path = "uploads") -> FastAPI:
+               upload_dir: str | Path = "uploads", access_code: str | None = None) -> FastAPI:
     cfg = cfg or {}
     output_dir, upload_dir = Path(output_dir), Path(upload_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     app = FastAPI(title="Shorts Maker")
+    from .auth import install_auth
+    install_auth(app, access_code)      # 암호가 있으면 모든 화면/API/영상을 잠근다 (없으면 로컬 전용)
     app.mount("/outputs", StaticFiles(directory=output_dir), name="outputs")
+
+    # --- 앱 설치(PWA) 자산: 로그인 전에도 받을 수 있어야 함
+    @app.get("/manifest.webmanifest")
+    def manifest():
+        return FileResponse(STATIC / "manifest.webmanifest", media_type="application/manifest+json")
+
+    @app.get("/sw.js")
+    def service_worker():
+        return FileResponse(STATIC / "sw.js", media_type="application/javascript",
+                            headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"})
+
+    app.mount("/icons", StaticFiles(directory=STATIC / "icons"), name="icons")
+
+    @app.get("/favicon.ico")
+    def favicon():
+        return FileResponse(STATIC / "icons" / "icon-192.png", media_type="image/png")
+
+    @app.get("/healthz")
+    def healthz():
+        return {"ok": True, "auth": bool(getattr(app.state, "auth_enabled", False))}
 
     @app.get("/")
     def studio_page():

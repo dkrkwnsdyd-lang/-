@@ -1,0 +1,14 @@
+# 사용법:  cp .env.example .env   (키/암호 입력)   →   docker compose up -d --build
+# 접속:    http://내컴퓨터IP:8000   (폰에서 설치까지 하려면 HTTPS 필요 - MOBILE.md 참고)
+services:
+  shorts:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env            # SHORTSMAKER_ACCESS_CODE, GEMINI_API_KEY 등 (git 에 올리지 않는 파일)
+    volumes:
+      - ./output:/app/output
+      - ./data:/app/data
+      - ./uploads:/app/uploads

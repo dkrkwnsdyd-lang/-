@@ -13,6 +13,11 @@
 - 사용자 사진은 쿠팡 상품 이미지. 게시 전 쿠팡 파트너스 약관(이미지 사용 조건) 확인 또는 판매자 허락/직접 촬영 사진 필요
 - 나중에: Coupang Partners API 로 상품 정보/이미지를 가져오는 정식 경로 연동 검토 (Seller API / Partners / 페이지 import 를 혼동하지 말 것)
 
+## 2-M. 모바일/앱 다음 단계
+- 사용자: 서버를 실제로 띄워 폰(HTTPS)에서 설치·촬영·공유 확인 (MOBILE.md). 결과는 알려주면 수정
+- 나중에: Web Share Target(갤러리에서 바로 공유해 보내기), 푸시 알림(제작 완료), Capacitor 로 스토어 앱 포장(Android SDK/Apple 개발자 계정 필요), 작업 큐 영속화(재시작 시 진행 중 작업 복구)
+- DO NOT REDO: auth.py, PWA 자산, studio.html 모바일 레이아웃
+
 ## 2-0. Gemini 연결 완료 (2026-09-30) — 다음 단계
 - 완료: Vision 자동 박스/특징 연결/개인정보 감지, AI 대본 + 근거 검증, 플랫폼 문구 검증, Vision 최종 평가
 - NEXT: (a) TTS(ElevenLabs/OpenAI 키) (b) 더 좋은 조명의 사진으로 재테스트 — Vision 평가를 통과하는 영상이 나오는지 (c) 웹 화면에 grounding 결과·경고(개인정보) 표시 (d) 실제 청구 단가로 레지스트리 비용 보정

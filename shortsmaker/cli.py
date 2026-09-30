@@ -93,8 +93,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("db-rollback", help="마지막 DB 마이그레이션 되돌리기")
 
     web = sub.add_parser("web", help="웹 화면 실행")
-    web.add_argument("--host", default="127.0.0.1")
+    web.add_argument("--host", default="127.0.0.1", help="폰/다른 기기에서 쓰려면 0.0.0.0 (암호가 자동으로 필요해짐)")
     web.add_argument("--port", type=int, default=8000)
+    web.add_argument("--access-code", default=None, help="접근 암호 (또는 환경 변수 SHORTSMAKER_ACCESS_CODE). 로컬이 아니면 필수 - 없으면 자동 생성")
     return parser
 
 
@@ -198,8 +199,16 @@ def _run(args, cfg) -> int:
         print("rolled back:", DB("data/shorts.db").rollback())
         return 0
     if args.command == "web":
+        import os
         import uvicorn
         from .web.app import create_app
-        uvicorn.run(create_app(cfg), host=args.host, port=args.port)
+        from .web.auth import resolve_access_code
+        code, generated = resolve_access_code(args.host, args.access_code or os.environ.get("SHORTSMAKER_ACCESS_CODE"))
+        if generated:
+            print(f"\n  접근 암호(자동 생성): {code}\n  고정하려면 SHORTSMAKER_ACCESS_CODE 환경 변수 또는 --access-code 를 쓰세요.\n", flush=True)
+        elif code is None:
+            print("  로컬 전용(암호 없음): 이 컴퓨터에서만 접속됩니다.", flush=True)
+        uvicorn.run(create_app(cfg, access_code=code), host=args.host, port=args.port,
+                    proxy_headers=True, forwarded_allow_ips="*")
         return 0
     return 1

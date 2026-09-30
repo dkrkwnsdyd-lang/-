@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ff2d55">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<title>SHOP SHORTS AI</title>
+<style>
+  :root { --bg:#f4f4f6; --card:#fff; --text:#18181b; --muted:#6b6b76; --line:#e4e4ea; --accent:#ff2d55; --bad:#dc2626; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f0f12; --card:#1a1a1f; --text:#f2f2f5; --muted:#a1a1aa; --line:#2c2c33; } }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; min-height:100dvh; display:flex; align-items:center; justify-content:center; padding:16px;
+         background:var(--bg); color:var(--text); font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif; }
+  .card { width:100%; max-width:380px; background:var(--card); border:1px solid var(--line); border-radius:20px; padding:26px 22px; text-align:center; }
+  img { width:72px; height:72px; border-radius:16px; }
+  h1 { font-size:20px; margin:12px 0 4px; }
+  p { color:var(--muted); font-size:14px; margin:0 0 18px; }
+  input { width:100%; padding:14px; font-size:16px; border:1px solid var(--line); border-radius:12px; background:transparent; color:var(--text); text-align:center; }
+  button { width:100%; margin-top:12px; padding:14px; font-size:16px; font-weight:700; border:0; border-radius:12px; background:var(--accent); color:#fff; }
+  #err { min-height:20px; margin-top:10px; font-size:13px; color:var(--bad); }
+</style>
+</head>
+<body>
+<form class="card" id="f">
+  <img src="/icons/icon-192.png" alt="">
+  <h1>SHOP SHORTS AI</h1>
+  <p>접근 암호를 입력하세요</p>
+  <input id="code" type="password" autocomplete="current-password" autofocus placeholder="암호">
+  <button type="submit">들어가기</button>
+  <div id="err" role="alert"></div>
+</form>
+<script>
+document.getElementById("f").onsubmit = async (e) => {
+  e.preventDefault();
+  const err = document.getElementById("err"); err.textContent = "";
+  const body = new URLSearchParams({ code: document.getElementById("code").value });
+  try {
+    const res = await fetch("/login", { method: "POST", body });
+    const data = await res.json();
+    if (res.ok) location.href = "/"; else err.textContent = data.detail || "실패했어요";
+  } catch (_) { err.textContent = "서버에 연결할 수 없어요"; }
+};
+</script>
+</body>
+</html>

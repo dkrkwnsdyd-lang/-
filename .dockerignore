@@ -1,0 +1,14 @@
+.git
+__pycache__
+*.pyc
+.pytest_cache
+tests
+output
+uploads
+data
+.env
+config.yaml
+client_secret*.json
+youtube_token.json
+*.mp4
+*.md

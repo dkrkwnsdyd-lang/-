@@ -16,6 +16,8 @@ from ..providers import Router
 from ..sources import IMAGE_EXTS
 
 PLATFORMS = ("youtube", "instagram", "tiktok", "threads")
+MAX_PHOTOS = 12
+MAX_PHOTO_BYTES = 30 * 1024 * 1024
 
 
 class V2PublishRequest(BaseModel):
@@ -44,6 +46,8 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         mode: str = Form("PRO"), platforms: str = Form("youtube,instagram,tiktok,threads"),
         boxes: str = Form(""), feature_photos: str = Form(""),
     ):
+        if len(photos) > MAX_PHOTOS:
+            raise HTTPException(400, f"사진은 최대 {MAX_PHOTOS}장까지 올릴 수 있어요.")
         job_id = uuid.uuid4().hex[:10]
         up = Path(upload_dir) / f"v2_{job_id}"
         up.mkdir(parents=True, exist_ok=True)
@@ -55,6 +59,9 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
             dst = up / f"{i:02d}{suffix}"
             with open(dst, "wb") as out:
                 shutil.copyfileobj(f.file, out)
+            if dst.stat().st_size > MAX_PHOTO_BYTES:
+                shutil.rmtree(up, ignore_errors=True)
+                raise HTTPException(400, f"사진 한 장은 {MAX_PHOTO_BYTES // 1024 // 1024}MB 이하여야 해요: {f.filename}")
             saved.append(str(dst))
         if not saved and not url.strip():
             raise HTTPException(400, "상품 URL 또는 상품 사진이 필요합니다.")

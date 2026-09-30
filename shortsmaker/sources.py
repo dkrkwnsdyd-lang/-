@@ -7,7 +7,13 @@ from pathlib import Path
 
 import requests
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".heic", ".heif"}
+
+try:   # 아이폰 사진(HEIC) 지원 (설치돼 있을 때만)
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except Exception:   # pragma: no cover
+    pass
 
 _YT_ID = re.compile(
     r"(?:youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|embed/|live/)|youtu\.be/)([A-Za-z0-9_-]{11})"

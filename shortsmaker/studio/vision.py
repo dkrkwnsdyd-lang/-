@@ -49,7 +49,7 @@ def build_prompt(features: list[str], n: int) -> str:
         '"angle":"front|side|top|detail|usage|other","background":"plain|busy",'
         '"visible_text":["text printed on the product or its packaging"],'
         '"visible_features":["short factual phrases of what is visible"],'
-        '"private_info_visible":["e.g. map with street names, license plate, faces, addresses (empty if none)"]}],'
+        '"private_info_visible":["개인정보로 보이는 요소를 한국어 짧은 문구로 (예: 내비 지도의 도로명, 차량 번호판, 사람 얼굴, 주소). 없으면 빈 배열"]}],'
         '"brand_or_name_visible":"text visible on product or UNKNOWN",'
         '"category_guess":"one of: 생활, 주방, 전자기기, 뷰티, 운동, 유아, 패션, UNKNOWN",'
         '"feature_photo":{"<feature text exactly as provided>": photo index where that feature is best visible, or null}}'

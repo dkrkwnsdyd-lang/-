@@ -69,6 +69,9 @@
 - Added: 개인정보 사진은 박스 없으면 영상에서 제외, 박스가 있으면 타이트 크롭 (`PlateCache.tight`, pipeline)
 - Modified: Vision/판정 호출 temperature 0, 박스 누락 시 1회 재시도, 특징 연결 문장 겹침 매칭(`director._linked_photo`), Vision 최종 평가 점수 기준표 명시
 
+- Added (모바일/앱): PWA(`web/static/manifest.webmanifest`, `sw.js`, `icons/*`), 모바일 화면 개편(`studio.html`: 카메라 촬영, 앨범, 하단 고정 버튼, 공유 시트로 영상 공유, 문구 복사, 최근 작업, 새로고침해도 진행 중 작업 이어보기, 화면 꺼짐 방지, 설치 안내), 접근 암호(`web/auth.py`: 쿠키/Bearer, 로그인 5회/분 제한, 외부에 열면 암호 자동 생성), 아이폰 HEIC 지원, 업로드 제한(12장/30MB), `Dockerfile`/`docker-compose.yml`/`.dockerignore`, `MOBILE.md`
+- Modified: `shortsmaker web --host 0.0.0.0 --access-code`, `/healthz`, `/favicon.ico`
+
 ### Known Issues
 - 외부 AI(LLM/TTS/영상 생성) 실호출 미검증 — 키 없음 + 샌드박스 네트워크 차단
 - 사람/손이 나오는 실제 사용 장면은 영상 생성 provider 연결 전까지 만들 수 없음 (현재는 원본 사진 모션)

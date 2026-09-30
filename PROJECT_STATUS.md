@@ -60,6 +60,9 @@ M-Circle 상품명/특징(컬러 LED 링, 송풍구 클립 거치)과 쿠팡 파
 ## Gemini 연결 (2026-09-30)
 환경 자격 증명으로 연결·호출 성공. Vision 자동 채움/AI 대본/근거 검증/Vision 최종 평가까지 실호출 검증. 영상 1개 약 $0.014(추정 단가). AI 대본이 입력에 없는 주장을 지어내는 문제를 발견해 grounding 으로 차단. 남은 감점은 원본 사진 품질.
 
+## 모바일/앱 (2026-09-30)
+PWA(홈 화면 설치) + 모바일 화면 + 접근 암호 + Docker 배포 파일 완료. 스토어 앱(APK/iOS)은 미제작. 실제 폰/HTTPS 배포는 미검증(에뮬레이션과 깨끗한 가상환경 설치로만 검증). MOBILE.md 참고.
+
 ## Blocked
 - GitHub push: Claude GitHub App 쓰기 권한 403 (코드는 로컬 커밋 + 번들 파일로 전달)
 - 외부 API 실테스트: 키 없음 + 샌드박스 네트워크 정책
@@ -87,7 +90,7 @@ Multi/Best Take → (TTS) → AI Editor → 렌더(body + CTA) → 믹스 → MA
 플랫폼 문구 → Compliance → 플랫폼별 CTA 렌더 + concat + LUFS export
 
 ## Last Successful Test
-2026-09-28 — pytest 68 passed, 실영상 배치 16개 (13 COMPLETE / 3 QUALITY_FAIL: FAST 2개 단조로움, 저해상도 실사진 1개) — TEST_RESULTS.md
+2026-09-28 — pytest 74 passed, 실영상 배치 16개 (13 COMPLETE / 3 QUALITY_FAIL: FAST 2개 단조로움, 저해상도 실사진 1개) — TEST_RESULTS.md
 
 ## Important Decisions
 - 기존 코드 재작성 없이 확장 (V1 화면은 `/classic` 로 유지)
