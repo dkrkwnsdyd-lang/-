@@ -48,3 +48,10 @@ def test_v2_job_boxes_validation(photos, tmp_path):
     files = [("photos", (photos[0].name, photos[0].read_bytes(), "image/jpeg"))]
     bad = client.post("/api/v2/jobs", files=files, data={"boxes": "not json"})
     assert bad.status_code == 400
+
+
+def test_v2_job_feature_photos_validation(photos, tmp_path):
+    client = TestClient(create_app({}, tmp_path / "out", tmp_path / "up"))
+    files = [("photos", (p.name, p.read_bytes(), "image/jpeg")) for p in photos[:2]]
+    assert client.post("/api/v2/jobs", files=files, data={"feature_photos": "[1,2"}).status_code == 400
+    assert client.post("/api/v2/jobs", files=files, data={"feature_photos": "[1]"}).status_code == 400

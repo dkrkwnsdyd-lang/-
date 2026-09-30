@@ -106,6 +106,10 @@
       </div>
       <label class="f" for="features">핵심 특징 (한 줄에 하나 · 사실만)</label>
       <textarea id="features" rows="3" placeholder="4단계 강도 조절&#10;USB-C 충전"></textarea>
+      <div id="featureLink" style="display:none">
+        <label class="f">특징이 보이는 사진 연결 (선택 · 자막과 화면을 맞춰요)</label>
+        <div id="featureRows"></div>
+      </div>
       <label class="f" for="problem">해결하는 불편 (선택)</label>
       <input id="problem" type="text" placeholder="운동 끝나면 어깨가 뭉쳐요">
       <div class="row2">
@@ -185,7 +189,29 @@ let files = [];
 let boxes = new Map();   // File -> [x0,y0,x1,y1]
 let editing = null, drag = null;
 
+let featureSel = {};   // 특징 문장 -> 사진 순번
+function drawFeatureLinks() {
+  const feats = $("features").value.split(/\n/).map(x => x.trim()).filter(Boolean);
+  $("featureLink").style.display = feats.length && files.length > 1 ? "block" : "none";
+  $("featureRows").innerHTML = "";
+  feats.forEach((f) => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:8px;align-items:center;margin:6px 0";
+    const label = document.createElement("span");
+    label.style.cssText = "flex:1;font-size:14px";
+    label.textContent = f;
+    const sel = document.createElement("select");
+    sel.style.width = "130px";
+    sel.innerHTML = `<option value="">자동</option>` + files.map((_, i) => `<option value="${i}">사진 ${i + 1}</option>`).join("");
+    sel.value = featureSel[f] ?? "";
+    sel.onchange = () => { if (sel.value === "") delete featureSel[f]; else featureSel[f] = +sel.value; };
+    row.append(label, sel);
+    $("featureRows").appendChild(row);
+  });
+}
+
 function drawThumbs() {
+  drawFeatureLinks();
   $("thumbs").innerHTML = "";
   $("boxHint").style.display = files.length ? "block" : "none";
   files.forEach((f, i) => {
@@ -225,6 +251,7 @@ function openBox(f) {
   $("boxClose").onclick = () => { $("boxModal").style.display = "none"; };
 })();
 const drop = $("drop");
+$("features").addEventListener("input", drawFeatureLinks);
 drop.onclick = () => $("file").click();
 $("file").onchange = (e) => { files.push(...[...e.target.files].filter(f => f.type.startsWith("image/"))); e.target.value = ""; drawThumbs(); };
 drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
@@ -238,6 +265,8 @@ $("go").onclick = async () => {
   files.forEach(f => fd.append("photos", f));
   const bx = {}; files.forEach((f, i) => { if (boxes.has(f)) bx[i] = boxes.get(f); });
   fd.append("boxes", JSON.stringify(bx));
+  const feats = new Set($("features").value.split(/\n/).map(x => x.trim()).filter(Boolean));
+  fd.append("feature_photos", JSON.stringify(Object.fromEntries(Object.entries(featureSel).filter(([k, v]) => feats.has(k) && v < files.length))));
   const v = (id) => $(id).value;
   fd.append("url", v("url")); fd.append("name", v("name")); fd.append("features", v("features"));
   fd.append("problem", v("problem")); fd.append("category", v("category")); fd.append("affiliate", v("affiliate"));

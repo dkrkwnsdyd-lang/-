@@ -42,7 +42,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         problem: str = Form(""), target: str = Form(""), price: str = Form(""), category: str = Form(""),
         affiliate: str = Form("NONE"), photo_rights: str = Form("OWNED"), reference_url: str = Form(""),
         mode: str = Form("PRO"), platforms: str = Form("youtube,instagram,tiktok,threads"),
-        boxes: str = Form(""),
+        boxes: str = Form(""), feature_photos: str = Form(""),
     ):
         job_id = uuid.uuid4().hex[:10]
         up = Path(upload_dir) / f"v2_{job_id}"
@@ -71,12 +71,23 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
                 raise HTTPException(400, "제품 영역(boxes) 형식이 올바르지 않습니다.")
             if 0 <= i < len(saved) and len(b) == 4 and 0 <= b[0] < b[2] <= 1 and 0 <= b[1] < b[3] <= 1:
                 product_boxes[Path(saved[i]).name] = b
+        # feature_photos: {"특징 문장": 사진 순번} -> 저장된 파일명 기준으로 변환
+        linked: dict[str, str] = {}
+        try:
+            fp_raw = json.loads(feature_photos) if feature_photos.strip() else {}
+            for feat, idx in fp_raw.items():
+                i = int(idx)
+                if 0 <= i < len(saved):
+                    linked[str(feat)] = Path(saved[i]).name
+        except (ValueError, TypeError, AttributeError):
+            raise HTTPException(400, "특징-사진 연결(feature_photos) 형식이 올바르지 않습니다.")
         mode = mode.upper() if mode.upper() in ("FAST", "PRO") else "PRO"
         pfs = [p for p in platforms.split(",") if p in PLATFORMS] or list(PLATFORMS)
         inputs = {"name": name.strip(), "description": description.strip(), "features": features,
                   "problem": problem.strip(), "target": target.strip(), "price": price.strip(), "url": url.strip(),
                   "photos": saved, "photo_rights": photo_rights, "reference_url": reference_url.strip(),
-                  "affiliate": affiliate, "category_hint": category, "product_boxes": product_boxes}
+                  "affiliate": affiliate, "category_hint": category, "product_boxes": product_boxes,
+                  "feature_photos": linked}
         live[job_id] = []
 
         def work():
