@@ -79,6 +79,12 @@
 
 - Added (영상 클립 1단계): 직접 찍은 상품 영상 업로드(`videos`, 최대 4개/200MB, mp4·mov·m4v·webm·mkv·3gp). `studio/clips.py`: 3fps 분석(선명도/밝기/흔들림) → 컷 길이에 맞는 최적 구간 선택(겹침 방지), demo/benefit/detail/reveal 컷을 `video_clip` 으로 교체(최대 3컷, 컷 길이/자막/오디오 타이밍 유지), 세로는 꽉 채움·가로는 흐린 배경 위 배치, 원본 소리 미사용, 대표 프레임 Vision 개인정보 검사(걸리면 클립 제외, 검사 불가 시 경고). `motion.Shot.clip_start/clip_aspect`, `MotionRenderer._clip_frame/close_clips`, 화면 '🎬 영상 클립 추가'
 
+- Added (품질 개선 V2, 2026-09-30): **PHOTO ENHANCEMENT V2** `studio/enhance.py` - 품질 분석 12항목(해상도/선명도/블러/잡음/노출/화이트밸런스/대비/빛번짐/반사(휴리스틱)/배경 복잡도/제품 가시성/압축 블록) → A/B/C 등급 → WB(±7%, 중립 픽셀 충분할 때만) → 노출·하이라이트·그림자(휘도 곡선, 채도 불변) → 잡음 → 선명화 → 저대비 → 보수적 업스케일(최대 1.5배, C 제외) → 배경 라우터(결정 기록) → **제품 충실도 QA**(같은 위치 픽셀 색상각/채도, 엣지 상관, 비율 + Gemini Vision 원본 대조; 실패 시 full → safe → 원본 순 폴백). ORIGINAL(`src/`) / ENHANCED(`enhanced/`) / DERIVED(`derived/`) 분리, 원본 덮어쓰기 없음. C 등급은 확대 컷 금지, 좋은 사진이 2장 이상이면 제외. `ProductInput.enhance`, CLI `--no-enhance`
+- Modified: **FINAL QA V2** `qa.score_v2` - LOCAL TECHNICAL / VISION QUALITY / FINAL QUALITY 분리. 가중 평균 + 최약 핵심 항목 상한(+20) + Hard Gate(Visual<70→최대 74, AI Artifact<75→최대 79, Product Accuracy<85·Scene-Script<80→COMPLETE 금지, Visual·Commercial 모두 <70→QUALITY_FAIL). Vision 평가가 없으면 최대 79 + `NEEDS_REVIEW`(로컬 점수만으로 고품질 판정 안 함). FAST 도 Vision 1회 평가. 기준값은 `brain/system/quality_rules.yaml final_qa_v2`
+- Added: **Commercial Feel**(조명/구도/제품 연출/배경 정리/카메라 느낌/화면 다양성/실제 광고 느낌/아마추어 느낌/AI 느낌 9항목, 최저값 반영), **Scene-Script Match**(프레임별 자막·대사 대조), **Source/Visual/Semantic Diversity**(같은 사진의 확대·크롭은 새 장면으로 30%만 인정), 개선 필요 목록(`qa.improvements`)
+- Added: **12~15초 압축** `ProductInput.compact` / CLI `--compact` / 화면 체크박스 - 훅 1.2 → 공개 2.7 → 시연 3.6 → 혜택 3.3 → CTA 3.0, 역할당 1개 장면, 같은 사진 자동 분할 없음
+- Modified(UI): 최종/기술/Vision 점수 병기, 개선 필요 목록(가장 큰 원인부터), 발동한 게이트 표시, `NEEDS_REVIEW` 표시, 상품 위험도 `UNKNOWN` → '카테고리 정보 부족 · 수동 확인 필요'
+
 ### Known Issues
 - 외부 AI(LLM/TTS/영상 생성) 실호출 미검증 — 키 없음 + 샌드박스 네트워크 차단
 - 사람/손이 나오는 실제 사용 장면은 영상 생성 provider 연결 전까지 만들 수 없음 (현재는 원본 사진 모션)

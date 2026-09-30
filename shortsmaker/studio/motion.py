@@ -88,8 +88,26 @@ class Shot:
 
 # ------------------------------------------------------------------ plates
 
+def spotlight(img: Image.Image, box_rel: tuple[float, float, float, float], expand: float = 1.35, dim: float = 0.8) -> Image.Image:
+    """복잡한 배경 정리: 제품 박스(상대좌표) 바깥만 부드럽게 흐리고 어둡게. 제품 영역은 그대로 (PRODUCT ACCURACY 우선)."""
+    w, h = img.size
+    x0, y0, x1, y1 = box_rel
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    rx, ry = max((x1 - x0) / 2 * expand, 0.05), max((y1 - y0) / 2 * expand, 0.05)
+    sw_, sh_ = 96, max(16, int(96 * h / w))
+    yy, xx = np.mgrid[0:sh_, 0:sw_].astype(np.float32)
+    d = np.sqrt(((xx / sw_ - cx) / rx) ** 2 + ((yy / sh_ - cy) / ry) ** 2)
+    m = np.clip((d - 1.0) / 0.45, 0, 1)
+    mask = Image.fromarray((m * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(2)).resize((w, h), Image.BILINEAR)
+    bg = img.filter(ImageFilter.GaussianBlur(max(w, h) / 90)).point(lambda v: int(v * dim))
+    return Image.composite(bg, img, mask)
+
+
 class PlateCache:
+    spot: set = set()      # 배경이 복잡한 사진 경로 (pipeline 이 채움) -> 제품 주변만 남기고 배경을 정리
+
     def __init__(self):
+        self.spot = set()
         self.boxes: dict[str, tuple[float, float, float, float]] = {}   # 제품 위치를 아는 사진만
         self.tight: set[str] = set()      # 개인 정보가 찍힌 사진: 제품 박스 주변 밖은 절대 보이지 않게
         self.src: dict[str, Image.Image] = {}
@@ -122,7 +140,11 @@ class PlateCache:
             cx, cy = (x0 + x1) / 2 * w, (y0 + y1) / 2 * h
             left = min(max(cx - cw / 2, 0), w - cw)
             top = min(max(cy - ch / 2, 0), h - ch)
-            return src.crop((int(left), int(top), int(left + cw), int(top + ch)))
+            out = src.crop((int(left), int(top), int(left + cw), int(top + ch)))
+            if path in self.spot:
+                rel = ((x0 * w - left) / cw, (y0 * h - top) / ch, (x1 * w - left) / cw, (y1 * h - top) / ch)
+                out = spotlight(out, rel)
+            return out
         return src.crop((int(max(0, x0 - pad) * w), int(max(0, y0 - pad * 0.7) * h),
                          int(min(1, x1 + pad) * w), int(min(1, y1 + pad * 0.7) * h)))
 
@@ -147,11 +169,11 @@ def studio_background(color_rgb: tuple[int, int, int], size: tuple[int, int]) ->
     return Image.fromarray(img.astype(np.uint8))
 
 
-def blurred_background(src: Image.Image, size: tuple[int, int], dark: float = 0.62) -> Image.Image:
+def blurred_background(src: Image.Image, size: tuple[int, int], dark: float = 0.82) -> Image.Image:
     small = ImageOps.fit(src, (size[0] // 8, size[1] // 8), Image.BILINEAR)
     bg = small.filter(ImageFilter.GaussianBlur(4)).resize(size, Image.BILINEAR)
     bg = ImageEnhance.Color(bg).enhance(1.15)
-    return Image.eval(bg, lambda v: int(v * dark + 10))
+    return Image.eval(bg, lambda v: int(v * dark + 22))
 
 
 def drop_shadow(alpha: Image.Image, blur: int = 30, opacity: int = 150) -> Image.Image:
@@ -195,7 +217,7 @@ def _hero_parts(cache: PlateCache, path: str, scale: float, fg_ratio: float, cen
         fg = cache.product_region(path, pad=0.04, aspect=None if path in cache.tight else 0.78) or src
         bg = blurred_background(src, (pw, ph))
     v = _vignette_cached(pw, ph)
-    bg = Image.composite(bg, Image.new("RGB", bg.size, (0, 0, 0)), v)
+    bg = Image.composite(bg, Image.new("RGB", bg.size, (14, 14, 16)), v)
     # 배경 제거를 못 쓰는 사진은 원본 카드를 크게 (제품이 화면에서 작아 보이지 않게)
     box_h = 0.52 if cut is not None else 0.66
     box_w = fg_ratio if cut is not None else max(fg_ratio, 0.92)
@@ -270,15 +292,24 @@ def macro_plate(cache: PlateCache, path: str, focus: tuple[float, float] | None)
         focus = detail_focus(cache.source(path))
     # 제품 폭의 약 45% 정도를 화면 폭으로
     crop_w = max(int(min(sw, sh * 9 / 16) * 0.55), 64)
-    if path in cache.boxes:   # 제품 폭에 맞춰 (제품이 화면 폭을 채우도록)
-        crop_w = max(64, min(int((cache.boxes[path][2] - cache.boxes[path][0]) * sw * 0.62), int(sh * 9 / 16)))
+    if path in cache.boxes:   # 제품 전체가 화면 폭을 채우도록 (제품을 잘라내지 않는다: 폭 + 여백 12%)
+        bx0, by0, bx1, by1 = cache.boxes[path]
+        need_w = (bx1 - bx0) * sw * 1.25          # Vision 박스가 조금 좁아도 확대 컷에서 제품 가장자리가 잘리지 않게
+        need_h = (by1 - by0) * sh * 1.25
+        crop_w = max(64, int(max(need_w, need_h * 9 / 16)))
+        crop_w = min(crop_w, int(sh * 9 / 16), sw)
     crop_h = int(crop_w * 16 / 9)
     if crop_h > sh:
         crop_h = sh
         crop_w = int(crop_h * 9 / 16)
     cx = min(max(focus[0] * sw, crop_w / 2), sw - crop_w / 2)
     cy = min(max(focus[1] * sh, crop_h / 2), sh - crop_h / 2)
-    region = src.crop((int(cx - crop_w / 2), int(cy - crop_h / 2), int(cx + crop_w / 2), int(cy + crop_h / 2)))
+    left, top = int(cx - crop_w / 2), int(cy - crop_h / 2)
+    region = src.crop((left, top, int(cx + crop_w / 2), int(cy + crop_h / 2)))
+    if path in cache.spot and path in cache.boxes and path not in cache.tight:
+        bx0, by0, bx1, by1 = cache.boxes[path]
+        region = spotlight(region, ((bx0 * sw - left) / region.width, (by0 * sh - top) / region.height,
+                                    (bx1 * sw - left) / region.width, (by1 * sh - top) / region.height))
     out_w = int(W * 1.15)
     plate = region.resize((out_w, int(out_w * 16 / 9)), Image.LANCZOS)
     plate = plate.filter(ImageFilter.UnsharpMask(radius=2, percent=60, threshold=2))

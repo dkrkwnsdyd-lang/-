@@ -303,6 +303,10 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 result["reference"] = ref
 
         # 3 STORY / SCRIPT / SCENES -------------------------------------------
+        # 소스가 적으면(사진 2장 이하, 영상 없음) 억지로 늘리지 않고 12~15초 압축 구조로
+        if not getattr(p, "compact", False) and len(photos) <= 2 and not video_paths:
+            p.compact = True
+            result.setdefault("warnings", []).append("원본 사진이 2장 이하라 같은 사진을 반복하지 않도록 12~15초로 짧게 만들었어요")
         with job.step("SCRIPT"):
             data = llm_director(router, p, identity, mode, result.get("vision")) if router.has_real("llm") else rule_director(p, mode)
             if "_director" not in data:
@@ -313,6 +317,9 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
 
         renderer = MotionRenderer(width=render[0], height=render[1], fps=render[2])
         renderer.cache.boxes = {ph["path"]: tuple(ph["product_box"]) for ph in identity.photos if ph.get("focus")}
+        by_eff = {it["effective"]: it for it in (enh or {}).get("photos", [])}
+        renderer.cache.spot = {ph["path"] for ph in identity.photos if ph.get("focus")
+                               and by_eff.get(ph["path"], {}).get("metrics_after", {}).get("background_complexity", 0) > 0.35}
         renderer.cache.tight = set(tight_paths)   # 개인 정보가 있는 사진은 제품 주변만 (넓게 자르지 않음)
         # 4 STORYBOARD + VISUAL QA (+ scene retry) ------------------------------
         with job.step("STORYBOARD"):
