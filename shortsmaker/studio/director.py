@@ -31,7 +31,7 @@ ANGLE_KEYWORDS = {
     "time_saving": ["빠르", "초 만에", "분 만에", "시간", "단축", "금방", "순식간"],
     "convenience": ["간편", "쉽", "원터치", "버튼 하나", "자동", "세척", "무선", "충전"],
     "portability": ["작", "가벼", "휴대", "미니", "접이", "파우치", "손바닥"],
-    "design": ["디자인", "감성", "인테리어", "색상", "컬러", "예쁜", "깔끔"],
+    "design": ["디자인", "감성", "인테리어", "예쁜", "깔끔"],   # 색상/컬러는 사실이지 장점이 아님
     "pain_relief": ["불편", "뭉", "아프", "피로", "냄새", "얼룩", "먼지", "엉킴", "번거"],
     "gift": ["선물", "기념일", "집들이"],
     "upgrade": ["기존", "대신", "보다", "업그레이드"],
@@ -77,6 +77,7 @@ class Scene:
     start_frame: str = ""               # FIRST / END FRAME DIRECTOR
     end_frame: str = ""
     takes: int = 1
+    ref_locked: bool = False            # 사용자가 특징-사진을 연결한 장면: 사진을 바꾸지 않는다
     status: str = "PLANNED"
 
     def to_dict(self) -> dict:
@@ -291,7 +292,8 @@ def rule_director(p: ProductInput, mode: str) -> dict:
         beats.append({"beat": "reveal", "tts_line": f"바로 이 {short}예요", "caption": f"바로 이 [[{short}]]"})
     n_feat = 1 if mode == "FAST" else 3
     for i, (tts, cap) in enumerate(feats[:n_feat]):
-        beats.append({"beat": "demo" if i == 0 else "detail", "tts_line": tts, "caption": cap})
+        beats.append({"beat": "demo" if i == 0 else "detail", "tts_line": tts, "caption": cap,
+                      "feature": p.features[i] if i < len(p.features) else None})
     if mode != "FAST" or len(beats) < 4:
         if angles[0]["evidence"]:
             tts, cap = BENEFIT_LINES.get(best, BENEFIT_LINES["convenience"])
@@ -398,6 +400,7 @@ def direct_scenes(plan_data: dict, identity: ProductIdentity, p: ProductInput, m
         beats = beats[:max_scenes - 1] + [beats[-1]]
 
     scenes: list[Scene] = []
+    feature_photos = getattr(p, "feature_photos", {}) or {}   # pipeline 이 저장된 사진 경로로 변환해 둔 값
     prev_shot = None
     for i, b in enumerate(beats):
         beat = b["beat"]
@@ -409,6 +412,10 @@ def direct_scenes(plan_data: dict, identity: ProductIdentity, p: ProductInput, m
         shot = hinted if hinted in brain.system("camera_patterns")["shots"] and hinted != prev_shot \
             else _pick_shot(beat, prev_shot, i)
         ref = _ref_for(beat, shot, identity, i)
+        locked = False
+        linked = feature_photos.get(b.get("feature") or "")
+        if linked:
+            ref, locked = linked, True
         if shot in ZOOM_SHOTS and not zoomable(identity, ref):
             shot = safe_shot(beat, prev_shot, i)
         prev_shot = shot
@@ -434,7 +441,7 @@ def direct_scenes(plan_data: dict, identity: ProductIdentity, p: ProductInput, m
             negative_prompt=list(rules["default_negative"]),
             continuity_rules=["same product_id " + identity.product_id, "same color", "same logo",
                               "same button position", "same proportions"],
-            shot=shot, emphasis=emphasis_of(caption), takes=takes,
+            shot=shot, emphasis=emphasis_of(caption), takes=takes, ref_locked=locked,
             start_frame=f"{identity.name} {'held in frame' if beat != 'problem' else 'not visible'}",
             end_frame={"reveal": "product fully visible, centered", "demo": "feature clearly visible",
                        "cta": "product hero, centered"}.get(beat, "same framing, product unchanged"),

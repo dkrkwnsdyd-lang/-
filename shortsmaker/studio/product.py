@@ -33,6 +33,8 @@ class ProductInput:
     claim_sources: dict[str, str] = field(default_factory=dict)  # 주장 -> 근거(URL/문서)
     # 복잡한 배경 사진의 제품 위치 (파일명 -> [x0,y0,x1,y1], 0~1). 사용자 지정 또는 Vision LLM 이 채운다.
     product_boxes: dict[str, list[float]] = field(default_factory=dict)
+    # 특징 문장 -> 그 특징이 보이는 사진 파일명. 없으면 사진을 순서대로 돌려 쓰므로 자막과 화면이 어긋날 수 있다.
+    feature_photos: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict) -> "ProductInput":

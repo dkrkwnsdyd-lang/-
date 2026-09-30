@@ -56,6 +56,8 @@
 
 - 플랫폼 문구: 숫자/수식어 해시태그 제거 + 브랜드 태그, 유튜브 제목·쓰레드 본문 중복 제거 (`adapter._tags`, `platform_copy`)
 
+- 직접 촬영 사진 테스트 반영: 특징-사진 연결 `ProductInput.feature_photos` / CLI `--feature-photo` / `Scene.ref_locked`, 디자인 키워드에서 색상 제외(근거 없는 장점 방지), 해시태그 기호 제거
+
 ### Known Issues
 - 외부 AI(LLM/TTS/영상 생성) 실호출 미검증 — 키 없음 + 샌드박스 네트워크 차단
 - 사람/손이 나오는 실제 사용 장면은 영상 생성 provider 연결 전까지 만들 수 없음 (현재는 원본 사진 모션)

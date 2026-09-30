@@ -102,7 +102,7 @@ def _repair(plan, qa: dict, identity=None) -> list[str]:
             actions.append(f"{sid} 반복 화면 -> {sc.shot} 를 {new} 로")
             sc.shot = new
             used.append(new)
-            if len(photos) > 1 and sc.reference_image in photos and sc.beat != "benefit":
+            if len(photos) > 1 and sc.reference_image in photos and sc.beat != "benefit" and not sc.ref_locked:
                 sc.reference_image = photos[(photos.index(sc.reference_image) + 1) % len(photos)]
     # 길이
     lo, hi = plan.target_duration
@@ -201,6 +201,9 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 photos.append(str(dst))
                 db.add_asset(job_id, str(dst), "product_photo", p.photo_rights, ph)
             analyses = [analyze_photo(ph) for ph in photos]
+            saved_by_name = {Path(orig).name: saved for orig, saved in zip(p.photos, photos)}
+            p.feature_photos = {feat: saved_by_name[name] for feat, name in p.feature_photos.items()
+                                if name in saved_by_name and feat in p.features}
             for orig, a in zip(p.photos, analyses):
                 box = p.product_boxes.get(Path(orig).name)
                 if box and len(box) == 4 and 0 <= box[0] < box[2] <= 1 and 0 <= box[1] < box[3] <= 1:

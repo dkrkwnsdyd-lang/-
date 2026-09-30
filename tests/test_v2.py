@@ -363,3 +363,34 @@ def test_unknown_rights_message_is_actionable():
     reasons = g["platforms"]["youtube"]["reasons"]
     assert g["platforms"]["youtube"]["verdict"] == "PASS_WITH_WARNING"
     assert any("2장" in r and "사진 권리" in r for r in reasons)
+
+
+def test_feature_photo_link_locks_scene_source(gun):
+    p, identity = gun
+    p2 = ProductInput(**{**p.__dict__})
+    p2.features = ["컬러 LED 링", "송풍구 클립 거치"]
+    p2.problem = ""
+    front, side = identity.photos[0]["path"], identity.photos[1]["path"]
+    p2.feature_photos = {"컬러 LED 링": front, "송풍구 클립 거치": side}
+    plan = direct_scenes(rule_director(p2, "PRO"), identity, p2, "PRO")
+    by_caption = {s.caption.replace("[[", "").replace("]]", ""): s for s in plan.scenes}
+    led = next(s for c, s in by_caption.items() if "LED" in c)
+    clip = next(s for c, s in by_caption.items() if "클립" in c)
+    assert led.reference_image == front and led.ref_locked
+    assert clip.reference_image == side and clip.ref_locked
+
+
+def test_color_is_a_fact_not_a_benefit():
+    from shortsmaker.studio.director import selling_angles
+    p = ProductInput(name="M-Circle", features=["컬러 LED 링", "송풍구 클립 거치"])
+    assert all(a["evidence"] == [] or a["angle"] != "design" for a in selling_angles(p))
+    text = json.dumps(rule_director(p, "PRO"), ensure_ascii=False)
+    assert "깔끔" not in text
+
+
+def test_hashtags_have_no_symbols():
+    from shortsmaker.studio import adapter
+    p = ProductInput(name="SINJIMORU M-Circle", features=["컬러 LED 링"], category_hint="전자기기")
+    tags = adapter._tags(p, adapter.profiles()["instagram"])
+    assert all(t[1:].isalnum() for t in tags), tags
+    assert "#MCircle" in tags

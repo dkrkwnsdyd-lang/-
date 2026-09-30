@@ -25,7 +25,7 @@ def _tags(p, profile: dict) -> list[str]:
     brand = next((w for w in p.name.split() if w.isascii() and w.isalpha() and len(w) > 2), "")
     cands = [product_short(p.name), brand, p.category_hint]
     for c in cands:
-        c = (c or "").replace(" ", "").strip("#")
+        c = re.sub(r"[^\w가-힣]", "", (c or ""))   # 해시태그는 하이픈/기호에서 끊긴다 (M-Circle -> MCircle)
         if c and c not in base and len(c) <= 12 and not re.search(r"\d", c):
             base.append(c)
     return [f"#{t}" for t in base[:hi]] if hi else []

@@ -84,6 +84,8 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--mode", default="PRO", choices=["FAST", "PRO"])
     st.add_argument("--platforms", default="youtube,instagram,tiktok,threads")
     st.add_argument("--bgm", default=None, help="배경음악 (권리 보유 음원만)")
+    st.add_argument("--feature-photo", action="append", default=[], metavar="특징=파일명",
+                    help="그 특징이 보이는 사진 지정. 예: '컬러 LED 링=정면.jpg' (자막과 화면을 맞춤)")
     st.add_argument("--box", action="append", default=[], metavar="파일명=x0,y0,x1,y1",
                     help="복잡한 배경 사진의 제품 위치(0~1). 예: 정면.jpg=0.14,0.33,0.94,0.75 (확대 컷 허용)")
 
@@ -140,7 +142,8 @@ def _studio(args) -> int:
     inputs = {"photos": args.photos, "url": args.url, "name": args.name, "features": args.features,
               "problem": args.problem, "category_hint": args.category, "affiliate": args.affiliate,
               "photo_rights": args.rights, "reference_url": args.reference, "bgm_path": args.bgm,
-              "product_boxes": {k: [float(x) for x in v.split(",")] for k, v in (b.split("=", 1) for b in args.box)}}
+              "product_boxes": {k: [float(x) for x in v.split(",")] for k, v in (b.split("=", 1) for b in args.box)},
+              "feature_photos": dict(fp.split("=", 1) for fp in args.feature_photo)}
     r = run_job(inputs, args.mode, _split(args.platforms, ","), out_root="output/v2",
                 progress_cb=lambda m: print("  ·", m, flush=True))
     if r["status"] == "FAILED":
