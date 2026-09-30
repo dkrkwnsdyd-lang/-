@@ -6,6 +6,8 @@
 > 네트워크 정책으로 차단되어 있다. 그래서 **실제 외부 API 호출 테스트는 0건**이다.
 > 아래 "Tested" 는 가짜(Fake) provider 로 라우터/폴백/비용 기록을 검증한 것만 뜻한다.
 
+Gemini 키 넣는 법: 환경 설정 > API credentials(허용 웹사이트 `generativelanguage.googleapis.com`, 헤더 `x-goog-api-key`, 접두사 없음) 또는 환경 변수 `GEMINI_API_KEY`. 코드가 둘 다 자동 감지.
+
 확인 방법: `python -m shortsmaker api-status` 또는 웹 `/control` (Test All / Test Provider / Test Fallback)
 모델명은 `shortsmaker/providers/model_registry.yaml` 한 곳에만 있다. 사용 전 각 사의 모델 목록 API 로 ID 를 확인할 것.
 

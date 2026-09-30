@@ -76,6 +76,7 @@ class GoogleProvider(Provider):
     env_key = "GEMINI_API_KEY"
     base_url = "https://generativelanguage.googleapis.com/v1beta"
     tasks = ("llm", "vision", "video_understanding")
+    probe_url = f"{base_url}/models?pageSize=1"
 
     @timed
     def json(self, model: str, system: str, user: str, images: list[str | Path] | None = None,
@@ -93,7 +94,7 @@ class GoogleProvider(Provider):
             "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": max_tokens},
         }
         data = self.request_json("POST", f"{self.base_url}/models/{model}:generateContent", json=body,
-                                 headers={"x-goog-api-key": self.key}, timeout=300)
+                                 headers=self.auth_headers("x-goog-api-key"), timeout=300)
         try:
             text = "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
         except (KeyError, IndexError):
@@ -105,5 +106,5 @@ class GoogleProvider(Provider):
     def health_check(self) -> str:
         if not self.configured():
             return "not_configured"
-        self.request_json("GET", f"{self.base_url}/models", headers={"x-goog-api-key": self.key})
+        self.request_json("GET", f"{self.base_url}/models", headers=self.auth_headers("x-goog-api-key"))
         return "ok"

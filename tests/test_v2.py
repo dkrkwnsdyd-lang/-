@@ -14,6 +14,7 @@ from shortsmaker.studio.editor import edit
 from shortsmaker.studio.motion import split_caption
 from shortsmaker.studio.product import ProductInput, analyze_photo, build_identity
 
+from conftest import FakeResponse, FakeSession
 from product_fixtures import PRODUCTS, make_photos
 
 
@@ -394,3 +395,30 @@ def test_hashtags_have_no_symbols():
     tags = adapter._tags(p, adapter.profiles()["instagram"])
     assert all(t[1:].isalnum() for t in tags), tags
     assert "#MCircle" in tags
+
+
+def test_gemini_via_proxy_injected_credential(monkeypatch):
+    """환경 '자격 증명'으로 프록시가 키를 붙여주면 코드는 키 없이도 동작하고 헤더를 보내지 않는다."""
+    from shortsmaker.providers.llm import GoogleProvider
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("SHORTSMAKER_PROBE_CREDENTIALS", "1")
+
+    def handler(method, url, kw):
+        if "models?pageSize=1" in url:
+            return FakeResponse({"models": []})
+        assert "x-goog-api-key" not in (kw.get("headers") or {})
+        return FakeResponse({"candidates": [{"content": {"parts": [{"text": '{"ok": true}'}]}}],
+                             "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 2}})
+
+    prov = GoogleProvider(session=FakeSession(handler))
+    assert prov.configured() and prov.auth_state() == "proxy-injected"
+    res = prov.json("gemini-x", system="s", user="u")
+    assert res.value == {"ok": True}
+
+
+def test_gemini_not_configured_without_key_or_proxy(monkeypatch):
+    from shortsmaker.providers.llm import GoogleProvider
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("SHORTSMAKER_PROBE_CREDENTIALS", "1")
+    prov = GoogleProvider(session=FakeSession(lambda m, u, kw: FakeResponse({"error": {}}, status=403)))
+    assert not prov.configured() and prov.auth_state() == "missing"

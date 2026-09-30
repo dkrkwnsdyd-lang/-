@@ -150,7 +150,7 @@ class Router:
             active = next((m for m in sorted(entries, key=lambda m: m.priority) if m.enabled), None)
             row = {
                 "provider": name,
-                "authentication": "set " + mask(prov._key) if prov.configured() else "missing",
+                "authentication": prov.auth_state(),
                 "active_model": active.model if active else None,
                 "tasks": sorted({m.task for m in entries}),
                 "capabilities": sorted({c for m in entries for c in m.capabilities}),

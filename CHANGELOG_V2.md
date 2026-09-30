@@ -60,6 +60,8 @@
 
 - Added: 웹 스튜디오 '특징이 보이는 사진 연결' (`studio.html` featureLink → `studio_api.create_job` `feature_photos`). CLI `--feature-photo` 와 동일 기능
 
+- Provider: 환경 '자격 증명'(프록시가 키를 붙여줌) 자동 감지 (`Provider._probe_proxy_credential`, `auth_headers`, `auth_state`) — Gemini 는 키 환경 변수 없이도 동작
+
 ### Known Issues
 - 외부 AI(LLM/TTS/영상 생성) 실호출 미검증 — 키 없음 + 샌드박스 네트워크 차단
 - 사람/손이 나오는 실제 사용 장면은 영상 생성 provider 연결 전까지 만들 수 없음 (현재는 원본 사진 모션)

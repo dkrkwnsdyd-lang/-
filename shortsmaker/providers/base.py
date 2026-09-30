@@ -79,19 +79,46 @@ class Provider:
     tasks: tuple[str, ...] = ()
     # 유료 생성 API 는 health check 로 호출하지 않는다
     paid_generation = False
+    # 환경 '자격 증명(API credentials)'으로 프록시가 키를 대신 붙여주는 경우를 감지하기 위한 무료 조회 URL
+    probe_url: str | None = None
 
     def __init__(self, session: requests.Session | None = None, api_key: str | None = None):
         self.http = session or requests.Session()
         self._key = api_key if api_key is not None else (os.environ.get(self.env_key) if self.env_key else None)
+        self._proxied: bool | None = None
+
+    def _probe_proxy_credential(self) -> bool:
+        """키 없이 무료 엔드포인트를 호출해서 프록시가 자격 증명을 붙여주는지 확인 (결과 캐시)."""
+        if self._proxied is None:
+            self._proxied = False
+            if self.probe_url and os.environ.get("SHORTSMAKER_PROBE_CREDENTIALS", "1") != "0":
+                try:
+                    self._proxied = self.http.get(self.probe_url, timeout=6).status_code == 200
+                except Exception:
+                    self._proxied = False
+        return self._proxied
 
     @property
     def key(self) -> str:
-        if not self._key:
-            raise NotConfigured(f"{self.name}: {self.env_key} 가 설정되지 않았습니다 (.env)")
-        return self._key
+        if self._key:
+            return self._key
+        if self._probe_proxy_credential():
+            return ""          # 키는 프록시가 붙인다 - 이 프로세스는 키를 보지 못함
+        raise NotConfigured(f"{self.name}: {self.env_key} 가 설정되지 않았습니다 (환경 변수 또는 환경 자격 증명)")
+
+    def auth_headers(self, header_name: str) -> dict[str, str]:
+        k = self.key
+        return {header_name: k} if k else {}
+
+    def auth_state(self) -> str:
+        if self._key:
+            return "set " + mask(self._key)
+        return "proxy-injected" if self._probe_proxy_credential() else "missing"
 
     def configured(self) -> bool:
-        return bool(self._key) if self.env_key else True
+        if not self.env_key:
+            return True
+        return bool(self._key) or self._probe_proxy_credential()
 
     def request_json(self, method: str, url: str, timeout: float = 90, **kw) -> dict:
         try:

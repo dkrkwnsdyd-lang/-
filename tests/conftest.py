@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -5,6 +6,7 @@ import pytest
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+os.environ.setdefault("SHORTSMAKER_PROBE_CREDENTIALS", "0")   # 테스트는 네트워크 감지를 하지 않는다
 
 
 @pytest.fixture
