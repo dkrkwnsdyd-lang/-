@@ -502,3 +502,121 @@ def test_router_skips_provider_after_billing_error(tmp_path):
     assert Billing.calls == 1                                       # m2 도 시도하지 않음
     assert r.run("llm", "json", local_fn=lambda: "L", system="", user="").provider == "local"
     assert Billing.calls == 1                                       # 이후 호출에서도 건너뜀
+
+
+class _ScriptedLLM:
+    """작성기/판정기를 흉내내는 가짜 LLM. writers: 호출마다 돌려줄 대본, unsupported: 판정기가 돌려줄 목록."""
+    name = "scripted"
+
+    def __init__(self, writers, verdicts, judge_error=False):
+        self.writers, self.verdicts, self.judge_error = list(writers), list(verdicts), judge_error
+        self.writer_feedback = []
+
+    def configured(self):
+        return True
+
+    def json(self, model, system, user, **kw):
+        if "fact checker" in system:
+            if self.judge_error:
+                raise ProviderError("judge down", status=500)
+            return ProviderResult({"unsupported": self.verdicts.pop(0)}, self.name, model, Usage(10, 5))
+        self.writer_feedback.append("제거하고 다시 써라" in system)
+        return ProviderResult(self.writers.pop(0), self.name, model, Usage(10, 5))
+
+
+def _script(lines):
+    beats = [{"beat": "hook", "tts_line": lines[0], "caption": lines[0]},
+             {"beat": "problem", "tts_line": "어두워서 안 보이죠", "caption": "어두워서 안 보이죠"},
+             {"beat": "reveal", "tts_line": "바로 이 M-Circle", "caption": "바로 이 [[M-Circle]]"},
+             {"beat": "demo", "tts_line": lines[1], "caption": lines[1], "feature": "컬러 LED 링"},
+             {"beat": "cta", "tts_line": "링크에서 확인하세요", "caption": "정보는 [[링크]]에서"}]
+    return {"story_pattern": "PROBLEM_SOLUTION", "best_angle": "convenience", "angles": [],
+            "hook_candidates": [{"type": "discovery", "text": lines[0], "caption": lines[0]}], "beats": beats}
+
+
+def _router_for(llm, tmp_path):
+    reg = [ModelEntry("scripted", "llm", "m", 1, True, 1, 3, ["json"]), ModelEntry("local", "llm", "rule", 9, True, 0, 1, ["json"])]
+    return Router(providers={"scripted": llm}, registry=reg, status_file=tmp_path / "s.json", sleep=lambda s: None)
+
+
+def test_grounding_retries_then_accepts_clean_script(gun, tmp_path):
+    from shortsmaker.studio.director import llm_director
+    p, identity = gun
+    p = ProductInput(**{**p.__dict__, "name": "M-Circle", "features": ["컬러 LED 링"], "problem": ""})
+    llm = _ScriptedLLM(writers=[_script(["밤에 헤맨 적 있죠?", "밤에도 영롱해요"]), _script(["이 M-Circle 아직 안 써보셨어요?", "컬러 LED 링이 있어요"])],
+                       verdicts=[[{"line": "밤에도 영롱해요", "phrase": "밤에도 영롱", "reason": "입력에 없는 야간 성능"}], []])
+    data = llm_director(_router_for(llm, tmp_path), p, identity, "PRO")
+    assert data["_grounding"]["final"] == "llm" and len(data["_grounding"]["attempts"]) == 2
+    assert llm.writer_feedback == [False, True]                       # 두 번째는 피드백과 함께 재생성
+    assert "밤" not in json.dumps({k: v for k, v in data.items() if k != "_grounding"}, ensure_ascii=False)   # 대본에만 (보고서 제외)
+    assert all(b["beat"] != "problem" for b in data["beats"])         # 문제 입력 없으면 problem 장면 제거
+    assert data["story_pattern"] == "DISCOVERY"
+
+
+def test_grounding_falls_back_to_rules_when_llm_keeps_inventing(gun, tmp_path):
+    from shortsmaker.studio.director import llm_director
+    p, identity = gun
+    p = ProductInput(**{**p.__dict__, "name": "M-Circle", "features": ["컬러 LED 링"], "problem": ""})
+    bad = [{"phrase": "밤에도", "reason": "x"}]
+    llm = _ScriptedLLM([_script(["밤 훅", "밤에도"]), _script(["밤 훅", "밤에도"])], [bad, bad])
+    data = llm_director(_router_for(llm, tmp_path), p, identity, "PRO")
+    assert data["_grounding"]["final"] == "rule_fallback" and "rule_director" in data["_director"]
+    assert "밤" not in json.dumps({k: v for k, v in data.items() if k != "_grounding"}, ensure_ascii=False)
+
+
+def test_grounding_unverifiable_means_no_llm_text(gun, tmp_path):
+    from shortsmaker.studio.director import llm_director
+    p, identity = gun
+    p = ProductInput(**{**p.__dict__, "name": "M-Circle", "features": ["컬러 LED 링"], "problem": ""})
+    llm = _ScriptedLLM([_script(["훅", "특징"])], [], judge_error=True)
+    data = llm_director(_router_for(llm, tmp_path), p, identity, "PRO")
+    assert data["_grounding"]["final"] == "rule_fallback"             # 판정 못 하면 AI 글을 쓰지 않는다
+
+
+def test_platform_copy_grounded_fallback_to_template(gun, tmp_path):
+    from shortsmaker.studio import adapter
+    p, identity = gun
+    p = ProductInput(**{**p.__dict__, "name": "M-Circle", "features": ["컬러 LED 링"], "problem": "", "affiliate": "COUPANG_PARTNERS"})
+
+    class Plan:
+        hook_candidates = [{"text": "이 M-Circle 아직 안 써보셨어요?"}]
+    bad_copy = {"youtube": {"title": "밤에도 잘 보이는", "description": "설치가 정말 쉬워요"}, "instagram": {"caption": "x"},
+                "tiktok": {"caption": "y"}, "threads": {"post": "z"}}
+    llm = _ScriptedLLM([bad_copy, bad_copy], [[{"phrase": "설치가 정말 쉬워요", "reason": "x"}]] * 2)
+    copies, report = adapter.platform_copy(Plan(), p, _router_for(llm, tmp_path), None, with_report=True)
+    assert report["final"] == "rule_fallback"
+    assert "설치가" not in json.dumps(copies, ensure_ascii=False) and "쿠팡 파트너스" in copies["youtube"]["description"]
+
+
+def test_fuzzy_feature_link_when_llm_omits_feature_key():
+    from shortsmaker.studio.director import _linked_photo
+    fp = {"컬러 LED 링": "/p/front.jpg", "송풍구 클립 거치": "/p/side.jpg"}
+    assert _linked_photo({"beat": "demo", "caption": "테두리에 [[컬러 LED 링]]", "tts_line": ""}, fp) == "/p/front.jpg"
+    assert _linked_photo({"beat": "detail", "caption": "차량 송풍구에 [[클립 거치]]", "tts_line": "송풍구 클립으로 거치돼요"}, fp) == "/p/side.jpg"
+    assert _linked_photo({"beat": "hook", "caption": "컬러 LED 링", "tts_line": ""}, fp) is None        # hook 은 연결 안 함
+    assert _linked_photo({"beat": "demo", "caption": "궁금하죠", "tts_line": ""}, fp) is None            # 겹침 없으면 연결 안 함
+    assert _linked_photo({"beat": "demo", "caption": "링", "tts_line": ""}, {"a b": "x", "링 c": "y"}) in (None, "y")
+
+
+def test_vision_retries_missing_box_once_and_uses_temperature_zero(tmp_path):
+    from PIL import Image
+    from shortsmaker.studio import vision
+    p = tmp_path / "a.jpg"
+    Image.new("RGB", (400, 300), "gray").save(p)
+    calls = []
+
+    class Flaky:
+        name = "flaky"
+
+        def configured(self):
+            return True
+
+        def json(self, model, temperature=None, user="", **kw):
+            calls.append((temperature, "IMPORTANT" in user))
+            box = [0.2, 0.2, 0.8, 0.8] if "IMPORTANT" in user else None
+            return ProviderResult({"photos": [{"index": 0, "product_present": True, "box": box}], "feature_photo": {}},
+                                  "flaky", model, Usage(10, 5))
+    reg = [ModelEntry("flaky", "vision", "m", 1, True, 1, 3, ["vision"])]
+    router = Router(providers={"flaky": Flaky()}, registry=reg, status_file=tmp_path / "s.json")
+    out = vision.analyze(router, [str(p)], [], tmp_path / "w")
+    assert out["boxes"] == {0: [0.2, 0.2, 0.8, 0.8]} and calls == [(0, False), (0, True)]

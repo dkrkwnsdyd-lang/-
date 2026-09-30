@@ -89,6 +89,7 @@ class Shot:
 class PlateCache:
     def __init__(self):
         self.boxes: dict[str, tuple[float, float, float, float]] = {}   # 제품 위치를 아는 사진만
+        self.tight: set[str] = set()      # 개인 정보가 찍힌 사진: 제품 박스 주변 밖은 절대 보이지 않게
         self.src: dict[str, Image.Image] = {}
         self.cut: dict[str, Image.Image | None] = {}
         self.plates: dict[tuple, Image.Image] = {}
@@ -189,7 +190,7 @@ def _hero_parts(cache: PlateCache, path: str, scale: float, fg_ratio: float, cen
         dom = tuple(int(c) for c in (colors[alpha].mean(axis=0) if alpha.any() else colors.mean(axis=0)))
         bg = studio_background(dom, (pw, ph))
     else:
-        fg = cache.product_region(path, pad=0.04, aspect=0.78) or src
+        fg = cache.product_region(path, pad=0.04, aspect=None if path in cache.tight else 0.78) or src
         bg = blurred_background(src, (pw, ph))
     v = _vignette_cached(pw, ph)
     bg = Image.composite(bg, Image.new("RGB", bg.size, (0, 0, 0)), v)
@@ -256,8 +257,10 @@ def macro_plate(cache: PlateCache, path: str, focus: tuple[float, float] | None)
     key = ("macro", path, focus)
     if key in cache.plates:
         return cache.plates[key]
-    src = _studio_version(cache, path)
+    src = (cache.product_region(path, pad=0.03) if path in cache.tight else None) or _studio_version(cache, path)
     sw, sh = src.size
+    if path in cache.tight and path in cache.boxes:   # 잘라낸 영역 기준 좌표로 초점을 중앙에
+        focus = (0.5, 0.5)
     if focus is None and path in cache.boxes:
         x0, y0, x1, y1 = cache.boxes[path]
         focus = ((x0 + x1) / 2, (y0 + y1) / 2)

@@ -14,7 +14,7 @@ Gemini 키 넣는 법: 환경 설정 > API credentials(허용 웹사이트 `gene
 | Provider | Connected | Model (registry) | Capabilities | Tested | Last Success | Error |
 |---|---|---|---|---|---|---|
 | openai | ❌ 키 없음 | gpt-5-mini (fallback gpt-4.1-mini) · tts: gpt-4o-mini-tts | json, vision, tts | 요청 형식만 구현, 실호출 X | - | 키 없음 + 도메인 차단 |
-| google (Gemini) | ✅ 인증 OK (환경 자격 증명, proxy-injected) · ❌ **결제 크레딧 소진(402)** | gemini-3.8-flash (+ 3.1-flash-lite). `gemini-2.5-*` 는 신규 사용자에게 종료(404) | json, vision, video_understanding, youtube_url | 모델 목록 조회 200, 생성 호출은 402 로 거절 | - | 402 prepayment credits depleted → AI Studio 에서 결제/충전 필요 |
+| google (Gemini) | ✅ 연결·호출 성공 (환경 자격 증명, proxy-injected) | gemini-3.8-flash (+ 3.1-flash-lite 예비). 2.5 계열은 이 키에서는 호출되나 신규 계정 종료 이력 있어 사용 안 함 | json, vision, video_understanding | ✅ 실호출 성공: 사진 분석, 대본, 근거 판정, 문구, 최종 시각 평가 (2026-09-30) | 2026-09-30 | 무료 여부는 API 로 알 수 없음 (`serviceTier: standard` 는 처리 등급). 사용량은 costs 테이블에 기록 (단가는 추정치) |
 | groq | ❌ 키 없음 | llama-3.3-70b-versatile | json (저비용 전처리) | 실호출 X | - | 키 없음 + 도메인 차단 |
 | elevenlabs | ❌ 키 없음 | eleven_multilingual_v2 | tts (한국어) | 실호출 X | - | ELEVENLABS_VOICE_ID 도 필요 |
 | pexels | ❌ 키 없음 | videos/search | stock_video (B-roll 1순위) | 실호출 X | - | 파이프라인 미연결 (NEXT_TASKS) |

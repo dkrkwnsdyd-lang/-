@@ -13,10 +13,10 @@
 - 사용자 사진은 쿠팡 상품 이미지. 게시 전 쿠팡 파트너스 약관(이미지 사용 조건) 확인 또는 판매자 허락/직접 촬영 사진 필요
 - 나중에: Coupang Partners API 로 상품 정보/이미지를 가져오는 정식 경로 연동 검토 (Seller API / Partners / 페이지 import 를 혼동하지 말 것)
 
-## 2-0. Gemini 결제 크레딧 (사용자 조치 필요, 2026-09-30)
-- 인증은 성공했으나 생성 호출이 402 (prepayment credits depleted). 사용자가 Google AI Studio(https://ai.studio/projects)에서 결제/충전해야 함
-- 충전 후: `python -m shortsmaker api-status` → google ok, 그다음 M-Circle 을 박스/특징 연결 없이 다시 만들어 Vision 자동 채움이 수동 입력(98점)과 같은지 비교
-- 이미 구현됨: `studio/vision.py`(박스·특징 연결 자동), 결제 오류 무재시도/작업 중 건너뛰기, 모델 레지스트리 갱신
+## 2-0. Gemini 연결 완료 (2026-09-30) — 다음 단계
+- 완료: Vision 자동 박스/특징 연결/개인정보 감지, AI 대본 + 근거 검증, 플랫폼 문구 검증, Vision 최종 평가
+- NEXT: (a) TTS(ElevenLabs/OpenAI 키) (b) 더 좋은 조명의 사진으로 재테스트 — Vision 평가를 통과하는 영상이 나오는지 (c) 웹 화면에 grounding 결과·경고(개인정보) 표시 (d) 실제 청구 단가로 레지스트리 비용 보정
+- DO NOT REDO: grounding, vision.py, 자격 증명 자동 감지
 
 ## 2. LLM provider 연결 (OpenAI 또는 Gemini)
 - NEXT TASK: `.env` 에 키 입력 → `/control` Test All → `model_registry.yaml` 모델 ID 를 실제 목록과 대조해 수정, `last_verified` 기입

@@ -95,11 +95,18 @@ def vision_review(router, images: list[str], context: str) -> dict | None:
     if not router or not router.has_real("vision"):
         return None
     fails = brain.system("quality_rules")["visual_qa_fail"]
-    system = ("You are a strict commercial video QA reviewer. Score 0-100 and list any of these failures: "
-              + ", ".join(fails) + '. Answer JSON: {"scores":{"visual":0,"product_consistency":0,"ai_artifact":0,'
-              '"commercial_feel":0},"failures":[],"notes":""}')
+    system = ("You are a commercial video QA reviewer for short shopping videos made from REAL photos of a product. "
+              "Judge ONLY the frames (composition, sharpness, product visibility, lighting, text legibility, artifacts, "
+              "product identity consistency across frames) - NOT the marketing copy. "
+              "Scoring scale (0-100), use it consistently: 90-100 professional studio/advertising quality; "
+              "75-89 clean, sharp, well-framed real product shots with tidy editing; "
+              "60-74 acceptable but visibly amateur (harsh light, clutter, soft focus, awkward crop); "
+              "40-59 poor (blurry, cropped wrongly, product hard to see); below 40 unusable. "
+              "Also list any of these failures if present: " + ", ".join(fails) + ". "
+              'Answer JSON: {"scores":{"visual":0,"product_consistency":0,"ai_artifact":0,"commercial_feel":0},'
+              '"failures":[],"notes":"one or two short sentences saying what lowers the score"}')
     try:
-        return router.run("vision", "json", system=system, user=context, images=images[:6]).value
+        return router.run("vision", "json", system=system, user=context, images=images[:6], temperature=0).value
     except Exception as e:  # QA 보조 단계 - 실패해도 로컬 QA 는 진행
         return {"error": str(e)[:200]}
 

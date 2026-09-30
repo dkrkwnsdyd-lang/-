@@ -68,31 +68,56 @@ def _valid_box(b) -> list[float] | None:
     return [round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4)]
 
 
-def analyze(router, photos: list[str], features: list[str], work_dir: Path) -> dict | None:
-    """Vision provider 가 없으면 None. 실패해도 파이프라인은 계속되도록 예외를 삼킨다."""
-    if router is None or not router.has_real("vision") or not photos:
-        return None
-    try:
-        images = prepare_images(photos, work_dir / "vision")
-        res = router.run("vision", "json", system=SYSTEM, user=build_prompt(features, len(photos)), images=images)
-    except Exception as e:
-        return {"error": str(e)[:300], "provider": None}
-    data = res.value if isinstance(res.value, dict) else {}
+def _parse(data: dict, n: int) -> tuple[dict, list, dict]:
     boxes, per_photo = {}, []
     for item in data.get("photos", []) if isinstance(data.get("photos"), list) else []:
         try:
             idx = int(item.get("index"))
         except (TypeError, ValueError):
             continue
-        if not 0 <= idx < len(photos):
+        if not 0 <= idx < n:
             continue
-        box = _valid_box(item.get("box")) if item.get("product_present", True) else None
+        present = item.get("product_present", True)
+        box = _valid_box(item.get("box")) if present else None
         if box:
             boxes[idx] = box
-        per_photo.append({"index": idx, "box": box, "angle": item.get("angle"), "background": item.get("background"),
+        per_photo.append({"index": idx, "box": box, "present": bool(present), "angle": item.get("angle"),
+                          "background": item.get("background"),
                           "visible_text": [str(t) for t in item.get("visible_text", [])][:8],
                           "visible_features": [str(t) for t in item.get("visible_features", [])][:8],
                           "private_info_visible": [str(t) for t in item.get("private_info_visible", [])][:6]})
+    return boxes, per_photo, data
+
+
+def analyze(router, photos: list[str], features: list[str], work_dir: Path) -> dict | None:
+    """Vision provider 가 없으면 None. 실패해도 파이프라인은 계속되도록 예외를 삼킨다.
+    제품이 있는 사진인데 박스가 빠졌으면 1회 재시도해서 채운다 (temperature 0 으로 재현성 확보)."""
+    if router is None or not router.has_real("vision") or not photos:
+        return None
+    try:
+        images = prepare_images(photos, work_dir / "vision")
+        prompt = build_prompt(features, len(photos))
+        res = router.run("vision", "json", system=SYSTEM, user=prompt, images=images, temperature=0)
+        data = res.value if isinstance(res.value, dict) else {}
+        boxes, per_photo, _ = _parse(data, len(photos))
+        missing = [ph["index"] for ph in per_photo if ph["present"] and ph["index"] not in boxes]
+        usage_in, usage_out, cost = res.usage.input_units, res.usage.output_units, res.usage.estimated_cost
+        if missing:   # 박스 누락 사진만 다시 요청
+            res2 = router.run("vision", "json", system=SYSTEM, temperature=0,
+                              user=prompt + f"\nIMPORTANT: photos {missing} MUST include a valid tight box around the main product.",
+                              images=images)
+            boxes2, per2, _ = _parse(res2.value if isinstance(res2.value, dict) else {}, len(photos))
+            for idx in missing:
+                if idx in boxes2:
+                    boxes[idx] = boxes2[idx]
+                    for ph in per_photo:
+                        if ph["index"] == idx:
+                            ph["box"] = boxes2[idx]
+            usage_in += res2.usage.input_units
+            usage_out += res2.usage.output_units
+            cost += res2.usage.estimated_cost
+    except Exception as e:
+        return {"error": str(e)[:300], "provider": None}
     links = {}
     fp = data.get("feature_photo") if isinstance(data.get("feature_photo"), dict) else {}
     for feat in features:
@@ -101,4 +126,4 @@ def analyze(router, photos: list[str], features: list[str], work_dir: Path) -> d
             links[feat] = idx
     return {"provider": f"{res.provider}:{res.model}", "boxes": boxes, "feature_links": links, "photos": per_photo,
             "brand_or_name_visible": data.get("brand_or_name_visible"), "category_guess": data.get("category_guess"),
-            "usage": {"in": res.usage.input_units, "out": res.usage.output_units, "cost": res.usage.estimated_cost}}
+            "usage": {"in": usage_in, "out": usage_out, "cost": cost}}

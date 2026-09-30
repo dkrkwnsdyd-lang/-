@@ -65,6 +65,10 @@
 - Added: `studio/vision.py` Vision 분석(제품 위치 박스, 특징-사진 연결, 개인정보 요소 경고), 파이프라인 연결(사용자 지정 우선, 실패 시 수동값으로 계속)
 - Modified: 모델 레지스트리 gemini-2.5-* → gemini-3.8-flash / 3.1-flash-lite (2.5 는 신규 사용자 404). 결제/인증/모델없음 오류는 재시도 없이 다음 provider, 결제·인증 오류 provider 는 작업 중 건너뜀 (`ProviderError.retryable`, `Router.dead`)
 
+- Added: `studio/grounding.py` 근거 검증 (allowed_facts, LLM 판정, 피드백 재생성, 규칙 폴백) — 대본(`director.llm_director`)과 플랫폼 문구(`adapter.platform_copy`)에 적용, 문제 입력 없으면 problem 장면 제거(`_enforce_problem_rule`)
+- Added: 개인정보 사진은 박스 없으면 영상에서 제외, 박스가 있으면 타이트 크롭 (`PlateCache.tight`, pipeline)
+- Modified: Vision/판정 호출 temperature 0, 박스 누락 시 1회 재시도, 특징 연결 문장 겹침 매칭(`director._linked_photo`), Vision 최종 평가 점수 기준표 명시
+
 ### Known Issues
 - 외부 AI(LLM/TTS/영상 생성) 실호출 미검증 — 키 없음 + 샌드박스 네트워크 차단
 - 사람/손이 나오는 실제 사용 장면은 영상 생성 provider 연결 전까지 만들 수 없음 (현재는 원본 사진 모션)

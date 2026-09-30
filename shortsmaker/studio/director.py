@@ -139,6 +139,24 @@ def tail_phrase(text: str, min_chars: int = 6) -> str:
     return " ".join(out)
 
 
+def _linked_photo(beat: dict, feature_photos: dict[str, str]) -> str | None:
+    """장면이 어떤 특징을 보여주는지 찾아 그 특징에 연결된 사진을 돌려준다.
+    LLM 이 feature 를 빼거나 살짝 바꿔도, 자막/대사에 특징의 단어가 겹치면 연결한다 (유일하게 가장 많이 겹칠 때만)."""
+    if not feature_photos or beat.get("beat") not in ("demo", "detail"):
+        return None
+    exact = feature_photos.get(beat.get("feature") or "")
+    if exact:
+        return exact
+    text = strip_marks(f"{beat.get('caption', '')} {beat.get('tts_line', '')}")
+    scores = {}
+    for feat in feature_photos:
+        toks = [t for t in re.split(r"\s+", feat) if len(t) >= 2]
+        scores[feat] = sum(1 for t in toks if t in text)
+    best = max(scores.values(), default=0)
+    winners = [f for f, sc in scores.items() if sc == best]
+    return feature_photos[winners[0]] if best >= 1 and len(winners) == 1 else None
+
+
 def emphasis_of(caption: str) -> list[str]:
     return re.findall(r"\[\[(.+?)\]\]", caption)
 
@@ -309,10 +327,12 @@ def rule_director(p: ProductInput, mode: str) -> dict:
 
 # ---------------------------------------------------------------- LLM director
 
-def llm_director(router, p: ProductInput, identity: ProductIdentity, mode: str) -> dict:
-    """SYSTEM RULES 와 JOB DATA 를 분리해서 LLM 에 넘긴다."""
+def llm_director(router, p: ProductInput, identity: ProductIdentity, mode: str, vision: dict | None = None) -> dict:
+    """SYSTEM RULES 와 JOB DATA 를 분리해서 LLM 에 넘긴다. 결과는 grounding 검증을 통과해야 쓴다."""
+    from . import grounding
     core = brain.system("core_rules")
-    system = "\n".join([
+    facts = grounding.allowed_facts(p, vision)
+    base_system = "\n".join([
         "너는 한국 쇼핑 쇼츠 디렉터다. 광고 설명문 말투 금지, 친구에게 추천하듯 짧은 구어체.",
         "원칙: " + " / ".join(core["principles"]),
         "스토리 패턴: " + ", ".join(brain.system("story_patterns")["patterns"]),
@@ -322,17 +342,49 @@ def llm_director(router, p: ProductInput, identity: ProductIdentity, mode: str) 
         "TTS 규칙: " + json.dumps(brain.system("tts_rules"), ensure_ascii=False),
         "beat 는 hook, problem, reveal, demo, detail, benefit, cta 중에서. 제품을 0초에 무조건 노출하지 않는다.",
         "입력에 없는 판매량, 후기수, 순위, 효능, 인증, 특허, 수치는 절대 만들지 않는다.",
+        grounding.RULES_FOR_WRITER,
         'JSON 으로만 답한다: {"angles":[{"angle","score","evidence","reason"}],"best_angle","story_pattern",'
-        '"hook_candidates":[{"type","text","caption"}],"beats":[{"beat","tts_line","caption"}],"tension","payoff"}',
+        '"hook_candidates":[{"type","text","caption"}],"beats":[{"beat","tts_line","caption","feature"}],"tension","payoff"} '
+        "(demo/detail 의 feature 에는 그 장면이 보여주는 특징 문장을 입력 그대로 넣는다)",
     ])
-    job = {"mode": mode, "product": asdict(p), "identity": {
-        "colors": identity.color_reference, "features": identity.distinctive_features,
-        "missing_angles": identity.missing_angles}}
-    job["product"].pop("photos", None)
-    res = router.run("llm", "json", system=system, user="JOB DATA:\n" + json.dumps(job, ensure_ascii=False),
-                     local_fn=lambda: rule_director(p, mode))
-    data = res.value
-    data["_director"] = f"{res.provider}:{res.model}"
+    job = {"mode": mode, "name_exact": p.name, "allowed_facts": facts,
+           "product": {k: v for k, v in asdict(p).items() if k not in ("photos", "product_boxes", "feature_photos", "claim_sources")},
+           "identity": {"colors": identity.color_reference, "missing_angles": identity.missing_angles}}
+    meta: dict = {}
+
+    def produce(feedback: str | None) -> dict:
+        system = base_system + ("\n" + feedback if feedback else "")
+        res = router.run("llm", "json", system=system, user="JOB DATA:\n" + json.dumps(job, ensure_ascii=False),
+                         temperature=0.4)
+        if res.provider == "local":
+            raise RuntimeError("LLM 사용 불가")
+        d = res.value
+        d["_director"] = f"{res.provider}:{res.model}"
+        return d
+
+    def lines(d: dict) -> list[str]:
+        out = [h.get("text", "") for h in d.get("hook_candidates", [])[:1]]
+        for b in d.get("beats", []):
+            out += [b.get("tts_line", ""), strip_marks(b.get("caption", "")).replace("\n", " ")]
+        return out
+
+    data, report = grounding.generate_grounded(router, produce, lines, facts, p.name, lambda: rule_director(p, mode))
+    if report["final"] == "rule_fallback":
+        data["_director"] = "local:rule_director_v1 (LLM 글이 근거 검증 실패)"
+    data["_grounding"] = report
+    return _enforce_problem_rule(data, p)
+
+
+PROBLEM_STORIES = ("PROBLEM_SOLUTION", "COMPARISON", "BEFORE_AFTER", "FAIL_SUCCESS")
+
+
+def _enforce_problem_rule(data: dict, p: ProductInput) -> dict:
+    """결정적 안전장치: 사용자가 문제를 입력하지 않았으면 문제 제시 장면/스토리를 쓰지 않는다."""
+    if p.problem.strip():
+        return data
+    data["beats"] = [b for b in data.get("beats", []) if b.get("beat") != "problem"]
+    if data.get("story_pattern") in PROBLEM_STORIES:
+        data["story_pattern"] = "DISCOVERY"
     return data
 
 
@@ -413,7 +465,7 @@ def direct_scenes(plan_data: dict, identity: ProductIdentity, p: ProductInput, m
             else _pick_shot(beat, prev_shot, i)
         ref = _ref_for(beat, shot, identity, i)
         locked = False
-        linked = feature_photos.get(b.get("feature") or "")
+        linked = _linked_photo(b, feature_photos)
         if linked:
             ref, locked = linked, True
         if shot in ZOOM_SHOTS and not zoomable(identity, ref):

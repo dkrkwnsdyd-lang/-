@@ -14,7 +14,7 @@ class OpenAICompatible(Provider):
 
     @timed
     def json(self, model: str, system: str, user: str, images: list[str | Path] | None = None,
-             max_tokens: int = 3000) -> ProviderResult:
+             max_tokens: int = 3000, temperature: float | None = None) -> ProviderResult:
         content: list[dict] | str = user
         if images:
             content = [{"type": "text", "text": user}]
@@ -27,6 +27,8 @@ class OpenAICompatible(Provider):
             "response_format": {"type": "json_object"},
             "max_completion_tokens": max_tokens,
         }
+        if temperature is not None:
+            body["temperature"] = temperature
         data = self.request_json("POST", f"{self.base_url}/chat/completions", json=body,
                                  headers={"Authorization": f"Bearer {self.key}"})
         try:
@@ -80,7 +82,7 @@ class GoogleProvider(Provider):
 
     @timed
     def json(self, model: str, system: str, user: str, images: list[str | Path] | None = None,
-             video_url: str | None = None, max_tokens: int = 3000) -> ProviderResult:
+             video_url: str | None = None, max_tokens: int = 3000, temperature: float | None = None) -> ProviderResult:
         parts: list[dict] = []
         if video_url:  # 공개 YouTube URL 영상 이해
             parts.append({"file_data": {"file_uri": video_url}})
@@ -93,6 +95,8 @@ class GoogleProvider(Provider):
             "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": max_tokens},
         }
+        if temperature is not None:
+            body["generationConfig"]["temperature"] = temperature
         data = self.request_json("POST", f"{self.base_url}/models/{model}:generateContent", json=body,
                                  headers=self.auth_headers("x-goog-api-key"), timeout=300)
         try:

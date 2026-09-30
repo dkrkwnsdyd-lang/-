@@ -212,6 +212,7 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                     a.focus = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
                     a.box_source = "user"
             # Vision LLM: 사용자가 지정하지 않은 제품 위치/특징-사진 연결을 자동으로 채운다 (실패해도 계속)
+            tight_paths: set[str] = set()
             vis = vision_mod.analyze(router, photos, p.features, out_dir / "vision")
             result["vision"] = vis
             if vis and not vis.get("error"):
@@ -224,8 +225,22 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                     p.feature_photos.setdefault(feat, photos[idx])
                 privacy = sorted({t for ph in vis["photos"] for t in ph["private_info_visible"]})
                 if privacy:
-                    result.setdefault("warnings", []).append(
-                        "사진에 개인 정보로 보이는 요소: " + ", ".join(privacy) + " - 제품 영역만 사용하도록 확인 후 게시")
+                    result.setdefault("warnings", []).append("사진에 개인 정보로 보이는 요소: " + ", ".join(privacy))
+                # 개인 정보가 찍힌 사진은 제품 위치를 알 때만, 그리고 제품 주변만 타이트하게 쓴다.
+                private_idx = {ph["index"] for ph in vis["photos"] if ph["private_info_visible"]}
+                private_paths = {photos[i] for i in private_idx}
+                drop = [i for i in sorted(private_idx) if not analyses[i].focus]
+                for i in drop:
+                    result["warnings"].append(f"사진 {i + 1}: 개인 정보가 있고 제품 위치를 알 수 없어 영상에서 제외")
+                if drop:
+                    keep = [i for i in range(len(photos)) if i not in drop]
+                    if not keep:
+                        raise ValueError("모든 사진에 개인 정보가 있고 제품 위치를 알 수 없습니다. 제품 위치를 지정해 주세요.")
+                    dropped_paths = {photos[i] for i in drop}
+                    photos = [photos[i] for i in keep]
+                    analyses = [analyses[i] for i in keep]
+                    p.feature_photos = {f: pth for f, pth in p.feature_photos.items() if pth not in dropped_paths}
+                tight_paths = private_paths & set(photos)
             elif vis and vis.get("error"):
                 job.say("Vision 분석 실패 - 수동 입력값으로 진행: " + vis["error"][:120])
             identity = build_identity(p, analyses, product_id=f"P-{job_id}")
@@ -246,14 +261,16 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
 
         # 3 STORY / SCRIPT / SCENES -------------------------------------------
         with job.step("SCRIPT"):
-            data = llm_director(router, p, identity, mode) if router.has_real("llm") else rule_director(p, mode)
+            data = llm_director(router, p, identity, mode, result.get("vision")) if router.has_real("llm") else rule_director(p, mode)
             if "_director" not in data:
                 data["_director"] = "local:rule_director_v1"
             plan = direct_scenes(data, identity, p, mode)
             result["plan"] = plan.to_dict()
+            result["grounding"] = {"script": data.get("_grounding")}
 
         renderer = MotionRenderer(width=render[0], height=render[1], fps=render[2])
         renderer.cache.boxes = {ph["path"]: tuple(ph["product_box"]) for ph in identity.photos if ph.get("focus")}
+        renderer.cache.tight = set(tight_paths)   # 개인 정보가 있는 사진은 제품 주변만 (넓게 자르지 않음)
         # 4 STORYBOARD + VISUAL QA (+ scene retry) ------------------------------
         with job.step("STORYBOARD"):
             sb = storyboard_qa(plan.scenes, identity)
@@ -364,7 +381,8 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
 
         # 8 PLATFORM COPY + COMPLIANCE + EXPORT --------------------------------
         with job.step("COMPLIANCE"):
-            copies = adapter.platform_copy(plan, p, router)
+            copies, copy_report = adapter.platform_copy(plan, p, router, result.get("vision"), with_report=True)
+            result.setdefault("grounding", {})["copy"] = copy_report
             texts = {f"{s.scene_id}.caption": s.caption.replace("[[", "").replace("]]", "") for s in plan.scenes}
             texts.update({f"{s.scene_id}.tts": s.tts_line for s in plan.scenes})
             assets = db.query("SELECT path, rights FROM assets WHERE job_id=?", (job_id,))

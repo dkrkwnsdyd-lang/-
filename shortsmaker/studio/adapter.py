@@ -31,25 +31,52 @@ def _tags(p, profile: dict) -> list[str]:
     return [f"#{t}" for t in base[:hi]] if hi else []
 
 
-def platform_copy(plan, p, router=None) -> dict[str, dict]:
-    """플랫폼마다 다른 문구. LLM 이 있으면 LLM, 없으면 템플릿 (동일 문구 복사 금지)."""
+def platform_copy(plan, p, router=None, vision=None, with_report: bool = False):
+    """플랫폼마다 다른 문구. LLM 이 있으면 LLM(근거 검증 통과 시), 없거나 검증 실패면 템플릿 (동일 문구 복사 금지)."""
+    result = _platform_copy(plan, p, router, vision)
+    return result if with_report else result[0]
+
+
+def _platform_copy(plan, p, router, vision):
+    from . import grounding
     disclosure = brain.policy("korea")["disclosure_rules"].get(p.affiliate) if p.affiliate != "NONE" else ""
     hook = strip_marks(plan.hook_candidates[0]["text"]) if plan.hook_candidates else p.name
     feats = [f for f in p.features[:3]]
     prof = profiles()
+    template = lambda: _template_copy(plan, p, hook, feats, prof)   # noqa: E731
     if router is not None and router.has_real("llm"):
-        try:
+        facts = grounding.allowed_facts(p, vision)
+
+        def produce(feedback):
             system = ("한국어 쇼핑 쇼츠 게시 문구 작성. 플랫폼마다 말투/길이/해시태그 수가 달라야 하며 같은 문장을 반복하지 않는다. "
-                      "입력에 없는 판매량/후기수/순위/효능/인증은 쓰지 않는다. JSON: "
-                      '{"youtube":{"title","description"},"instagram":{"caption"},"tiktok":{"caption"},"threads":{"post"}}')
-            job = {"product": p.name, "features": feats, "hook": hook, "price": p.price,
+                      "입력에 없는 판매량/후기수/순위/효능/인증은 쓰지 않는다. " + grounding.RULES_FOR_WRITER + " JSON: "
+                      '{"youtube":{"title","description"},"instagram":{"caption"},"tiktok":{"caption"},"threads":{"post"}}'
+                      + ("\n" + feedback if feedback else ""))
+            job = {"name_exact": p.name, "allowed_facts": facts, "hook": hook, "price": p.price,
                    "styles": {k: {"hook_style": v["hook_style"], "cta_style": v["cta_style"],
                                   "description_style": v["description_style"], "hashtags": v["hashtag_style"]}
                               for k, v in prof.items()}}
-            data = router.run("llm", "json", system=system, user=json.dumps(job, ensure_ascii=False)).value
-            return _finalize(data, disclosure, p, prof)
-        except Exception:
-            pass
+            res = router.run("llm", "json", system=system, user=json.dumps(job, ensure_ascii=False))
+            if res.provider == "local":
+                raise RuntimeError("LLM 사용 불가")
+            return res.value
+
+        def lines(d):
+            out = []
+            for v in d.values():
+                if isinstance(v, dict):
+                    out += [str(x) for x in v.values() if isinstance(x, str)]
+            return out
+
+        data, report = grounding.generate_grounded(router, produce, lines, facts, p.name, lambda: None)
+        if data is not None:
+            return _finalize(data, disclosure, p, prof), report
+        return template(), report
+    return template(), {"attempts": [], "final": "template"}
+
+
+def _template_copy(plan, p, hook, feats, prof):
+    disclosure = brain.policy("korea")["disclosure_rules"].get(p.affiliate) if p.affiliate != "NONE" else ""
     short = product_short(p.name)
     bullet = "\n".join(f"· {f}" for f in feats)
     data = {
