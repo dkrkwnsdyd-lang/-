@@ -77,6 +77,8 @@
 
 - Added (Windows): `install.bat`(가상환경/부품/.env), `start.bat`(포트 검사, git pull, 접근 암호 확인, tailscale serve, 브라우저 열기, 서버 실행), `.gitattributes`(*.bat CRLF), MOBILE.md 안내. 실제 Windows 실행 검증은 사용자 PC 에서 필요
 
+- Added (영상 클립 1단계): 직접 찍은 상품 영상 업로드(`videos`, 최대 4개/200MB, mp4·mov·m4v·webm·mkv·3gp). `studio/clips.py`: 3fps 분석(선명도/밝기/흔들림) → 컷 길이에 맞는 최적 구간 선택(겹침 방지), demo/benefit/detail/reveal 컷을 `video_clip` 으로 교체(최대 3컷, 컷 길이/자막/오디오 타이밍 유지), 세로는 꽉 채움·가로는 흐린 배경 위 배치, 원본 소리 미사용, 대표 프레임 Vision 개인정보 검사(걸리면 클립 제외, 검사 불가 시 경고). `motion.Shot.clip_start/clip_aspect`, `MotionRenderer._clip_frame/close_clips`, 화면 '🎬 영상 클립 추가'
+
 ### Known Issues
 - 외부 AI(LLM/TTS/영상 생성) 실호출 미검증 — 키 없음 + 샌드박스 네트워크 차단
 - 사람/손이 나오는 실제 사용 장면은 영상 생성 provider 연결 전까지 만들 수 없음 (현재는 원본 사진 모션)

@@ -22,6 +22,7 @@ from .audio import build_mix
 from .director import BEAT_DURATION, direct_scenes, llm_director, rule_director, zoomable
 from .editor import edit, edl_summary, time_words
 from .motion import MotionRenderer, caption_font_path
+from . import clips as clips_mod
 from .product import ProductInput, analyze_photo, build_identity, import_from_url
 from .qa import best_take, final_qa, storyboard_qa, vision_review
 from . import vision as vision_mod
@@ -201,6 +202,12 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 shutil.copy(ph, dst)
                 photos.append(str(dst))
                 db.add_asset(job_id, str(dst), "product_photo", p.photo_rights, ph)
+            video_paths = []
+            for i, vd in enumerate(p.videos):
+                dst = src_dir / f"clip_{i}{Path(vd).suffix.lower() or '.mp4'}"
+                shutil.copy(vd, dst)
+                video_paths.append(str(dst))
+                db.add_asset(job_id, str(dst), "product_video", p.photo_rights, vd)
             analyses = [analyze_photo(ph) for ph in photos]
             saved_by_name = {Path(orig).name: saved for orig, saved in zip(p.photos, photos)}
             p.feature_photos = {feat: saved_by_name[name] for feat, name in p.feature_photos.items()
@@ -320,6 +327,29 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 best = next(t for t in bt["takes"] if t["name"] == bt["selected"])
                 db.add_qa(job_id, "take", bt["scene_id"], best["scores"], best["total"] >= 60, bt["reason"])
 
+        # 5-B VIDEO CLIPS (사용자가 찍은 영상 클립: 좋은 구간 분석 + 개인정보 검사) ---------------
+        clip_infos: list[dict] = []
+        if video_paths:
+            with job.step("CLIPS"):
+                clip_infos, cw = clips_mod.prepare(video_paths, out_dir / "clips_work")
+                result.setdefault("warnings", []).extend(cw)
+                screened, unchecked = [], False
+                for info in clip_infos:
+                    vis_c = vision_mod.analyze(router, clips_mod.sample_frames(info, out_dir / "clips_frames"), [],
+                                               out_dir / "clips_vision")
+                    if vis_c and not vis_c.get("error"):
+                        priv = sorted({t for ph in vis_c["photos"] for t in ph["private_info_visible"]})
+                        if priv:
+                            result["warnings"].append(f"영상 {info['index'] + 1}: 개인 정보로 보이는 요소({', '.join(priv)})가 있어 제외")
+                            continue
+                    else:
+                        unchecked = True
+                    screened.append(info)
+                clip_infos = screened
+                if unchecked and clip_infos:
+                    result["warnings"].append("영상 속 개인 정보(얼굴/번호판/주소 등)를 자동으로 검사하지 못했어요. 게시 전에 직접 확인하세요.")
+                job.say(f"영상 클립 {len(clip_infos)}/{len(video_paths)}개 사용 가능")
+
         # 6 TTS -----------------------------------------------------------------
         voice = {}
         if router.has_real("tts"):
@@ -337,6 +367,9 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
             with job.step("EDIT"):
                 edl = edit(plan, takes, voice, label=label,
                            zoomable_paths={ph['path'] for ph in identity.photos if zoomable(identity, ph['path'])})
+            clip_report = clips_mod.assign(edl["shots"], plan.scenes, clip_infos)
+            if video_paths:
+                result["clips"] = {"provided": len(video_paths), "usable": len(clip_infos), "used": clip_report}
             with job.step("RENDER"):
                 body = [s for s in edl["shots"] if s.scene_id != plan.scenes[-1].scene_id]
                 cta = [s for s in edl["shots"] if s.scene_id == plan.scenes[-1].scene_id]
@@ -378,6 +411,8 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
         result["edl"] = edl_summary(edl)
         result["master"] = str(master)
         result["storyboard_sheet"] = str(contact_sheet(renderer, edl["shots"], vdir / "storyboard.jpg"))
+        if video_paths and not (result.get("clips") or {}).get("used"):
+            result.setdefault("warnings", []).append("올린 영상이 컷에 쓰이지 않았어요 (사용할 수 없는 클립이거나 구간이 짧음)")
 
         # 8 PLATFORM COPY + COMPLIANCE + EXPORT --------------------------------
         with job.step("COMPLIANCE"):
@@ -407,12 +442,17 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                                           max_duration=prof["max_duration"])
             exports[pf] = {"file": str(out), "verdict": verdict, "reasons": gate["platforms"][pf]["reasons"]}
         result["exports"] = exports
+        renderer.close_clips()
         result["status"] = "COMPLETE" if qa["passed"] else "QUALITY_FAIL"
         result["cost"] = db.job_cost(job_id)
         result["router_trace"] = router.trace
         result["log"] = job.log
         db.update_job(job_id, result["status"], result)
     except Exception as e:
+        try:
+            renderer.close_clips()
+        except Exception:
+            pass
         result["status"] = "FAILED"
         result["error"] = str(e)
         result["trace"] = traceback.format_exc()[-1500:]

@@ -82,6 +82,8 @@ class Shot:
     caption_zone: str = "top"           # top | bottom
     speed: float = 1.0
     label: str = ""                     # 좌상단 고지 라벨 (예: 광고)
+    clip_start: float = 0.0             # shot == "video_clip": 원본 영상에서 쓸 구간 시작(초)
+    clip_aspect: float = 0.5625         # 원본 영상 가로/세로 비율
 
 
 # ------------------------------------------------------------------ plates
@@ -464,6 +466,20 @@ class MotionRenderer:
         self.captions = CaptionRenderer(font_path, self.safe)
         self._sweep = None
         self._label_cache: dict[str, Image.Image] = {}
+        self._clips: dict[tuple, "ClipReader"] = {}
+
+    def _clip_frame(self, shot: Shot, t: float) -> Image.Image:
+        from .clips import ClipReader
+        key = (shot.source, round(shot.clip_start, 3))
+        rd = self._clips.get(key)
+        if rd is None:
+            rd = self._clips[key] = ClipReader(shot.source, shot.clip_start, shot.clip_aspect, W, H, self.fps)
+        return rd.read(int(t * self.fps + 1e-6))
+
+    def close_clips(self) -> None:
+        for rd in self._clips.values():
+            rd.close()
+        self._clips.clear()
 
     # --- camera helpers
     @staticmethod
@@ -521,7 +537,11 @@ class MotionRenderer:
                 env = ease_out(dt / 0.08) if dt < 0.08 else 1 - ease((dt - 0.08) / 0.42)
                 punch = max(punch, 0.12 * env)
         kind = shot.shot
-        if kind in ("macro",):
+        if kind == "video_clip":
+            frame = self._clip_frame(shot, t)
+            if punch:
+                frame = self._crop(frame, 1.0 + punch, 0.5, 0.5)
+        elif kind in ("macro",):
             plate = macro_plate(self.cache, shot.source, shot.focus)
             scale = z0 + (z1 - z0) * ease(p) + punch
             cx = 0.5 + shot.pan[0] * 0.06 * (p - 0.5)
@@ -636,6 +656,7 @@ class MotionRenderer:
             proc.stdin.close()
         except BrokenPipeError:
             pass
+        self.close_clips()
         err = proc.stderr.read().decode(errors="replace")
         if proc.wait() != 0:
             raise RuntimeError(f"ffmpeg 인코딩 실패: {err[-500:]}")

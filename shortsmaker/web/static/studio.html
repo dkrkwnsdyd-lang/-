@@ -136,6 +136,12 @@
     <input id="cam" type="file" accept="image/*" capture="environment" hidden>
     <input id="file" type="file" accept="image/*" multiple hidden>
     <div id="thumbs"></div>
+    <div class="addrow" style="margin-top:10px">
+      <button type="button" id="vidBtn">🎬 영상 클립 추가 (선택)</button>
+    </div>
+    <input id="vid" type="file" accept="video/*" multiple hidden>
+    <div id="vlist"></div>
+    <p class="note" id="vidHint">💡 직접 찍은 <b>사용 장면 영상</b>(3~10초)을 넣으면 사진 대신 실제 움직임이 쓰여요. 가장 선명한 구간을 자동으로 고르고, <b>원본 소리는 쓰지 않아요</b>. 사진은 꼭 1장 이상 필요해요.</p>
     <p class="note" id="boxHint" style="display:none">💡 사진을 누르면 <b>제품 위치</b>를 표시할 수 있어요. 배경이 복잡한 사진(야외·소품 많음)은 표시해야 확대 컷이 제품에 정확히 맞아요.</p>
 
     <details>
@@ -234,6 +240,7 @@ const LABEL = { hook:"Hook", visual_quality:"Visual", product_consistency:"Produ
 const PF = { youtube:"YouTube", instagram:"Instagram", tiktok:"TikTok", threads:"Threads" };
 const ICON = { PASS:"🟢", PASS_WITH_WARNING:"🟡", REQUIRES_EDIT:"🟠", BLOCKED:"🔴", UNKNOWN:"⚪" };
 let files = [];
+let videos = [];
 const toast = (msg) => { const t = $("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2200); };
 let boxes = new Map();   // File -> [x0,y0,x1,y1]
 let editing = null, drag = null;
@@ -258,6 +265,19 @@ function drawFeatureLinks() {
     $("featureRows").appendChild(row);
   });
 }
+
+function drawVideos() {
+  $("vlist").innerHTML = "";
+  videos.forEach((f, i) => {
+    const d = document.createElement("div");
+    d.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 10px;margin-top:6px;border:1px solid var(--line, #d0d5dd);border-radius:10px";
+    d.innerHTML = `<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🎬 ${f.name.replace(/[<>&]/g, "")}</span><small>${(f.size / 1048576).toFixed(1)}MB</small><button type="button" title="삭제">✕</button>`;
+    d.querySelector("button").onclick = () => { videos.splice(i, 1); drawVideos(); };
+    $("vlist").appendChild(d);
+  });
+}
+$("vidBtn").onclick = () => $("vid").click();
+$("vid").onchange = (e) => { videos.push(...[...e.target.files].filter(f => f.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|mkv|3gp)$/i.test(f.name))); e.target.value = ""; drawVideos(); };
 
 function drawThumbs() {
   drawFeatureLinks();
@@ -313,9 +333,10 @@ drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); files.
 
 $("go").onclick = async () => {
   $("err").textContent = "";
-  if (!files.length && !$("url").value.trim()) { $("err").textContent = "상품 URL 또는 사진을 넣어주세요."; return; }
+  if (!files.length && !$("url").value.trim()) { $("err").textContent = videos.length ? "영상과 함께 상품 사진을 1장 이상 넣어주세요." : "상품 URL 또는 사진을 넣어주세요."; return; }
   const fd = new FormData();
   files.forEach(f => fd.append("photos", f));
+  videos.forEach(f => fd.append("videos", f));
   const bx = {}; files.forEach((f, i) => { if (boxes.has(f)) bx[i] = boxes.get(f); });
   fd.append("boxes", JSON.stringify(bx));
   const feats = new Set($("features").value.split(/\n/).map(x => x.trim()).filter(Boolean));

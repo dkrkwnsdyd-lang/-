@@ -14,10 +14,13 @@ from ..db import DB
 from ..platforms import PostMeta, publish_all
 from ..providers import Router
 from ..sources import IMAGE_EXTS
+from ..studio.clips import VIDEO_EXTS
 
 PLATFORMS = ("youtube", "instagram", "tiktok", "threads")
 MAX_PHOTOS = 12
 MAX_PHOTO_BYTES = 30 * 1024 * 1024
+MAX_VIDEOS = 4
+MAX_VIDEO_BYTES = 200 * 1024 * 1024
 
 
 class V2PublishRequest(BaseModel):
@@ -40,6 +43,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
     @app.post("/api/v2/jobs")
     def create_job(
         photos: list[UploadFile] = File(default=[]),
+        videos: list[UploadFile] = File(default=[]),
         url: str = Form(""), name: str = Form(""), description: str = Form(""), features: str = Form(""),
         problem: str = Form(""), target: str = Form(""), price: str = Form(""), category: str = Form(""),
         affiliate: str = Form("NONE"), photo_rights: str = Form("OWNED"), reference_url: str = Form(""),
@@ -63,8 +67,26 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
                 shutil.rmtree(up, ignore_errors=True)
                 raise HTTPException(400, f"사진 한 장은 {MAX_PHOTO_BYTES // 1024 // 1024}MB 이하여야 해요: {f.filename}")
             saved.append(str(dst))
+        if len(videos) > MAX_VIDEOS:
+            shutil.rmtree(up, ignore_errors=True)
+            raise HTTPException(400, f"영상은 최대 {MAX_VIDEOS}개까지 올릴 수 있어요.")
+        saved_videos = []
+        for i, f in enumerate(videos):
+            suffix = Path(f.filename or "").suffix.lower()
+            if suffix not in VIDEO_EXTS:
+                shutil.rmtree(up, ignore_errors=True)
+                raise HTTPException(400, f"지원하지 않는 영상 형식: {f.filename}")
+            dst = up / f"clip{i:02d}{suffix}"
+            with open(dst, "wb") as out:
+                shutil.copyfileobj(f.file, out)
+            if dst.stat().st_size > MAX_VIDEO_BYTES:
+                shutil.rmtree(up, ignore_errors=True)
+                raise HTTPException(400, f"영상 하나는 {MAX_VIDEO_BYTES // 1024 // 1024}MB 이하여야 해요: {f.filename}")
+            saved_videos.append(str(dst))
         if not saved and not url.strip():
-            raise HTTPException(400, "상품 URL 또는 상품 사진이 필요합니다.")
+            shutil.rmtree(up, ignore_errors=True)
+            raise HTTPException(400, "상품 사진이 필요합니다. 영상은 사진과 함께 올려주세요." if saved_videos
+                                else "상품 URL 또는 상품 사진이 필요합니다.")
         # boxes: {"사진 순번": [x0,y0,x1,y1]} (0~1) -> 저장된 파일명 기준으로 변환
         product_boxes: dict[str, list[float]] = {}
         try:
@@ -92,7 +114,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         pfs = [p for p in platforms.split(",") if p in PLATFORMS] or list(PLATFORMS)
         inputs = {"name": name.strip(), "description": description.strip(), "features": features,
                   "problem": problem.strip(), "target": target.strip(), "my_take": my_take.strip()[:200], "price": price.strip(), "url": url.strip(),
-                  "photos": saved, "photo_rights": photo_rights, "reference_url": reference_url.strip(),
+                  "photos": saved, "videos": saved_videos, "photo_rights": photo_rights, "reference_url": reference_url.strip(),
                   "affiliate": affiliate, "category_hint": category, "product_boxes": product_boxes,
                   "feature_photos": linked}
         live[job_id] = []

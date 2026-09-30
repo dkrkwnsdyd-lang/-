@@ -27,6 +27,7 @@ class ProductInput:
     price: str = ""
     url: str = ""
     photos: list[str] = field(default_factory=list)
+    videos: list[str] = field(default_factory=list)   # 직접 찍은 상품 영상 클립 (사용 장면용, 원본 소리는 쓰지 않음)
     photo_rights: str = "OWNED"       # OWNED | SELLER_PROVIDED | LICENSED | STOCK_LICENSED | UNKNOWN
     reference_url: str = ""
     affiliate: str = "NONE"           # NONE | COUPANG_PARTNERS | NAVER_SHOPPING_CONNECT | BRAND_SPONSORSHIP | OTHER_AFFILIATE

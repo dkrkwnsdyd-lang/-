@@ -295,7 +295,7 @@ def final_qa(video: Path, plan, edl: dict, has_voice: bool, font_ok: bool, ident
         pace -= 20; notes["pacing"].append(f"평균 컷 {avg}s")
     if timing["max_shot"] > pacing["max_shot_length"]:
         pace -= 15; notes["pacing"].append(f"최장 컷 {timing['max_shot']}s")
-    same = sum(1 for a, b in zip(edl["shots"], edl["shots"][1:]) if a.shot == b.shot and a.source == b.source)
+    same = sum(1 for a, b in zip(edl["shots"], edl["shots"][1:]) if a.shot == b.shot and a.source == b.source and a.clip_start == b.clip_start)
     if same:
         pace -= 10 * same; notes["pacing"].append(f"같은 구도 연속 {same}회")
     # 실제 화면 기준 반복 검사: 컷마다 중간 프레임을 비교 (샷 이름이 달라도 화면이 같으면 반복)
@@ -308,7 +308,7 @@ def final_qa(video: Path, plan, edl: dict, has_voice: bool, font_ok: bool, ident
     looks = _distinct_looks(mids)
     shots = edl["shots"]
     repeat_scenes = sorted({shots[i + 1].scene_id for i, (x, y) in enumerate(zip(mids, mids[1:]))
-                            if _similar(x, y) or (shots[i].shot == shots[i + 1].shot and shots[i].source == shots[i + 1].source)})
+                            if _similar(x, y) or (shots[i].shot == shots[i + 1].shot and shots[i].source == shots[i + 1].source and shots[i].clip_start == shots[i + 1].clip_start)})
     repeats = sum(1 for x, y in zip(mids, mids[1:]) if _similar(x, y))
     if repeats:
         pace -= 8 * repeats; notes["pacing"].append(f"연속 컷 화면이 거의 같음 {repeats}회")

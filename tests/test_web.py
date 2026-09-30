@@ -111,3 +111,14 @@ def test_upload_limits(photos, tmp_path):
     c = TestClient(create_app({}, tmp_path / "out", tmp_path / "up"))
     many = [("photos", (f"{i}.jpg", photos[0].read_bytes(), "image/jpeg")) for i in range(13)]
     assert c.post("/api/v2/jobs", files=many, data={}).status_code == 400
+
+
+def test_v2_job_video_upload_validation(photos, tmp_path):
+    client = TestClient(create_app({}, tmp_path / "out", tmp_path / "up"))
+    files = [("photos", (p.name, p.read_bytes(), "image/jpeg")) for p in photos[:1]]
+    bad = client.post("/api/v2/jobs", files=files + [("videos", ("a.exe", b"x", "application/octet-stream"))], data={})
+    assert bad.status_code == 400 and "영상 형식" in bad.json()["detail"]
+    many = client.post("/api/v2/jobs", files=files + [("videos", (f"{i}.mp4", b"x", "video/mp4")) for i in range(5)], data={})
+    assert many.status_code == 400 and "최대" in many.json()["detail"]
+    only_video = client.post("/api/v2/jobs", files=[("videos", ("a.mp4", b"x", "video/mp4"))], data={})
+    assert only_video.status_code == 400 and "사진" in only_video.json()["detail"]

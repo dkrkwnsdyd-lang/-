@@ -666,3 +666,80 @@ def test_windows_launchers_are_ascii_crlf():
         raw.decode("ascii")                       # 한글이 섞이면 cmd 에서 깨진다
         assert b"\r\n" in raw and b"\n" not in raw.replace(b"\r\n", b"")
     assert b"shortsmaker web" in (root / "start.bat").read_bytes()
+
+
+# ------------------------------------------------------------------ 영상 클립
+def _make_video(path, w, h, seconds=5, blur_after=None):
+    import subprocess
+    from shortsmaker.video import ffmpeg_exe
+    src = f"testsrc2=size={w}x{h}:rate=15:duration={seconds}"
+    subprocess.run([ffmpeg_exe(), "-y", "-loglevel", "error", "-f", "lavfi", "-i", src, "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p", str(path)], check=True)
+    return str(path)
+
+
+def test_clip_analysis_and_best_window(tmp_path):
+    from shortsmaker.studio import clips
+    v = _make_video(tmp_path / "a.mp4", 360, 640, 5)
+    info = clips.analyze_clip(v, tmp_path)
+    assert info["ok"] and 4.5 <= info["duration"] <= 5.2 and abs(info["aspect"] - 0.5625) < 0.02
+    w = clips.best_window(info, 2.0)
+    assert w and 0 <= w["start"] and w["start"] + w["dur"] <= info["duration"] + 0.01
+    # 이미 쓴 구간과는 겹치지 않는다
+    w2 = clips.best_window(info, 2.0, [(w["start"], w["start"] + w["dur"])])
+    assert w2 is None or w2["start"] >= w["start"] + w["dur"] - 0.01 or w2["start"] + w2["dur"] <= w["start"] + 0.01
+    # 너무 짧은 클립은 쓰지 않는다
+    assert clips.best_window(info, 30.0) is None
+
+
+def test_clip_reader_portrait_landscape_and_hold_last(tmp_path):
+    from shortsmaker.studio import clips
+    for name, (w, h), aspect in (("p", (360, 640), 0.5625), ("l", (640, 360), 1.7778)):
+        v = _make_video(tmp_path / f"{name}.mp4", w, h, 3)
+        rd = clips.ClipReader(v, 0.0, aspect, 270, 480, 10)
+        try:
+            f0, f1 = rd.read(0), rd.read(1)
+            assert f0.size == (270, 480) and f0.tobytes() != f1.tobytes()      # 움직인다
+            assert rd.read(1).tobytes() == f1.tobytes()                        # 같은 프레임 재요청
+            end = rd.read(500)                                                 # 클립보다 길면 마지막 프레임 유지
+            assert end.size == (270, 480) and rd.read(600).tobytes() == end.tobytes()
+        finally:
+            rd.close()
+
+
+def test_assign_uses_demo_shots_only_and_renderer_draws_clip(tmp_path):
+    from shortsmaker.studio import clips
+    from shortsmaker.studio.motion import MotionRenderer, Shot
+    v = _make_video(tmp_path / "a.mp4", 360, 640, 6)
+    info = clips.analyze_clip(v, tmp_path); info["index"] = 0
+
+    class Sc:
+        def __init__(self, sid, beat): self.scene_id, self.beat = sid, beat
+    scenes = [Sc("S1", "hook"), Sc("S2", "demo"), Sc("S3", "cta")]
+    shots = [Shot(scene_id=s.scene_id, shot="hero_push", source="x.jpg", duration=2.0) for s in scenes]
+    rep = clips.assign(shots, scenes, [info])
+    assert [r["scene_id"] for r in rep] == ["S2"]
+    assert [s.shot for s in shots] == ["hero_push", "video_clip", "hero_push"]     # hook/cta 는 사진 유지
+    r = MotionRenderer(width=270, height=480, fps=10)
+    try:
+        assert r.frame(shots[1], 0.5, 1).size == (270, 480)
+    finally:
+        r.close_clips()
+
+
+def test_pipeline_with_video_clip(tmp_path):
+    from shortsmaker.studio.pipeline import run_job
+    photos = make_photos("kitchen_tumbler", tmp_path / "p", 2)
+    v = _make_video(tmp_path / "use.mp4", 360, 640, 8)
+    bad = tmp_path / "bad.mp4"; bad.write_bytes(b"not a video")
+    P = PRODUCTS["kitchen_tumbler"]
+    r = run_job({"name": P["name"], "features": P["features"], "problem": P["problem"], "category_hint": "주방",
+                 "photos": photos, "videos": [v, str(bad)], "affiliate": "COUPANG_PARTNERS"}, "FAST", ["youtube"],
+                out_root=tmp_path / "out", db=DB(tmp_path / "db.sqlite"), render=(270, 480, 10))
+    assert r["status"] in ("COMPLETE", "QUALITY_FAIL"), r.get("error")
+    assert r["clips"]["provided"] == 2 and r["clips"]["usable"] == 1 and r["clips"]["used"]
+    assert any(s["shot"] == "video_clip" for s in r["edl"]["shots"])
+    warns = " ".join(r.get("warnings", []))
+    assert "사용할 수 없어 제외" in warns                      # 깨진 파일은 제외하고 계속
+    assert "개인 정보" in warns                                  # Vision 이 없으면 직접 확인 안내
+    assert Path(r["exports"]["youtube"]["file"]).exists()
