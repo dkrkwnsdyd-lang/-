@@ -106,6 +106,8 @@ class Router:
             need: list[str] | None = None, **kwargs) -> ProviderResult:
         errors = []
         for entry in self.candidates(task, need):
+            if entry.provider in self.dead:      # 같은 호출 안에서 결제/인증 오류가 난 provider 의 다른 모델도 건너뜀
+                continue
             if entry.provider == "local":
                 if local_fn is None:
                     continue
