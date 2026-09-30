@@ -36,7 +36,7 @@ def is_local(host: str) -> bool:
 def resolve_access_code(host: str, code: str | None) -> tuple[str | None, bool]:
     """(사용할 암호, 새로 만들었는지). 로컬 전용이고 암호가 없으면 인증을 끈다."""
     if code:
-        return code, False
+        return code.strip(), False
     if is_local(host):
         return None, False
     return secrets.token_urlsafe(6), True
@@ -56,10 +56,10 @@ def install_auth(app: FastAPI, access_code: str | None) -> None:
 
     def authed(request: Request) -> bool:
         cookie = request.cookies.get(COOKIE, "")
-        if cookie and hmac.compare_digest(cookie, good):
+        if cookie and hmac.compare_digest(cookie.encode(), good.encode()):
             return True
         auth = request.headers.get("authorization", "")
-        return auth.startswith("Bearer ") and hmac.compare_digest(auth[7:].strip(), access_code)
+        return auth.startswith("Bearer ") and hmac.compare_digest(auth[7:].strip().encode(), access_code.encode())
 
     @app.middleware("http")
     async def gate(request: Request, call_next):
@@ -83,7 +83,7 @@ def install_auth(app: FastAPI, access_code: str | None) -> None:
             q.popleft()
         if len(q) >= MAX_FAILS_PER_MIN:
             return JSONResponse({"detail": "시도가 너무 많습니다. 1분 뒤에 다시 해주세요."}, status_code=429)
-        if not hmac.compare_digest(code.strip(), access_code):
+        if not hmac.compare_digest(code.strip().encode(), access_code.encode()):
             q.append(now)
             return JSONResponse({"detail": "암호가 맞지 않습니다."}, status_code=401)
         resp = JSONResponse({"ok": True})
