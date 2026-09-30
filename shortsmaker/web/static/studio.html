@@ -154,6 +154,8 @@
         <label class="f">특징이 보이는 사진 연결 (선택 · 자막과 화면을 맞춰요)</label>
         <div id="featureRows"></div>
       </div>
+      <label class="f" for="myTake">내가 직접 써본 느낌 한 줄 (선택 · 실제 경험만)</label>
+      <input id="myTake" type="text" maxlength="200" placeholder="예: 책상 위에 올려두니 분위기가 달라졌어요">
       <label class="f" for="problem">해결하는 불편 (선택)</label>
       <input id="problem" type="text" placeholder="운동 끝나면 어깨가 뭉쳐요">
       <div class="row2">
@@ -320,7 +322,7 @@ $("go").onclick = async () => {
   fd.append("feature_photos", JSON.stringify(Object.fromEntries(Object.entries(featureSel).filter(([k, v]) => feats.has(k) && v < files.length))));
   const v = (id) => $(id).value;
   fd.append("url", v("url")); fd.append("name", v("name")); fd.append("features", v("features"));
-  fd.append("problem", v("problem")); fd.append("category", v("category")); fd.append("affiliate", v("affiliate"));
+  fd.append("problem", v("problem")); fd.append("my_take", v("myTake")); fd.append("category", v("category")); fd.append("affiliate", v("affiliate"));
   fd.append("photo_rights", v("rights")); fd.append("reference_url", v("ref"));
   fd.append("mode", document.querySelector("input[name=mode]:checked").value);
   fd.append("platforms", [...document.querySelectorAll(".plats input:checked")].map(i => i.value).join(","));

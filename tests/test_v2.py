@@ -1,3 +1,4 @@
+import pathlib
 """SHOP SHORTS V2 테스트 (외부 API 없이)."""
 import json
 from pathlib import Path
@@ -620,3 +621,27 @@ def test_vision_retries_missing_box_once_and_uses_temperature_zero(tmp_path):
     router = Router(providers={"flaky": Flaky()}, registry=reg, status_file=tmp_path / "s.json")
     out = vision.analyze(router, [str(p)], [], tmp_path / "w")
     assert out["boxes"] == {0: [0.2, 0.2, 0.8, 0.8]} and calls == [(0, False), (0, True)]
+
+
+def test_my_take_is_only_source_of_experience_claim():
+    from shortsmaker.studio import grounding
+    from shortsmaker.studio.adapter import VOICE, _casual_post
+    from shortsmaker.studio.product import ProductInput
+    p = ProductInput(name="M-Circle 차량용 거치대", features=["컬러 LED 링", "송풍구 클립 거치"], my_take="차에 붙이니 깔끔해 보여요")
+    facts = grounding.allowed_facts(p)
+    assert any("직접 써본 느낌(사용자 작성): 차에 붙이니 깔끔해 보여요" in f for f in facts)
+    assert "직접 써본 느낌(사용자 작성)" in grounding.RULES_FOR_WRITER
+    assert "대화체" in VOICE and "광고" in VOICE
+    post = _casual_post(p, "거치대", p.features)
+    assert "차에 붙이니 깔끔해 보여요" in post and "\n" in post
+    # 한 줄 느낌이 없으면 경험담을 지어내지 않는다
+    q = ProductInput(name="M-Circle 차량용 거치대", features=["컬러 LED 링"])
+    no = _casual_post(q, "거치대", q.features)
+    assert "했더니" not in no and "써보니" not in no
+
+
+def test_my_take_form_is_wired():
+    html = (pathlib.Path(__file__).parent.parent / "shortsmaker/web/static/studio.html").read_text(encoding="utf-8")
+    api = (pathlib.Path(__file__).parent.parent / "shortsmaker/web/studio_api.py").read_text(encoding="utf-8")
+    assert 'id="myTake"' in html and 'fd.append("my_take"' in html
+    assert 'my_take: str = Form("")' in api and '"my_take": my_take' in api

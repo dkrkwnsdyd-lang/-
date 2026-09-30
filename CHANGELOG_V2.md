@@ -72,6 +72,9 @@
 - Added (모바일/앱): PWA(`web/static/manifest.webmanifest`, `sw.js`, `icons/*`), 모바일 화면 개편(`studio.html`: 카메라 촬영, 앨범, 하단 고정 버튼, 공유 시트로 영상 공유, 문구 복사, 최근 작업, 새로고침해도 진행 중 작업 이어보기, 화면 꺼짐 방지, 설치 안내), 접근 암호(`web/auth.py`: 쿠키/Bearer, 로그인 5회/분 제한, 외부에 열면 암호 자동 생성), 아이폰 HEIC 지원, 업로드 제한(12장/30MB), `Dockerfile`/`docker-compose.yml`/`.dockerignore`, `MOBILE.md`
 - Modified: `shortsmaker web --host 0.0.0.0 --access-code`, `/healthz`, `/favicon.ico`
 
+- Added (문구 톤): 플랫폼 게시 문구를 광고체가 아닌 친구에게 말하는 대화체로 (`adapter.VOICE`: 공감→포인트→디테일→마무리, 짧은 줄, 이모지 1~2개), 대체 템플릿도 대화체 (`adapter._casual_post`)
+- Added: '내가 직접 써본 느낌 한 줄' 입력 (`ProductInput.my_take`, 웹 `myTake`, API `my_take`). 경험담(써보니/했더니)은 이 한 줄만 근거로 허용, 없으면 사진에 보이는 것/특징만 (`grounding.RULES_FOR_WRITER`, `allowed_facts`). 실호출 검증: 지어낸 경험 문장은 판정기가 걸러냄
+
 ### Known Issues
 - 외부 AI(LLM/TTS/영상 생성) 실호출 미검증 — 키 없음 + 샌드박스 네트워크 차단
 - 사람/손이 나오는 실제 사용 장면은 영상 생성 provider 연결 전까지 만들 수 없음 (현재는 원본 사진 모션)

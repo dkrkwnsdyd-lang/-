@@ -27,6 +27,7 @@ JUDGE_SYSTEM = (
 RULES_FOR_WRITER = (
     "허용된 사실(allowed_facts)에 있는 내용만 쓴다. 다음은 입력에 없으면 절대 쓰지 않는다: 문제 상황/불편(예: 밤, 어두움, 헤맴), "
     "장점/효과(설치가 쉽다, 분위기가 달라진다, 잘 보인다, 편하다 등), 시간대, 사용 경험, 비교, 후기, 수치. "
+    "단, '직접 써본 느낌(사용자 작성)'이 있으면 그 내용에 한해서만 1인칭 경험담(써보니/했더니)으로 말할 수 있다. "
     "문제(problem)가 비어 있으면 문제 제시 장면(problem)을 만들지 말고 story_pattern 은 DISCOVERY 또는 DEMONSTRATION 을 쓴다. "
     "상품명(name_exact)은 한 글자도 바꾸지 말고 그대로 쓴다 (번역/음차 금지). "
     "특징은 '있다/보인다' 수준으로만 말하고 그 특징이 가져오는 이점을 덧붙이지 않는다."
@@ -44,6 +45,8 @@ def allowed_facts(p: ProductInput, vision: dict | None = None) -> list[str]:
         facts.append(f"해결하는 불편(사용자 입력): {p.problem}")
     if p.target:
         facts.append(f"대상: {p.target}")
+    if getattr(p, "my_take", ""):
+        facts.append(f"직접 써본 느낌(사용자 작성): {p.my_take}")
     if p.price:
         facts.append(f"가격: {p.price}")
     if vision and not vision.get("error"):

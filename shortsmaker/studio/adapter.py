@@ -15,6 +15,15 @@ from ..video import ffmpeg_exe
 from .director import product_short, strip_marks
 
 
+VOICE = (
+    "말투: 광고 문구가 아니라 친구에게 보여주며 말하는 듯한 자연스러운 한국어 대화체(~네, ~더라, ~거든요, ㅋㅋ 가끔). "
+    "구조: (1) 공감/발견 한 줄 도입 (2) 눈에 보이는 포인트 (3) 귀여운/눈에 띄는 디테일 한 줄 (4) 가볍게 마무리하는 한 줄. "
+    "한 줄은 짧게(20자 안팎), 줄바꿈을 자주 쓰고, 이모지는 전체에 1~2개만. 느낌표 남발, '최고/꼭 사세요/강추' 같은 광고 말투 금지. "
+    "예시(형식만 참고, 내용은 복사 금지): '집에 뭔가 하나 허전했는데ㅋㅋ / 화분 하나 걸었더니 분위기 확 달라짐🌱 / 그네 타고 있는 것도 귀엽고 / 이런 게 은근 포인트네✨'. "
+    "주의: 위 예시처럼 '했더니 달라짐' 같은 경험담은 '직접 써본 느낌(사용자 작성)'이 있을 때만 그 내용으로 쓰고, 없으면 사진에 보이는 것과 특징만 가볍게 말한다. "
+)
+
+
 def profiles() -> dict:
     return brain.system("platform_rules")["profiles"]
 
@@ -48,7 +57,7 @@ def _platform_copy(plan, p, router, vision):
         facts = grounding.allowed_facts(p, vision)
 
         def produce(feedback):
-            system = ("한국어 쇼핑 쇼츠 게시 문구 작성. 플랫폼마다 말투/길이/해시태그 수가 달라야 하며 같은 문장을 반복하지 않는다. "
+            system = ("한국어 쇼핑 쇼츠 게시 문구 작성. 플랫폼마다 말투/길이/해시태그 수가 달라야 하며 같은 문장을 반복하지 않는다. " + VOICE +
                       "입력에 없는 판매량/후기수/순위/효능/인증은 쓰지 않는다. " + grounding.RULES_FOR_WRITER + " JSON: "
                       '{"youtube":{"title","description"},"instagram":{"caption"},"tiktok":{"caption"},"threads":{"post"}}'
                       + ("\n" + feedback if feedback else ""))
@@ -75,6 +84,19 @@ def _platform_copy(plan, p, router, vision):
     return template(), {"attempts": [], "final": "template"}
 
 
+def _casual_post(p, short: str, feats: list[str]) -> str:
+    """LLM 없이도 대화체로: 공감/발견 -> 포인트 -> 사용자 한 줄 -> 마무리. 입력에 없는 경험/효과는 쓰지 않는다."""
+    lines = [f"{p.problem.rstrip('.?!')}… 저만 그런 거 아니죠?" if p.problem else f"{short} 하나 발견했는데ㅋㅋ"]
+    if feats:
+        lines.append(f"{feats[0]} 이 부분이 눈에 들어오네요")
+    if getattr(p, "my_take", ""):
+        lines.append(p.my_take.strip())
+    elif len(feats) > 1:
+        lines.append(f"{feats[1]}도 있어요")
+    lines.append("써본 분 의견 궁금해요")
+    return "\n".join(lines)
+
+
 def _template_copy(plan, p, hook, feats, prof):
     disclosure = brain.policy("korea")["disclosure_rules"].get(p.affiliate) if p.affiliate != "NONE" else ""
     short = product_short(p.name)
@@ -84,9 +106,7 @@ def _template_copy(plan, p, hook, feats, prof):
                     "description": f"{p.name}\n\n{bullet}\n\n{prof['youtube']['cta_text']}"},
         "instagram": {"caption": f"{hook}\n.\n{p.name}\n{bullet}\n.\n{prof['instagram']['cta_text']} 🛒"},
         "tiktok": {"caption": f"{short} 이거 봤어요? {feats[0] if feats else ''} {prof['tiktok']['cta_text']}".strip()},
-        "threads": {"post": (f"{p.problem.rstrip('.?!')}… 저만 그런 거 아니죠? " if p.problem else f"{short} 찾는 분 있을까 해서요. ")
-                            + f"{p.name}{', ' + feats[0] if feats and not all(t in p.name for t in feats[0].split()[:1]) else ''}. "
-                            + prof['threads']['cta_text']},
+        "threads": {"post": _casual_post(p, short, feats)},
     }
     return _finalize(data, disclosure, p, prof)
 

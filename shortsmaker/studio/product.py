@@ -23,6 +23,7 @@ class ProductInput:
     features: list[str] = field(default_factory=list)
     problem: str = ""                 # 이 제품이 해결하는 불편 (사용자 입력)
     target: str = ""                  # 누가 쓰는지
+    my_take: str = ""                 # 사용자가 직접 써본 느낌 한 줄 (실제 경험만). 문구에서 경험담으로 쓸 수 있는 유일한 근거
     price: str = ""
     url: str = ""
     photos: list[str] = field(default_factory=list)
