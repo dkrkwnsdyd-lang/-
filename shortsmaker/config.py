@@ -30,8 +30,13 @@ def load_dotenv(path: str | os.PathLike = ".env") -> None:
     p = Path(path)
     if not p.exists():
         return
-    for line in p.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
+    raw = p.read_bytes()
+    try:
+        text = raw.decode("utf-8-sig")          # 메모장이 붙이는 BOM 제거
+    except UnicodeDecodeError:
+        text = raw.decode("cp949", errors="replace")   # 한국어 Windows 메모장(ANSI)
+    for line in text.splitlines():
+        line = line.strip().lstrip("\ufeff")
         if not line or line.startswith("#") or "=" not in line:
             continue
         k, v = line.split("=", 1)

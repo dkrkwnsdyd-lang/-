@@ -1,3 +1,4 @@
+import os
 import pathlib
 """SHOP SHORTS V2 테스트 (외부 API 없이)."""
 import json
@@ -645,3 +646,14 @@ def test_my_take_form_is_wired():
     api = (pathlib.Path(__file__).parent.parent / "shortsmaker/web/studio_api.py").read_text(encoding="utf-8")
     assert 'id="myTake"' in html and 'fd.append("my_take"' in html
     assert 'my_take: str = Form("")' in api and '"my_take": my_take' in api
+
+
+def test_load_dotenv_handles_windows_notepad_encodings(tmp_path, monkeypatch):
+    from shortsmaker.config import load_dotenv
+    monkeypatch.delenv("SS_T1", raising=False); monkeypatch.delenv("SS_T2", raising=False)
+    (tmp_path / "bom.env").write_bytes("SS_T1=abc\n# 한글 주석\n".encode("utf-8-sig"))
+    load_dotenv(tmp_path / "bom.env")
+    assert os.environ["SS_T1"] == "abc"                      # BOM 이 첫 키를 망가뜨리지 않는다
+    (tmp_path / "ansi.env").write_bytes("# 한글 주석\nSS_T2=xyz\r\n".encode("cp949"))
+    load_dotenv(tmp_path / "ansi.env")
+    assert os.environ["SS_T2"] == "xyz"                      # cp949 저장도 읽는다
