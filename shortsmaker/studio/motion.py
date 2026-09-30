@@ -568,6 +568,8 @@ class MotionRenderer:
                 env = ease_out(dt / 0.08) if dt < 0.08 else 1 - ease((dt - 0.08) / 0.42)
                 punch = max(punch, 0.12 * env)
         kind = shot.shot
+        if kind == "parallax" and self.cache.cutout(shot.source) is None:
+            kind = "hero_push"      # 배경 제거가 안 되는 사진에서 패럴랙스는 제품 카드를 1.2배로 키워 화면 밖으로 밀어낸다 (제품 잘림)
         if kind == "video_clip":
             frame = self._clip_frame(shot, t)
             if punch:

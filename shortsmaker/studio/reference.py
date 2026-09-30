@@ -43,8 +43,35 @@ def analyze_local(path: str | Path) -> dict:
     return out
 
 
+# 검색결과/탐색/태그 페이지는 '영상 하나'가 아니므로 참고 영상으로 분석하지 않는다.
+SEARCH_PATTERNS = [
+    r"xiaohongshu\.com/(search_result|explore\?|web_search)", r"rednote\.com/(search|explore\?)",
+    r"youtube\.com/results", r"youtube\.com/(hashtag|@[^/]+/?$|channel/[^/]+/?$|playlist)",
+    r"tiktok\.com/(search|tag|discover)", r"instagram\.com/(explore|reels/?$)", r"threads\.(net|com)/search",
+    r"[?&](search_query|keyword|q|query)=",
+]
+
+
+def classify_reference_url(ref: str) -> str:
+    """LOCAL_FILE | INDIVIDUAL_VIDEO | SEARCH_RESULT | UNKNOWN_URL"""
+    import re
+    if not ref:
+        return "UNKNOWN_URL"
+    if Path(ref).exists():
+        return "LOCAL_FILE"
+    if youtube_video_id(ref):
+        return "INDIVIDUAL_VIDEO"
+    if any(re.search(pat, ref, re.I) for pat in SEARCH_PATTERNS):
+        return "SEARCH_RESULT"
+    return "UNKNOWN_URL"
+
+
 def analyze_reference(ref: str, router=None) -> dict:
-    """결과: {"source", "status", "analysis"}"""
+    """결과: {"source", "status", "analysis", "kind"}"""
+    kind = classify_reference_url(ref)
+    if kind == "SEARCH_RESULT":
+        return {"source": ref, "status": "UNVERIFIED", "analysis": {}, "method": "none", "kind": kind,
+                "note": "개별 영상 링크가 필요합니다 (검색결과/탐색 페이지는 영상 하나로 분석하지 않아요). 학습에 반영하지 않음"}
     if ref and Path(ref).exists():
         return {"source": ref, "status": "PARTIAL", "analysis": analyze_local(ref),
                 "method": "local_cut_detection"}
@@ -62,8 +89,8 @@ def analyze_reference(ref: str, router=None) -> dict:
             return {"source": ref, "status": status, "analysis": data, "method": f"{res.provider}:{res.model}"}
         except Exception as e:
             return {"source": ref, "status": "UNVERIFIED", "analysis": {}, "method": "failed", "error": str(e)[:200]}
-    return {"source": ref, "status": "UNVERIFIED", "analysis": {}, "method": "none",
-            "note": "영상 분석 provider 미연결 - 구조를 확인할 수 없어 학습에 반영하지 않음"}
+    return {"source": ref, "status": "UNVERIFIED", "analysis": {}, "method": "none", "kind": kind,
+            "note": "영상 분석 provider 미연결 또는 개별 영상 링크가 아님 - 구조를 확인할 수 없어 학습에 반영하지 않음"}
 
 
 def learn(result: dict, knowledge: brain.LearnedKnowledge) -> bool:

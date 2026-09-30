@@ -13,6 +13,16 @@
 - 사용자 사진은 쿠팡 상품 이미지. 게시 전 쿠팡 파트너스 약관(이미지 사용 조건) 확인 또는 판매자 허락/직접 촬영 사진 필요
 - 나중에: Coupang Partners API 로 상품 정보/이미지를 가져오는 정식 경로 연동 검토 (Seller API / Partners / 페이지 import 를 혼동하지 말 것)
 
+## 0. 품질 개선 다음 단계 (V2 검증 결과 반영, 2026-09-30) — 최우선
+- 현재 문제: 사진 2장만으로는 Visual 52~55 / Commercial 47 (Gemini). 보정·크롭으로는 더 오르지 않음 (TEST_RESULTS.md)
+- NEXT TASK 1: **PRIORITY 6 Source Library + Semantic Clip Matcher** — 입력 사진/영상을 라이브러리로 저장, 영상은 장면 분할 + Gemini 로 metadata(action/usage/product_visibility/시간 구간), 대사·자막 의미와 맞는 클립 자동 배치, 불일치는 Final QA FAIL. (기존 `studio/clips.py` 의 구간 선택/재생/개인정보 검사를 재사용)
+- NEXT TASK 2: 실제 사용 장면 영상(손으로 설치/사용, 3~10초)을 받아 D. SOURCE VIDEO 실험 (실제 폰 영상 필요)
+- NEXT TASK 3: PRIORITY 7 AI 영상은 Source Library 에 없는 장면에만 (Seedance/Higgsfield/Veo 중 공식 API 문서로 검증 가능한 하나). 추측 endpoint 금지
+- 사용자 조치(코드로 못 고침): 단색/정리된 배경 + 자연광 촬영, 정면/옆/디테일/사용 장면 각 1장 이상, 제품이 화면의 60~80%
+- FILES TO OPEN: `shortsmaker/studio/clips.py`, `shortsmaker/studio/qa.py`(score_v2), `shortsmaker/studio/enhance.py`
+- DO NOT REDO: enhance.py 분석/보정/충실도, qa.score_v2 점수 체계, 12~15초 압축, 배경 정리(spotlight)
+- 미검증: Vision 충실도 비교 실호출(보정본이 생성된 실사진 필요), 사람 손이 나오는 클립에서의 구간 선택
+
 ## 2-V. 영상 클립 다음 단계 (1단계 완료: 업로드 + 구간 자동 선택 + 컷 삽입)
 - 실제 폰으로 찍은 사용 장면 클립으로 재테스트 (손/조명/흔들림이 있는 실제 영상). 합성 클립으로만 검증됨
 - 2단계 후보: Gemini 영상 이해로 '사용 장면인지/제품이 보이는지' 판정해 컷 배정 정교화, 클립 안 얼굴/번호판 블러 처리(현재는 클립 통째 제외), 클립 슬로모/속도 조절, 컷당 클립 1개 → 한 컷에 여러 구간, 클립 전용 품질 점수

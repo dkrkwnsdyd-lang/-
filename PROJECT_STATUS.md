@@ -66,6 +66,10 @@ PWA(홈 화면 설치) + 모바일 화면 + 접근 암호 + Docker 배포 파일
 ## 영상 클립 (2026-09-30)
 직접 찍은 상품 영상 클립을 사용 장면 컷에 삽입(1단계). 합성 클립 + 실제 Gemini 개인정보 검사로 끝까지 검증, 실제 폰 영상은 미검증. CHANGELOG_V2.md 참고.
 
+## 품질 개선 V2 (2026-09-30)
+PHOTO ENHANCEMENT V2(등급/보정/충실도 QA), FINAL QA V2(로컬 기술/Vision/최종 점수 분리 + Hard Gate + Commercial Feel + Scene-Script + 다양성), 12~15초 압축, 화면 개선, 참고 URL(검색결과 UNVERIFIED) 완료.
+**실사진(M-Circle 2장) 검증 결과 Final 66~68 QUALITY_FAIL — 성공 기준 미달.** 원인은 화질이 아니라 소스(어수선한 배경, 스냅 조명, 사진 2장 재사용, 사용 장면 없음). TEST_RESULTS.md 참고.
+
 ## Blocked
 - GitHub push: Claude GitHub App 쓰기 권한 403 (코드는 로컬 커밋 + 번들 파일로 전달)
 - 외부 API 실테스트: 키 없음 + 샌드박스 네트워크 정책

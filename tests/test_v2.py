@@ -838,3 +838,32 @@ def test_compact_pipeline_is_12_to_15_seconds_without_same_photo_splits(tmp_path
     total = r["edl"]["total"]
     assert 12.0 <= total <= 15.5, total
     assert len(r["edl"]["shots"]) <= 7 and [s["scene_id"] for s in r["edl"]["shots"]].count("S3") == 1   # 시연 장면을 두 컷으로 쪼개지 않음
+
+
+def test_reference_search_result_is_not_analyzed_or_learned(tmp_path):
+    from shortsmaker.studio.reference import analyze_reference, classify_reference_url, learn
+    from shortsmaker import brain
+    urls = {"https://www.xiaohongshu.com/search_result?keyword=%E8%BD%A6%E8%BD%BD&source=web_search_result_notes": "SEARCH_RESULT",
+            "https://www.youtube.com/results?search_query=car+mount": "SEARCH_RESULT",
+            "https://www.tiktok.com/search?q=mount": "SEARCH_RESULT",
+            "https://www.youtube.com/shorts/dQw4w9WgXcQ": "INDIVIDUAL_VIDEO"}
+    for u, kind in urls.items():
+        assert classify_reference_url(u) == kind, u
+    r = analyze_reference("https://www.xiaohongshu.com/search_result?keyword=abc", router=None)
+    assert r["status"] == "UNVERIFIED" and "개별 영상 링크" in r["note"] and r["kind"] == "SEARCH_RESULT"
+    assert learn(r, brain.LearnedKnowledge(tmp_path)) is False        # UNVERIFIED 는 SHORTS BRAIN 에 저장하지 않는다
+
+
+def test_parallax_never_crops_product_when_cutout_unavailable(tmp_path):
+    """배경 제거가 안 되는 복잡한 배경 사진에서 parallax 가 제품 카드를 화면 밖으로 밀어내지 않는다 -> hero_push 로 그려진다."""
+    from PIL import Image
+    from shortsmaker.studio.motion import MotionRenderer, Shot
+    rng = __import__("numpy").random.default_rng(3)
+    noisy = Image.fromarray(rng.integers(0, 255, (1200, 900, 3), dtype="uint8"))      # 배경 제거가 신뢰되지 않는 복잡한 사진
+    photo = tmp_path / "busy.jpg"
+    noisy.save(photo, quality=92)
+    r = MotionRenderer(width=270, height=480, fps=10)
+    assert r.cache.cutout(str(photo)) is None
+    a = r.frame(Shot("S", "parallax", str(photo), 2.0), 1.0, 0)
+    b = r.frame(Shot("S", "hero_push", str(photo), 2.0), 1.0, 0)
+    assert a.tobytes() == b.tobytes()
