@@ -66,3 +66,16 @@ docker compose up -d --build
 | 계속 로그인 화면이에요 | 서버를 다시 켠 뒤에는 다시 로그인해야 해요 |
 | 영상이 안 만들어져요 | 화면 아래 진행 기록과 서버 로그 확인. `python -m shortsmaker api-status` 로 API 상태 확인 |
 | AI가 안 돼요 | `GEMINI_API_KEY`(또는 환경 자격 증명), 결제 상태 확인. AI 없이도 기본(규칙 기반) 영상은 만들어져요 |
+
+
+## Windows: 더블클릭으로 실행 (install.bat / start.bat)
+
+명령을 직접 치지 않고 파일 두 개로 실행할 수 있습니다.
+
+1. **처음 한 번**: `install.bat` 더블클릭 → 가상환경/부품 설치, `.env` 생성 후 메모장이 열립니다 (`SHORTSMAKER_ACCESS_CODE`, `GEMINI_API_KEY` 입력 후 Ctrl+S).
+2. **평소**: `start.bat` 더블클릭 → 새 코드 확인(git), 서버 실행, 브라우저 자동 열기, Tailscale 주소 연결(설치돼 있을 때).
+3. 서버 창을 닫으면 서버가 꺼집니다. 창은 열어 두세요.
+4. `.env`에 접근 암호가 없으면 `start.bat`이 실행할 때 암호를 물어봅니다.
+5. 포트 8000을 이미 쓰는 서버가 있으면 안내 문구를 띄우고 멈춥니다.
+
+폰에서 쓸 주소는 `tailscale serve status` 로 확인합니다 (`https://...ts.net`).

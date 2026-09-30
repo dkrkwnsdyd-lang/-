@@ -75,6 +75,8 @@
 - Added (문구 톤): 플랫폼 게시 문구를 광고체가 아닌 친구에게 말하는 대화체로 (`adapter.VOICE`: 공감→포인트→디테일→마무리, 짧은 줄, 이모지 1~2개), 대체 템플릿도 대화체 (`adapter._casual_post`)
 - Added: '내가 직접 써본 느낌 한 줄' 입력 (`ProductInput.my_take`, 웹 `myTake`, API `my_take`). 경험담(써보니/했더니)은 이 한 줄만 근거로 허용, 없으면 사진에 보이는 것/특징만 (`grounding.RULES_FOR_WRITER`, `allowed_facts`). 실호출 검증: 지어낸 경험 문장은 판정기가 걸러냄
 
+- Added (Windows): `install.bat`(가상환경/부품/.env), `start.bat`(포트 검사, git pull, 접근 암호 확인, tailscale serve, 브라우저 열기, 서버 실행), `.gitattributes`(*.bat CRLF), MOBILE.md 안내. 실제 Windows 실행 검증은 사용자 PC 에서 필요
+
 ### Known Issues
 - 외부 AI(LLM/TTS/영상 생성) 실호출 미검증 — 키 없음 + 샌드박스 네트워크 차단
 - 사람/손이 나오는 실제 사용 장면은 영상 생성 provider 연결 전까지 만들 수 없음 (현재는 원본 사진 모션)

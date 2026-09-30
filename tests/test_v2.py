@@ -657,3 +657,12 @@ def test_load_dotenv_handles_windows_notepad_encodings(tmp_path, monkeypatch):
     (tmp_path / "ansi.env").write_bytes("# 한글 주석\nSS_T2=xyz\r\n".encode("cp949"))
     load_dotenv(tmp_path / "ansi.env")
     assert os.environ["SS_T2"] == "xyz"                      # cp949 저장도 읽는다
+
+
+def test_windows_launchers_are_ascii_crlf():
+    root = pathlib.Path(__file__).parent.parent
+    for name in ("install.bat", "start.bat"):
+        raw = (root / name).read_bytes()
+        raw.decode("ascii")                       # 한글이 섞이면 cmd 에서 깨진다
+        assert b"\r\n" in raw and b"\n" not in raw.replace(b"\r\n", b"")
+    assert b"shortsmaker web" in (root / "start.bat").read_bytes()
