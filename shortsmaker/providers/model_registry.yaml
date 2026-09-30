@@ -1,14 +1,19 @@
 # MODEL REGISTRY - 모델명은 여기에만 둔다. 코드에 하드코딩 금지.
 # last_verified: 이 환경에서 실제 호출로 확인한 날짜 (null = 미검증)
 # 모델 ID 는 각 사의 현재 모델 목록 API 로 확인 후 수정할 것.
+# 주의: 목록에 있어도 호출하면 404 일 수 있다 (예: gemini-2.5-* 는 신규 사용자에게 종료). 실제 호출로 검증할 것.
 - {provider: openai, task: llm, model: "gpt-5-mini", priority: 1, enabled: true, cost_level: 2, quality_level: 4,
    capabilities: [json, vision], fallback_model: "gpt-4.1-mini", cost_per_1k_in: 0.00025, cost_per_1k_out: 0.002, last_verified: null}
-- {provider: google, task: llm, model: "gemini-2.5-flash", priority: 2, enabled: true, cost_level: 1, quality_level: 4,
-   capabilities: [json, vision, video_understanding, youtube_url], fallback_model: null, cost_per_1k_in: 0.0003, cost_per_1k_out: 0.0025, last_verified: null}
+- {provider: google, task: llm, model: "gemini-3.8-flash", priority: 2, enabled: true, cost_level: 1, quality_level: 4,
+   capabilities: [json, vision, video_understanding, youtube_url], fallback_model: "gemini-3.1-flash-lite", cost_per_1k_in: 0.0003, cost_per_1k_out: 0.0025, last_verified: null}
+- {provider: google, task: llm, model: "gemini-3.1-flash-lite", priority: 3, enabled: true, cost_level: 1, quality_level: 3,
+   capabilities: [json, vision], fallback_model: null, cost_per_1k_in: 0.0001, cost_per_1k_out: 0.0004, last_verified: null}
 - {provider: groq, task: llm_cheap, model: "llama-3.3-70b-versatile", priority: 1, enabled: true, cost_level: 1, quality_level: 3,
    capabilities: [json], fallback_model: null, cost_per_1k_in: 0.00059, cost_per_1k_out: 0.00079, last_verified: null}
-- {provider: google, task: vision, model: "gemini-2.5-flash", priority: 1, enabled: true, cost_level: 1, quality_level: 4,
-   capabilities: [vision, video_understanding, youtube_url], fallback_model: null, cost_per_1k_in: 0.0003, cost_per_1k_out: 0.0025, last_verified: null}
+- {provider: google, task: vision, model: "gemini-3.8-flash", priority: 1, enabled: true, cost_level: 1, quality_level: 4,
+   capabilities: [vision, video_understanding, youtube_url], fallback_model: "gemini-3.1-flash-lite", cost_per_1k_in: 0.0003, cost_per_1k_out: 0.0025, last_verified: null}
+- {provider: google, task: vision, model: "gemini-3.1-flash-lite", priority: 3, enabled: true, cost_level: 1, quality_level: 3,
+   capabilities: [vision, video_understanding, youtube_url], fallback_model: null, cost_per_1k_in: 0.0001, cost_per_1k_out: 0.0004, last_verified: null}
 - {provider: openai, task: vision, model: "gpt-5-mini", priority: 2, enabled: true, cost_level: 2, quality_level: 4,
    capabilities: [vision], fallback_model: null, cost_per_1k_in: 0.00025, cost_per_1k_out: 0.002, last_verified: null}
 - {provider: elevenlabs, task: tts, model: "eleven_multilingual_v2", priority: 1, enabled: true, cost_level: 3, quality_level: 5,

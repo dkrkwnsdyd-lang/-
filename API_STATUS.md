@@ -1,6 +1,6 @@
 # API_STATUS
 
-최종 확인: 2026-09-28 (개발 샌드박스)
+최종 확인: 2026-09-30
 
 > 이 샌드박스에는 API 키가 하나도 없고, 외부 API 도메인(api.openai.com, api.groq.com, api.pexels.com 등)이
 > 네트워크 정책으로 차단되어 있다. 그래서 **실제 외부 API 호출 테스트는 0건**이다.
@@ -14,7 +14,7 @@ Gemini 키 넣는 법: 환경 설정 > API credentials(허용 웹사이트 `gene
 | Provider | Connected | Model (registry) | Capabilities | Tested | Last Success | Error |
 |---|---|---|---|---|---|---|
 | openai | ❌ 키 없음 | gpt-5-mini (fallback gpt-4.1-mini) · tts: gpt-4o-mini-tts | json, vision, tts | 요청 형식만 구현, 실호출 X | - | 키 없음 + 도메인 차단 |
-| google (Gemini) | ❌ 키 없음 | gemini-2.5-flash | json, vision, video_understanding, youtube_url | 실호출 X | - | 403 (샌드박스 정책) |
+| google (Gemini) | ✅ 인증 OK (환경 자격 증명, proxy-injected) · ❌ **결제 크레딧 소진(402)** | gemini-3.8-flash (+ 3.1-flash-lite). `gemini-2.5-*` 는 신규 사용자에게 종료(404) | json, vision, video_understanding, youtube_url | 모델 목록 조회 200, 생성 호출은 402 로 거절 | - | 402 prepayment credits depleted → AI Studio 에서 결제/충전 필요 |
 | groq | ❌ 키 없음 | llama-3.3-70b-versatile | json (저비용 전처리) | 실호출 X | - | 키 없음 + 도메인 차단 |
 | elevenlabs | ❌ 키 없음 | eleven_multilingual_v2 | tts (한국어) | 실호출 X | - | ELEVENLABS_VOICE_ID 도 필요 |
 | pexels | ❌ 키 없음 | videos/search | stock_video (B-roll 1순위) | 실호출 X | - | 파이프라인 미연결 (NEXT_TASKS) |

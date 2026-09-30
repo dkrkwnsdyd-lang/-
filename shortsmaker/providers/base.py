@@ -14,7 +14,14 @@ import requests
 
 
 class ProviderError(RuntimeError):
-    pass
+    def __init__(self, message: str = "", status: int | None = None):
+        super().__init__(message)
+        self.status = status
+
+    @property
+    def retryable(self) -> bool:
+        """결제(402)/인증(401,403)/모델 없음(404) 은 다시 해도 같으므로 재시도하지 않는다."""
+        return self.status not in (401, 402, 403, 404)
 
 
 class NotConfigured(ProviderError):
@@ -126,7 +133,7 @@ class Provider:
         except requests.RequestException as e:
             raise ProviderError(scrub(f"{self.name} 연결 실패: {e}")) from None
         if resp.status_code >= 400:
-            raise ProviderError(scrub(f"{self.name} HTTP {resp.status_code}: {resp.text[:300]}"))
+            raise ProviderError(scrub(f"{self.name} HTTP {resp.status_code}: {resp.text[:300]}"), status=resp.status_code)
         try:
             return resp.json()
         except ValueError:

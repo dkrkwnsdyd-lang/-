@@ -62,6 +62,9 @@
 
 - Provider: 환경 '자격 증명'(프록시가 키를 붙여줌) 자동 감지 (`Provider._probe_proxy_credential`, `auth_headers`, `auth_state`) — Gemini 는 키 환경 변수 없이도 동작
 
+- Added: `studio/vision.py` Vision 분석(제품 위치 박스, 특징-사진 연결, 개인정보 요소 경고), 파이프라인 연결(사용자 지정 우선, 실패 시 수동값으로 계속)
+- Modified: 모델 레지스트리 gemini-2.5-* → gemini-3.8-flash / 3.1-flash-lite (2.5 는 신규 사용자 404). 결제/인증/모델없음 오류는 재시도 없이 다음 provider, 결제·인증 오류 provider 는 작업 중 건너뜀 (`ProviderError.retryable`, `Router.dead`)
+
 ### Known Issues
 - 외부 AI(LLM/TTS/영상 생성) 실호출 미검증 — 키 없음 + 샌드박스 네트워크 차단
 - 사람/손이 나오는 실제 사용 장면은 영상 생성 provider 연결 전까지 만들 수 없음 (현재는 원본 사진 모션)

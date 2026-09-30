@@ -422,3 +422,83 @@ def test_gemini_not_configured_without_key_or_proxy(monkeypatch):
     monkeypatch.setenv("SHORTSMAKER_PROBE_CREDENTIALS", "1")
     prov = GoogleProvider(session=FakeSession(lambda m, u, kw: FakeResponse({"error": {}}, status=403)))
     assert not prov.configured() and prov.auth_state() == "missing"
+
+
+class _FakeVisionProvider:
+    name = "fakev"
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    def configured(self):
+        return True
+
+    def json(self, model, **kw):
+        return ProviderResult(self.payload, "fakev", model, Usage(100, 50))
+
+
+def test_vision_fills_boxes_and_links_and_rejects_bad_values(tmp_path):
+    from PIL import Image
+    from shortsmaker.studio import vision
+    photos = []
+    for i in range(2):
+        p = tmp_path / f"p{i}.jpg"
+        Image.new("RGB", (800, 600), "gray").save(p)
+        photos.append(str(p))
+    payload = {"photos": [
+        {"index": 0, "product_present": True, "box": [0.2, 0.3, 0.8, 0.7], "angle": "front", "background": "busy",
+         "visible_text": ["M-Circle"], "visible_features": ["LED ring"], "private_info_visible": ["map street names"]},
+        {"index": 1, "product_present": True, "box": [0.9, 0.9, 0.5, 0.2], "angle": "side"},   # 잘못된 박스
+        {"index": 7, "box": [0.1, 0.1, 0.5, 0.5]}],                                              # 범위 밖 사진
+        "brand_or_name_visible": "SINJIMORU", "category_guess": "전자기기",
+        "feature_photo": {"컬러 LED 링": 0, "송풍구 클립 거치": 9, "없는 특징": 1}}
+    reg = [ModelEntry("fakev", "vision", "m", 1, True, 1, 3, ["vision"], cost_per_1k_in=0.001, cost_per_1k_out=0.002)]
+    router = Router(providers={"fakev": _FakeVisionProvider(payload)}, registry=reg, status_file=tmp_path / "s.json")
+    out = vision.analyze(router, photos, ["컬러 LED 링", "송풍구 클립 거치"], tmp_path / "w")
+    assert out["boxes"] == {0: [0.2, 0.3, 0.8, 0.7]}              # 유효한 것만
+    assert out["feature_links"] == {"컬러 LED 링": 0}             # 범위 밖 순번은 버림
+    assert out["photos"][0]["private_info_visible"] == ["map street names"]
+
+
+def test_vision_failure_is_graceful_and_billing_errors_do_not_retry(tmp_path):
+    from PIL import Image
+    from shortsmaker.studio import vision
+
+    class Billing:
+        name = "billing"
+        calls = 0
+
+        def configured(self):
+            return True
+
+        def json(self, model, **kw):
+            Billing.calls += 1
+            raise ProviderError("402 credits depleted", status=402)
+
+    p = tmp_path / "a.jpg"
+    Image.new("RGB", (100, 100)).save(p)
+    reg = [ModelEntry("billing", "vision", "m", 1, True, 1, 3, ["vision"])]
+    router = Router(providers={"billing": Billing()}, registry=reg, status_file=tmp_path / "s.json", sleep=lambda s: None)
+    out = vision.analyze(router, [str(p)], [], tmp_path / "w")
+    assert "error" in out and Billing.calls == 1                   # 결제 오류는 재시도 X
+
+
+def test_router_skips_provider_after_billing_error(tmp_path):
+    class Billing:
+        name = "billing"
+        calls = 0
+
+        def configured(self):
+            return True
+
+        def json(self, model, **kw):
+            Billing.calls += 1
+            raise ProviderError("402", status=402)
+
+    reg = [ModelEntry("billing", "llm", "m1", 1, True, 1, 3, ["json"]), ModelEntry("billing", "llm", "m2", 2, True, 1, 3, ["json"]),
+           ModelEntry("local", "llm", "rule", 9, True, 0, 1, ["json"])]
+    r = Router(providers={"billing": Billing()}, registry=reg, status_file=tmp_path / "s.json", sleep=lambda s: None)
+    assert r.run("llm", "json", local_fn=lambda: "L", system="", user="").provider == "local"
+    assert Billing.calls == 1                                       # m2 도 시도하지 않음
+    assert r.run("llm", "json", local_fn=lambda: "L", system="", user="").provider == "local"
+    assert Billing.calls == 1                                       # 이후 호출에서도 건너뜀

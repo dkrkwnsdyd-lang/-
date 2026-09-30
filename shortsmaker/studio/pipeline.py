@@ -24,6 +24,7 @@ from .editor import edit, edl_summary, time_words
 from .motion import MotionRenderer, caption_font_path
 from .product import ProductInput, analyze_photo, build_identity, import_from_url
 from .qa import best_take, final_qa, storyboard_qa, vision_review
+from . import vision as vision_mod
 from .reference import analyze_reference, learn
 from .tts import synthesize
 
@@ -210,6 +211,23 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                     a.product_box = tuple(box)
                     a.focus = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
                     a.box_source = "user"
+            # Vision LLM: 사용자가 지정하지 않은 제품 위치/특징-사진 연결을 자동으로 채운다 (실패해도 계속)
+            vis = vision_mod.analyze(router, photos, p.features, out_dir / "vision")
+            result["vision"] = vis
+            if vis and not vis.get("error"):
+                for idx, box in vis["boxes"].items():
+                    if not analyses[idx].focus:      # 사용자 지정 우선
+                        analyses[idx].product_box = tuple(box)
+                        analyses[idx].focus = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
+                        analyses[idx].box_source = "vision"
+                for feat, idx in vis["feature_links"].items():
+                    p.feature_photos.setdefault(feat, photos[idx])
+                privacy = sorted({t for ph in vis["photos"] for t in ph["private_info_visible"]})
+                if privacy:
+                    result.setdefault("warnings", []).append(
+                        "사진에 개인 정보로 보이는 요소: " + ", ".join(privacy) + " - 제품 영역만 사용하도록 확인 후 게시")
+            elif vis and vis.get("error"):
+                job.say("Vision 분석 실패 - 수동 입력값으로 진행: " + vis["error"][:120])
             identity = build_identity(p, analyses, product_id=f"P-{job_id}")
             if not p.name:
                 p.name = "이 제품"

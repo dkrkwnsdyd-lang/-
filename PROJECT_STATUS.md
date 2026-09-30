@@ -57,6 +57,9 @@ TTS, Job Queue 등)은 **이 저장소와 접근 가능한 다른 저장소(`dkr
 ## 사용자 확인 (2026-09-30)
 M-Circle 상품명/특징(컬러 LED 링, 송풍구 클립 거치)과 쿠팡 파트너스 제휴 여부를 사용자가 확인함. 게시용 4개 파일+문구 전달.
 
+## Gemini 연결 (2026-09-30)
+환경 자격 증명으로 인증 성공(proxy-injected). 생성 호출은 402(결제 크레딧 소진)로 거절 → 사용자가 AI Studio 결제 필요. Vision 자동 채움은 구현 완료, 크레딧 충전 후 실검증.
+
 ## Blocked
 - GitHub push: Claude GitHub App 쓰기 권한 403 (코드는 로컬 커밋 + 번들 파일로 전달)
 - 외부 API 실테스트: 키 없음 + 샌드박스 네트워크 정책
@@ -84,7 +87,7 @@ Multi/Best Take → (TTS) → AI Editor → 렌더(body + CTA) → 믹스 → MA
 플랫폼 문구 → Compliance → 플랫폼별 CTA 렌더 + concat + LUFS export
 
 ## Last Successful Test
-2026-09-28 — pytest 57 passed, 실영상 배치 16개 (13 COMPLETE / 3 QUALITY_FAIL: FAST 2개 단조로움, 저해상도 실사진 1개) — TEST_RESULTS.md
+2026-09-28 — pytest 62 passed, 실영상 배치 16개 (13 COMPLETE / 3 QUALITY_FAIL: FAST 2개 단조로움, 저해상도 실사진 1개) — TEST_RESULTS.md
 
 ## Important Decisions
 - 기존 코드 재작성 없이 확장 (V1 화면은 `/classic` 로 유지)

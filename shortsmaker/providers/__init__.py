@@ -70,6 +70,7 @@ class Router:
         self.max_attempts = max_attempts
         self.sleep = sleep
         self.trace: list[dict] = []
+        self.dead: set[str] = set()      # 이 작업 동안 결제(402)/인증(401) 오류가 난 provider - 다시 시도하지 않는다
 
     # ------------------------------------------------------------ status
     def _status(self) -> dict:
@@ -97,6 +98,7 @@ class Router:
         rows = [m for m in self.registry if m.task == task and m.enabled
                 and all(c in m.capabilities for c in (need or []))]
         rows.sort(key=lambda m: m.priority)
+        rows = [m for m in rows if m.provider not in self.dead]
         return [m for m in rows if m.provider == "local"
                 or (m.provider in self.providers and self.providers[m.provider].configured())]
 
@@ -130,6 +132,10 @@ class Router:
                     self._record(entry.provider, False, error=str(e))
                     self.trace.append({"task": task, "provider": entry.provider, "model": entry.model,
                                        "ok": False, "error": scrub(str(e))[:200]})
+                    if not e.retryable:
+                        if e.status in (401, 402):
+                            self.dead.add(entry.provider)
+                        break
                     if attempt + 1 < self.max_attempts:
                         self.sleep(1.5 * (attempt + 1))
         raise ProviderError(f"{task}: 사용 가능한 provider 가 없습니다. " + " | ".join(errors[-3:]))
