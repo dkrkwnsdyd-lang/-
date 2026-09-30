@@ -74,7 +74,8 @@ def edit(plan: CreativePlan, takes: dict[str, dict], voice: dict[str, tuple[floa
             caption = cta_text
 
         # 긴 장면은 두 컷으로 (같은 구도 반복 방지)
-        split = dur > pacing["max_shot_length"] or (plan.mode == "PRO" and dur >= 2.7 and scene.beat in ("demo", "detail", "benefit"))
+        split = dur > pacing["max_shot_length"] or (plan.mode == "PRO" and not plan.compact and dur >= 2.7
+                                                       and scene.beat in ("demo", "detail", "benefit"))
         if scene.beat == "hook" and dur > 1.5:
             split = True  # 첫 화면 변화 0.8~1.3초
         parts = [dur]

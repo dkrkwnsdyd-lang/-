@@ -90,25 +90,73 @@ def storyboard_qa(scenes, identity: ProductIdentity) -> list[dict]:
     return results
 
 
-def vision_review(router, images: list[str], context: str) -> dict | None:
-    """Vision LLM 이 있으면 프레임을 사람 눈 기준으로 검사. 없으면 None."""
+COMMERCIAL_KEYS = ["lighting", "composition", "product_presentation", "background_cleanliness", "camera_feel",
+                   "visual_variety", "real_ad_feeling", "amateur_look", "ai_look"]
+
+
+def vision_review(router, images: list[str], context: str, frames_info: list[dict] | None = None) -> dict | None:
+    """Vision LLM 이 있으면 프레임을 사람 눈 기준으로 검사. 없으면 None.
+    frames_info[i] = {"caption","tts"}: i 번째 이미지에 표시되는 자막/대사 -> 장면-대본 일치를 판정한다."""
     if not router or not router.has_real("vision"):
         return None
     fails = brain.system("quality_rules")["visual_qa_fail"]
-    system = ("You are a commercial video QA reviewer for short shopping videos made from REAL photos of a product. "
-              "Judge ONLY the frames (composition, sharpness, product visibility, lighting, text legibility, artifacts, "
-              "product identity consistency across frames) - NOT the marketing copy. "
-              "Scoring scale (0-100), use it consistently: 90-100 professional studio/advertising quality; "
+    system = ("You are a strict commercial video QA reviewer for short shopping videos made from REAL photos/clips of a product. "
+              "You see N frames (one per cut, in order). Be honest: do not inflate scores. "
+              "Scale (0-100, use consistently): 90-100 professional studio/advertising quality; "
               "75-89 clean, sharp, well-framed real product shots with tidy editing; "
               "60-74 acceptable but visibly amateur (harsh light, clutter, soft focus, awkward crop); "
-              "40-59 poor (blurry, cropped wrongly, product hard to see); below 40 unusable. "
-              "Also list any of these failures if present: " + ", ".join(fails) + ". "
-              'Answer JSON: {"scores":{"visual":0,"product_consistency":0,"ai_artifact":0,"commercial_feel":0},'
-              '"failures":[],"notes":"one or two short sentences saying what lowers the score"}')
+              "40-59 poor (busy background, product hard to see, obvious phone snapshot); below 40 unusable. "
+              "Judge frames (composition, sharpness, product visibility, lighting, text legibility, artifacts, "
+              "product identity consistency across frames). Also judge whether each frame actually SHOWS what its caption/voice line says "
+              "(e.g. caption says 'LED ring' but no LED ring is visible = mismatch). "
+              "Failures to report if present: " + ", ".join(fails) + ". "
+              "Answer JSON only: "
+              '{"scores":{"visual":0,"product_accuracy":0,"ai_artifact":0,"commercial_feel":0,"scene_script_match":0},'
+              '"commercial":{"lighting":0,"composition":0,"product_presentation":0,"background_cleanliness":0,"camera_feel":0,'
+              '"visual_variety":0,"real_ad_feeling":0,"amateur_look":0,"ai_look":0},'
+              '"frame_script":[{"frame":0,"match":0,"issue":""}],"distinct_scenes":0,'
+              '"failures":[],"top_issues":["most damaging problem first, max 4, short Korean phrases"],'
+              '"notes":"one or two short sentences saying what lowers the score"}. '
+              "In commercial: every value is 0-100 where 100 = best; amateur_look 100 = looks professional, 0 = obviously amateur snapshot; "
+              "ai_look 100 = looks like real footage/photos, 0 = obviously AI/synthetic; visual_variety = how different the frames are from each other; "
+              "background_cleanliness 100 = clean uncluttered background. distinct_scenes = number of truly different scenes among the frames "
+              "(the same photo with only a different zoom/crop counts as the same scene).")
+    lines = []
+    for i, info in enumerate((frames_info or [])[:len(images)]):
+        cap, tts = (info.get("caption") or "").strip(), (info.get("tts") or "").strip()
+        lines.append(f"frame {i}: caption='{cap}' voice='{tts}'")
+    user = context + ("\n" + "\n".join(lines) if lines else "")
     try:
-        return router.run("vision", "json", system=system, user=context, images=images[:6], temperature=0).value
+        v = router.run("vision", "json", system=system, user=user, images=images[:8], temperature=0).value
+        return v if isinstance(v, dict) else {"error": "invalid response"}
     except Exception as e:  # QA 보조 단계 - 실패해도 로컬 QA 는 진행
         return {"error": str(e)[:200]}
+
+
+def commercial_score(vision: dict | None) -> tuple[int | None, dict]:
+    """Vision 의 9개 세부 점수 -> Commercial Feel (가중 평균; 최저값도 반영해 한 항목이 크게 낮으면 끌어내림)."""
+    if not vision or vision.get("error"):
+        return None, {}
+    sub = vision.get("commercial") or {}
+    w = brain.system("quality_rules")["final_qa_v2"]["commercial_weights"]
+    vals = {k: float(sub[k]) for k in COMMERCIAL_KEYS if isinstance(sub.get(k), (int, float))}
+    if len(vals) < 5:
+        v = vision.get("scores", {}).get("commercial_feel")
+        return (int(v) if isinstance(v, (int, float)) else None), vals
+    avg = sum(vals[k] * w[k] for k in vals) / sum(w[k] for k in vals)
+    score = 0.8 * avg + 0.2 * min(vals.values())
+    return int(round(score)), {k: int(v) for k, v in vals.items()}
+
+
+def scene_script_score(vision: dict | None) -> int | None:
+    if not vision or vision.get("error"):
+        return None
+    fs = [f for f in (vision.get("frame_script") or []) if isinstance(f, dict) and isinstance(f.get("match"), (int, float))]
+    if fs:
+        m = [float(f["match"]) for f in fs]
+        return int(round(0.7 * sum(m) / len(m) + 0.3 * min(m)))
+    v = (vision.get("scores") or {}).get("scene_script_match")
+    return int(v) if isinstance(v, (int, float)) else None
 
 
 # ------------------------------------------------------------------ MULTI TAKE / BEST TAKE
@@ -223,14 +271,15 @@ def _distinct_looks(frames: list[np.ndarray]) -> int:
 
 
 def final_qa(video: Path, plan, edl: dict, has_voice: bool, font_ok: bool, identity: ProductIdentity,
-             vision: dict | None = None, caption_scale: float = 1.0) -> dict:
+             vision: dict | None = None, caption_scale: float = 1.0, photo_quality: dict | None = None) -> dict:
     th = brain.system("quality_rules")["final_qa_thresholds"]
+    v2 = brain.system("quality_rules")["final_qa_v2"]
     pacing = brain.system("quality_rules")["pacing"]
     f3 = brain.system("quality_rules")["first_3_seconds"]
     cap_rules = brain.system("caption_rules")
     info = probe_video(video)
     frames = sample_frames(video)
-    notes: dict[str, list[str]] = {k: [] for k in th}
+    notes: dict[str, list[str]] = {k: [] for k in list(th) + list(v2["complete_thresholds"]) + ["visual_diversity", "commercial_feel", "scene_script_match", "product_accuracy"]}
     timing = edl["timing"]
 
     # --- hook
@@ -344,11 +393,21 @@ def final_qa(video: Path, plan, edl: dict, has_voice: bool, font_ok: bool, ident
     if not has_voice:
         audio -= 20; notes["audio"].append("보이스오버 없음 (TTS provider 미연결) - 음악+효과음만")
 
-    # --- AI artifact (원본 사진 모션은 생성 변형이 없음)
-    artifact = 96 - (6 * len(low_res))
-    if vision and vision.get("scores"):
-        artifact = min(artifact, vision["scores"].get("ai_artifact", artifact))
-        visual = min(visual, vision["scores"].get("visual", visual))
+    # --- DIVERSITY: 같은 제품 사진의 Zoom/Crop 만 바꾼 컷은 새 장면으로 100% 인정하지 않는다
+    shots = edl["shots"]
+    src_keys = [(s_.source, round(s_.clip_start, 1)) if s_.shot == "video_clip" else (s_.source, 0.0) for s_ in shots]
+    unique_src = len(set(src_keys))
+    n_cuts = max(1, len(shots))
+    n_looks = looks if mids else unique_src
+    credit = v2["repeat_same_source_credit"]
+    effective = unique_src + credit * max(0, n_looks - unique_src)
+    source_div = int(min(100, unique_src / max(2.0, n_cuts / 3) * 100))
+    visual_div = int(min(100, effective / (v2["visual_diversity_target"] * n_cuts) * 100))
+    if visual_div < 60:
+        notes["visual_diversity"].append(f"서로 다른 원본 {unique_src}개 / 컷 {n_cuts}개 - 같은 사진의 확대·크롭 반복 (유효 장면 {effective:.1f})")
+
+    # --- AI artifact (로컬: 원본 사진 모션은 생성 변형이 없음)
+    artifact_local = 96 - (6 * len(low_res))
 
     # --- CTA
     cta = 100
@@ -357,20 +416,201 @@ def final_qa(video: Path, plan, edl: dict, has_voice: bool, font_ok: bool, ident
     elif edl["shots"][-1].duration < 1.5:
         cta -= 20; notes["cta"].append("CTA 너무 짧음")
 
-    scores = {"hook": hook, "visual_quality": visual, "product_consistency": product, "story": story,
-              "pacing": pace, "caption": cap, "audio": audio, "ai_artifact": artifact, "cta": cta}
-    scores = {k: int(max(0, min(100, round(v)))) for k, v in scores.items()}
-    weights = {"hook": 1.4, "visual_quality": 1.2, "product_consistency": 1.3, "story": 1.0, "pacing": 1.0,
-               "caption": 0.9, "audio": 0.6, "ai_artifact": 1.0, "cta": 0.6}
-    overall = round(sum(scores[k] * w for k, w in weights.items()) / sum(weights.values()))
-    scores["overall"] = overall
-    failed = [k for k, v in scores.items() if v < th.get(k, 0)]
+    # ============================== 점수 체계 ==============================
+    # 1) LOCAL TECHNICAL SCORE: 측정 가능한 기술 항목 (예전 overall). 이것만 높다고 고품질로 판정하지 않는다.
+    local = {"hook": hook, "visual_quality": visual, "product_consistency": product, "story": story, "pacing": pace,
+             "caption": cap, "audio": audio, "ai_artifact": artifact_local, "cta": cta}
+    local = {k: int(max(0, min(100, round(v)))) for k, v in local.items()}
+    tw = {"hook": 1.4, "visual_quality": 1.2, "product_consistency": 1.3, "story": 1.0, "pacing": 1.0,
+          "caption": 0.9, "audio": 0.6, "ai_artifact": 1.0, "cta": 0.6}
+    technical = round(sum(local[k] * w for k, w in tw.items()) / sum(tw.values()))
+
+    res = score_v2(local, technical, visual_div, source_div,
+                   {"unique_sources": unique_src, "cuts": n_cuts, "effective_scenes": round(effective, 2)}, vision, photo_quality,
+                   usage_missing=not any(s_.shot == "video_clip" for s_ in shots) and not getattr(identity, "usage_reference", None))
+    scores, verdict, failed, blockers, gates, improvements = (res[k] for k in ("scores", "verdict", "failed", "blockers", "gates", "improvements"))
+    have_vision, vision_quality, final, commercial, commercial_sub = (res[k] for k in ("have_vision", "vision_quality", "final", "commercial", "commercial_sub"))
+    semantic_div = scores["semantic_diversity"]
     total = edl["total"]
     duration_issue = "short" if total < lo - 1 else "long" if total > hi + 2 else None
-    return {"scores": scores, "passed": not failed, "failed": failed,
+    return {"scores": scores, "passed": verdict == "COMPLETE", "verdict": verdict, "failed": failed, "blockers": blockers,
+            "gates": gates, "improvements": improvements,
+            "final_quality": {"technical": technical, "vision": vision_quality, "final": final, "verdict": verdict,
+                              "have_vision": have_vision},
+            "commercial": {"score": commercial, "sub": commercial_sub},
+            "diversity": {"source": source_div, "visual": visual_div, "semantic": semantic_div, "unique_sources": unique_src,
+                          "cuts": n_cuts, "distinct_looks": n_looks, "effective_scenes": round(effective, 2)},
             "repair_hints": {"repeat_scenes": repeat_scenes, "duration": duration_issue,
                              "low_res": bool(low_res), "monotone": bool(mids) and looks / len(mids) < 0.6},
             "notes": {k: v for k, v in notes.items() if v}, "video": info,
             "measured": {"sharpness": round(float(sharp), 1), "brightness": round(float(bright), 1),
                          "audio_mean_db": level, **timing},
-            "vision": vision, "method": "local_metrics" + ("+vision_llm" if vision and vision.get("scores") else "")}
+            "vision": vision, "method": "local_metrics" + ("+vision_llm" if have_vision else "")}
+
+
+def score_v2(local: dict, technical: int, visual_div: int, source_div: int, div_meta: dict, vision: dict | None,
+             photo_quality: dict | None, usage_missing: bool) -> dict:
+    """LOCAL TECHNICAL / VISION QUALITY / FINAL QUALITY 산출 + Hard Gate + 판정 + 개선 목록 (순수 함수: 테스트 가능).
+    local: hook, visual_quality, product_consistency, story, pacing, caption, audio, ai_artifact, cta (0~100)."""
+    v2 = brain.system("quality_rules")["final_qa_v2"]
+    local = {**{"hook": 100, "story": 100, "pacing": 100, "caption": 100, "audio": 100, "cta": 100,
+                "visual_quality": 100, "product_consistency": 100, "ai_artifact": 100}, **local}
+    # 2) VISION QUALITY: Vision 이 본 것 (사람 눈 기준)
+    have_vision = bool(vision and not vision.get("error") and vision.get("scores"))
+    vs = (vision or {}).get("scores") or {}
+    v_visual = vs.get("visual") if have_vision else None
+    v_product = (vs.get("product_accuracy") if vs.get("product_accuracy") is not None else vs.get("product_consistency")) if have_vision else None
+    v_artifact = vs.get("ai_artifact") if have_vision else None
+    commercial, commercial_sub = commercial_score(vision) if have_vision else (None, {})
+    ssm = scene_script_score(vision) if have_vision else None
+    semantic_div = None
+    if have_vision and isinstance(vision.get("distinct_scenes"), (int, float)) and vision.get("frame_script"):
+        semantic_div = int(min(100, vision["distinct_scenes"] / max(1, len(vision["frame_script"])) * 100))
+
+    # 최종 항목: 로컬 측정과 Vision 판단 중 더 나쁜 쪽 (제품/화질/아티팩트)
+    final_items = {
+        "visual_quality": min(x for x in (local["visual_quality"], v_visual) if x is not None),
+        "product_accuracy": min(x for x in (local["product_consistency"], v_product) if x is not None),
+        "ai_artifact": min(x for x in (local["ai_artifact"], v_artifact) if x is not None),
+        "commercial_feel": commercial, "scene_script_match": ssm,
+        "pacing": local["pacing"], "hook": local["hook"], "story": local["story"], "caption": local["caption"],
+        "visual_diversity": visual_div,
+    }
+    final_items = {k: (int(v) if v is not None else None) for k, v in final_items.items()}
+    vision_parts = [final_items[k] for k in ("visual_quality", "product_accuracy", "ai_artifact", "commercial_feel", "scene_script_match")
+                    if final_items[k] is not None] if have_vision else []
+    vision_quality = int(round(sum(vision_parts) / len(vision_parts))) if vision_parts else None
+
+    # 3) FINAL QUALITY: 핵심 항목 가중 평균 -> 최약 핵심 항목 + margin 상한 -> Hard Gate
+    cw = v2["core_weights"]
+    present = {k: v for k, v in final_items.items() if v is not None}
+    avg = sum(present[k] * cw[k] for k in present) / sum(cw[k] for k in present)
+    crit = [present[k] for k in v2["critical"] if k in present]
+    weakest = min(crit) if crit else 100
+    final = min(avg, weakest + v2["weakest_link_margin"])
+    g = v2["gates"]
+    gates: list[dict] = []
+    blockers: list[str] = []
+
+    def gate(name: str, hit: bool, effect: str) -> None:
+        gates.append({"gate": name, "hit": hit, "effect": effect if hit else "-"})
+
+    fv, fc, fa, fp, fs = (final_items[k] for k in ("visual_quality", "commercial_feel", "ai_artifact", "product_accuracy", "scene_script_match"))
+    hit = fv is not None and fv < g["visual_cap"]["below"]
+    gate(f"Visual < {g['visual_cap']['below']}", hit, f"최종 점수 최대 {g['visual_cap']['max_final']}")
+    if hit:
+        final = min(final, g["visual_cap"]["max_final"])
+    hit = fa is not None and fa < g["ai_artifact_cap"]["below"]
+    gate(f"AI Artifact < {g['ai_artifact_cap']['below']}", hit, f"최종 점수 최대 {g['ai_artifact_cap']['max_final']}")
+    if hit:
+        final = min(final, g["ai_artifact_cap"]["max_final"])
+    hit = fp is not None and fp < g["product_accuracy_block"]
+    gate(f"Product Accuracy < {g['product_accuracy_block']}", hit, "COMPLETE 금지")
+    if hit:
+        blockers.append(f"Product Accuracy {fp}")
+    hit = fs is not None and fs < g["scene_script_block"]
+    gate(f"Scene-Script Match < {g['scene_script_block']}", hit, "COMPLETE 금지")
+    if hit:
+        blockers.append(f"Scene-Script Match {fs}")
+    both_low = fv is not None and fc is not None and fv < g["visual_and_commercial_fail"] and fc < g["visual_and_commercial_fail"]
+    gate(f"Visual·Commercial 둘 다 < {g['visual_and_commercial_fail']}", both_low, "QUALITY_FAIL")
+    if both_low:
+        blockers.append(f"Visual {fv} + Commercial {fc}")
+    if not have_vision:
+        final = min(final, g["no_vision_cap"])
+        gate("Vision 평가 없음", True, f"최종 점수 최대 {g['no_vision_cap']}, NEEDS_REVIEW (로컬 기술 점수만으로 고품질 판정 안 함)")
+    final = int(round(final))
+
+    # 개별 기준 미달 목록 (수리 루프가 사용하는 키 이름 유지)
+    ct = v2["complete_thresholds"]
+    key_map = {"visual_quality": "visual_quality", "product_accuracy": "product_consistency", "ai_artifact": "ai_artifact"}
+    failed = []
+    for k in ("visual_quality", "product_accuracy", "commercial_feel", "ai_artifact", "scene_script_match", "hook", "story", "pacing",
+              "caption", "visual_diversity"):
+        v = final_items.get(k)
+        if v is not None and v < ct[k]:
+            failed.append(key_map.get(k, k))
+    for k in ("audio", "cta"):
+        if local[k] < ct[k]:
+            failed.append(k)
+    if final < ct["final"]:
+        failed.append("overall")
+    vision_fail = [f for f in (vision or {}).get("failures", []) if f] if have_vision else []
+    if vision_fail:
+        failed.append("visual_qa_fail")
+        blockers.append("Vision 실패 항목: " + ", ".join(map(str, vision_fail)))
+    if not have_vision:
+        # 최종 점수는 Vision 부재로 상한(79)이 걸려 있으므로 'overall 미달'은 판정 근거에서 제외
+        verdict = "QUALITY_FAIL" if ([f for f in failed if f != "overall"] or blockers) else "NEEDS_REVIEW"
+    else:
+        verdict = "COMPLETE" if not failed and not blockers else "QUALITY_FAIL"
+
+    scores = {**local, "technical": technical, "vision_quality": vision_quality, "overall": final, "final": final,
+              "product_accuracy": final_items["product_accuracy"], "commercial_feel": commercial,
+              "scene_script_match": ssm, "visual_diversity": visual_div, "source_diversity": source_div,
+              "semantic_diversity": semantic_div}
+    scores["visual_quality"] = final_items["visual_quality"]
+    scores["ai_artifact"] = final_items["ai_artifact"]
+    scores = {k: (int(max(0, min(100, round(v)))) if v is not None else None) for k, v in scores.items()}
+
+    # 개선 필요 목록: 가장 큰 실패 원인부터
+    improvements = _improvements(scores, ct, photo_quality, vision, commercial_sub, have_vision, div_meta["unique_sources"], div_meta["cuts"], div_meta["effective_scenes"],
+                                 usage_missing=usage_missing)
+    return {"scores": scores, "verdict": verdict, "failed": failed, "blockers": blockers, "gates": gates,
+            "improvements": improvements, "have_vision": have_vision, "vision_quality": vision_quality, "final": final,
+            "commercial_sub": commercial_sub, "commercial": commercial, "technical": technical}
+
+
+def _improvements(scores: dict, ct: dict, photo_quality: dict | None, vision: dict | None, commercial_sub: dict,
+                  have_vision: bool, unique_src: int, n_cuts: int, effective: float, usage_missing: bool) -> list[dict]:
+    """사용자에게 보여줄 '개선 필요' 목록 (원인 + 조치). deficit 이 큰 순."""
+    items: list[tuple[float, dict]] = []
+
+    def add(deficit: float, cause: str, detail: str, action: str) -> None:
+        items.append((deficit, {"cause": cause, "detail": detail, "action": action}))
+
+    if photo_quality:
+        ph = photo_quality.get("photos", [])
+        bad = [p for p in ph if p["grade_before"] != "A" and p["reasons"]]
+        if bad:
+            reasons = sorted({r.split(" (")[0] for p in bad for r in p["reasons"]})
+            worst = 40 if any(p["grade_before"] == "C" for p in bad) else 22
+            add(worst, "원본 사진 품질 부족", ", ".join(reasons[:4]), "밝은 자연광에서 단색 배경으로 다시 촬영 (제품이 화면의 60~80%)")
+    if usage_missing:
+        add(30, "실제 사용 장면 없음", "사진 모션만으로 구성됨", "사용 장면 영상(3~10초) 또는 사용 중인 사진 추가")
+    vd = scores.get("visual_diversity")
+    if vd is not None and vd < ct["visual_diversity"] + 15:
+        add(max(10, 85 - vd), "같은 제품 이미지 반복", f"서로 다른 원본 {unique_src}개 / 컷 {n_cuts}개 (유효 장면 {effective:.1f})",
+            "각도·배경이 다른 사진/영상을 더 추가하거나 컷 수를 줄여 짧게")
+    cf = scores.get("commercial_feel")
+    if cf is not None and cf < ct["commercial_feel"]:
+        weak = sorted(commercial_sub.items(), key=lambda kv: kv[1])[:3]
+        names = {"lighting": "조명", "composition": "구도", "product_presentation": "제품 연출", "background_cleanliness": "배경 정리",
+                 "camera_feel": "카메라 느낌", "visual_variety": "화면 다양성", "real_ad_feeling": "실제 광고 느낌",
+                 "amateur_look": "아마추어 느낌", "ai_look": "AI 느낌"}
+        add(ct["commercial_feel"] - cf + 8, "Commercial Feel 부족", ", ".join(f"{names.get(k, k)} {v}" for k, v in weak), "조명/배경 정리, 사용 장면 촬영")
+    if scores.get("visual_quality") is not None and scores["visual_quality"] < ct["visual_quality"]:
+        add(ct["visual_quality"] - scores["visual_quality"] + 5, "화면 품질 부족", f"Visual {scores['visual_quality']}", "선명하고 밝은 원본 사진 사용")
+    ssm = scores.get("scene_script_match")
+    if ssm is not None and ssm < ct["scene_script_match"]:
+        bad = [f for f in (vision or {}).get("frame_script", []) if isinstance(f, dict) and f.get("issue")][:2]
+        add(ct["scene_script_match"] - ssm + 6, "장면과 자막이 안 맞음", "; ".join(str(f["issue"]) for f in bad) or f"일치도 {ssm}",
+            "자막이 말하는 것이 보이는 사진을 연결하거나 자막을 수정")
+    if scores.get("product_accuracy") is not None and scores["product_accuracy"] < ct["product_accuracy"]:
+        add(ct["product_accuracy"] - scores["product_accuracy"] + 10, "제품 정확도 부족", f"Product Accuracy {scores['product_accuracy']}", "제품이 잘 보이는 사진으로 교체")
+    if scores.get("ai_artifact") is not None and scores["ai_artifact"] < ct["ai_artifact"]:
+        add(ct["ai_artifact"] - scores["ai_artifact"] + 4, "AI/합성 느낌", f"AI Artifact {scores['ai_artifact']}", "저해상도 확대를 줄이고 원본 화질을 높임")
+    for issue in (vision or {}).get("top_issues", [])[:4] if have_vision else []:
+        if isinstance(issue, str) and issue.strip():
+            add(6, "Vision 지적", issue.strip(), "")
+    if not have_vision:
+        add(50, "Vision 평가 없음", "로컬 기술 점수만 있음", "Gemini 등 Vision 키를 연결해 사람 눈 기준 평가")
+    items.sort(key=lambda x: -x[0])
+    out, seen = [], set()
+    for _, it in items:
+        key = it["cause"] if it["cause"] != "Vision 지적" else it["detail"]
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(it)
+    return out[:6]

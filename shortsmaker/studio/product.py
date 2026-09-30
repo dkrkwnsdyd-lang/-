@@ -27,6 +27,8 @@ class ProductInput:
     price: str = ""
     url: str = ""
     photos: list[str] = field(default_factory=list)
+    compact: bool = False             # 12~15초 압축 구조
+    enhance: bool = True              # PHOTO ENHANCEMENT V2 (False 면 원본 그대로: 비교 테스트용)
     videos: list[str] = field(default_factory=list)   # 직접 찍은 상품 영상 클립 (사용 장면용, 원본 소리는 쓰지 않음)
     photo_rights: str = "OWNED"       # OWNED | SELLER_PROVIDED | LICENSED | STOCK_LICENSED | UNKNOWN
     reference_url: str = ""
@@ -106,6 +108,7 @@ class PhotoAnalysis:
     background: str                   # plain | busy
     product_box: tuple[float, float, float, float]   # 0~1 (x0, y0, x1, y1)
     photo_angle: str = UNKNOWN
+    quality_grade: str = "B"           # PHOTO QUALITY A(그대로)/B(보정 후)/C(품질 부족) - C 는 확대 컷에 쓰지 않는다
     product_category: str = UNKNOWN
     shape: str = UNKNOWN
     logo: str = UNKNOWN

@@ -180,6 +180,8 @@
       <label><input type="radio" name="mode" value="FAST"><span>FAST<small>15~20초 · 1 스토리 · 빠르게</small></span></label>
       <label><input type="radio" name="mode" value="PRO" checked><span>PRO<small>멀티 테이크 · 베스트 선택 · 최종 QA</small></span></label>
     </div>
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" id="compact" style="margin-top:3px">
+      <span><b>12~15초 짧게 만들기</b><br><span class="note">훅 → 제품 공개 → 사용/기능 → 핵심 혜택 → 짧은 CTA. 같은 사진의 확대 반복으로 시간을 채우지 않아요.</span></span></label>
 
     <label class="f" for="ref">참고 영상 URL (선택 · 구조만 분석, 복제하지 않음)</label>
     <input id="ref" type="url" placeholder="https://youtube.com/shorts/…">
@@ -210,7 +212,9 @@
       </div>
       <div>
         <div class="card">
-          <div class="big"><span>QUALITY SCORE</span><b id="overall">–</b><span id="statusPill" class="status-pill"></span></div>
+          <div class="big"><span>FINAL QUALITY</span><b id="overall">–</b><span id="statusPill" class="status-pill"></span></div>
+          <div id="scoreSummary" class="note" style="display:flex;gap:14px;flex-wrap:wrap;margin:4px 0 10px"></div>
+          <div id="improve"></div>
           <div id="scores"></div>
           <div id="qaNotes"></div>
         </div>
@@ -237,6 +241,11 @@
 const $ = (id) => document.getElementById(id);
 const LABEL = { hook:"Hook", visual_quality:"Visual", product_consistency:"Product Lock", story:"Story", pacing:"Pacing",
                 caption:"Caption", audio:"Audio", ai_artifact:"AI Artifact", cta:"CTA" };
+function riskText(p) {
+  const r = p && p.risk;
+  if (r === "UNKNOWN") return "카테고리 정보 부족 · 수동 확인 필요";
+  return { GREEN:"낮음 🟢", YELLOW:"주의 🟡", RED:"높음 🔴" }[r] || r;
+}
 const PF = { youtube:"YouTube", instagram:"Instagram", tiktok:"TikTok", threads:"Threads" };
 const ICON = { PASS:"🟢", PASS_WITH_WARNING:"🟡", REQUIRES_EDIT:"🟠", BLOCKED:"🔴", UNKNOWN:"⚪" };
 let files = [];
@@ -346,6 +355,7 @@ $("go").onclick = async () => {
   fd.append("problem", v("problem")); fd.append("my_take", v("myTake")); fd.append("category", v("category")); fd.append("affiliate", v("affiliate"));
   fd.append("photo_rights", v("rights")); fd.append("reference_url", v("ref"));
   fd.append("mode", document.querySelector("input[name=mode]:checked").value);
+  fd.append("compact", $("compact").checked ? "1" : "");
   fd.append("platforms", [...document.querySelectorAll(".plats input:checked")].map(i => i.value).join(","));
   $("go").disabled = true;
   try {
@@ -395,14 +405,27 @@ function showResult(d) {
   $("master").src = r.master_url + "#t=0.1"; $("master").preload = "metadata"; $("masterDl").href = r.master_url;
   $("dur").textContent = `${r.plan.story_pattern} · ${(r.qa.video.duration || 0).toFixed(1)}초 · 비용 $${(r.cost || 0).toFixed(3)}`;
   const s = r.qa.scores;
-  $("overall").textContent = s.overall;
+  $("overall").textContent = s.final ?? s.overall;
   const pill = $("statusPill");
-  pill.textContent = r.status === "COMPLETE" ? "품질 통과" : "품질 미달";
-  pill.style.background = r.status === "COMPLETE" ? "color-mix(in srgb, var(--ok) 18%, transparent)" : "color-mix(in srgb, var(--bad) 18%, transparent)";
-  pill.style.color = r.status === "COMPLETE" ? "var(--ok)" : "var(--bad)";
-  const th = { hook:80, visual_quality:85, product_consistency:90, story:80, pacing:80, caption:80, audio:70, ai_artifact:85, cta:80 };
-  $("scores").innerHTML = Object.keys(LABEL).map(k =>
-    `<div class="score"><span>${LABEL[k]}</span><div class="track"><div class="fill" style="width:${s[k]}%;background:${color(s[k], th[k])}"></div></div><em>${s[k]}</em></div>`).join("");
+  const V = { COMPLETE:["품질 통과", "ok"], QUALITY_FAIL:["품질 미달", "bad"], NEEDS_REVIEW:["Vision 평가 없음 · 확인 필요", "warn"] }[r.status] || ["품질 미달", "bad"];
+  pill.textContent = V[0];
+  pill.style.background = `color-mix(in srgb, var(--${V[1]}, var(--bad)) 18%, transparent)`;
+  pill.style.color = `var(--${V[1]}, var(--bad))`;
+  const fq = r.qa.final_quality || {};
+  $("scoreSummary").innerHTML = `<span>FINAL QUALITY <b>${s.final ?? s.overall}</b></span><span>TECHNICAL QUALITY <b>${s.technical ?? "–"}</b></span>`
+    + `<span>VISION QUALITY <b>${s.vision_quality ?? "미평가"}</b></span><span>VISUAL <b>${s.visual_quality}</b></span>`
+    + (s.technical != null && s.technical - (s.final ?? 0) >= 10 ? `<span class="note warn">기술 점수가 높아도 화면 품질이 낮으면 최종 점수는 낮아집니다</span>` : "");
+  const imp = r.qa.improvements || [];
+  $("improve").innerHTML = imp.length ? `<div class="note" style="border:1px solid var(--bad);border-radius:10px;padding:10px 12px;margin:0 0 10px"><b>${r.status === "COMPLETE" ? "참고" : "개선 필요"}</b><ol style="margin:6px 0 0 18px;padding:0">`
+    + imp.map(i => `<li><b>${String(i.cause).replace(/</g, "&lt;")}</b>${i.detail ? " — " + String(i.detail).replace(/</g, "&lt;") : ""}${i.action ? `<br><span class="note">→ ${String(i.action).replace(/</g, "&lt;")}</span>` : ""}</li>`).join("")
+    + `</ol></div>` : "";
+  const th = { visual_quality:80, product_accuracy:90, commercial_feel:80, ai_artifact:85, scene_script_match:85, pacing:80, hook:80, story:80, caption:80, visual_diversity:60, audio:70, cta:80 };
+  const bar = (k, label) => s[k] == null ? `<div class="score"><span>${label}</span><div class="track"></div><em>–</em></div>`
+    : `<div class="score"><span>${label}</span><div class="track"><div class="fill" style="width:${s[k]}%;background:${color(s[k], th[k])}"></div></div><em>${s[k]}</em></div>`;
+  $("scores").innerHTML = [["visual_quality","Visual"],["product_accuracy","Product Accuracy"],["commercial_feel","Commercial Feel"],["ai_artifact","AI Artifact"],
+    ["scene_script_match","Scene-Script Match"],["pacing","Pacing"],["hook","Hook"],["story","Story"],["caption","Caption"],["audio","Audio"],["cta","CTA"],
+    ["visual_diversity","Visual Diversity"],["source_diversity","Source Diversity"],["semantic_diversity","Semantic Diversity"]].map(([k, l]) => bar(k, l)).join("")
+    + ((r.qa.gates || []).filter(g => g.hit).map(g => `<p class="note warn">🚧 ${g.gate} → ${g.effect}</p>`).join(""));
   $("qaNotes").innerHTML = Object.entries(r.qa.notes || {}).map(([k, v]) => `<p class="note">• ${LABEL[k] || k}: ${v.join(", ")}</p>`).join("")
     + `<p class="note">측정 방식: ${r.qa.method}</p>`
     + (r.warnings || []).map(w => `<p class="note warn">⚠ ${w}</p>`).join("")
@@ -413,7 +436,7 @@ function showResult(d) {
   const rights = { PASS:"🟢", PASS_WITH_WARNING:"🟡", BLOCKED:"🔴" }[c.rights.status] || "⚪";
   const claims = { PASS:"🟢", UNVERIFIED:"🟡", HIGH_RISK:"🔴" }[c.claims_status] || "⚪";
   $("safety").innerHTML = Object.entries(c.platforms).map(([p, v]) => `<div>${PF[p]} ${ICON[v.verdict]}</div>`).join("")
-    + `<div>Affiliate Disclosure ${disc}</div><div>Copyright ${rights}</div><div>Claims ${claims}</div><div>상품 위험도 ${c.product.risk}</div>`;
+    + `<div>Affiliate Disclosure ${disc}</div><div>Copyright ${rights}</div><div>Claims ${claims}</div><div>상품 위험도 ${riskText(c.product)}</div>`;
   const reasons = [...new Set(Object.values(c.platforms).flatMap(v => v.reasons))];
   $("safetyNotes").innerHTML = reasons.map(x => `<p class="note">• ${x}</p>`).join("");
   $("platforms").innerHTML = Object.entries(r.exports).map(([p, e]) => {
@@ -459,7 +482,7 @@ $("platforms").addEventListener("click", async (e) => {
 });
 
 // ---------------- 최근 작업 / 이어보기
-const STATUS_KO = { COMPLETE:"통과", QUALITY_FAIL:"품질 미달", FAILED:"실패", RUNNING:"만드는 중", PENDING:"대기" };
+const STATUS_KO = { COMPLETE:"통과", QUALITY_FAIL:"품질 미달", NEEDS_REVIEW:"확인 필요", FAILED:"실패", RUNNING:"만드는 중", PENDING:"대기" };
 async function loadHistory() {
   try {
     const res = await fetch("/api/v2/jobs");

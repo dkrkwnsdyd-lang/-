@@ -245,7 +245,7 @@ def test_pipeline_end_to_end_small(tmp_path):
     r = run_job({"name": P["name"], "features": P["features"], "problem": P["problem"], "category_hint": "주방",
                  "photos": photos, "affiliate": "COUPANG_PARTNERS"}, "FAST", ["youtube", "threads"],
                 out_root=tmp_path / "out", db=DB(tmp_path / "db.sqlite"), render=(270, 480, 10))
-    assert r["status"] in ("COMPLETE", "QUALITY_FAIL"), r.get("error")
+    assert r["status"] in ("COMPLETE", "QUALITY_FAIL", "NEEDS_REVIEW"), r.get("error")
     assert Path(r["master"]).exists()
     assert set(r["exports"]) == {"youtube", "threads"}
     assert r["compliance"]["disclosure"]["status"] == "PASS"
@@ -736,10 +736,105 @@ def test_pipeline_with_video_clip(tmp_path):
     r = run_job({"name": P["name"], "features": P["features"], "problem": P["problem"], "category_hint": "주방",
                  "photos": photos, "videos": [v, str(bad)], "affiliate": "COUPANG_PARTNERS"}, "FAST", ["youtube"],
                 out_root=tmp_path / "out", db=DB(tmp_path / "db.sqlite"), render=(270, 480, 10))
-    assert r["status"] in ("COMPLETE", "QUALITY_FAIL"), r.get("error")
+    assert r["status"] in ("COMPLETE", "QUALITY_FAIL", "NEEDS_REVIEW"), r.get("error")
     assert r["clips"]["provided"] == 2 and r["clips"]["usable"] == 1 and r["clips"]["used"]
     assert any(s["shot"] == "video_clip" for s in r["edl"]["shots"])
     warns = " ".join(r.get("warnings", []))
     assert "사용할 수 없어 제외" in warns                      # 깨진 파일은 제외하고 계속
     assert "개인 정보" in warns                                  # Vision 이 없으면 직접 확인 안내
     assert Path(r["exports"]["youtube"]["file"]).exists()
+
+
+# ------------------------------------------------------------------ QUALITY SCORE V2 (모순된 점수 방지)
+def _vision(visual=90, product=95, artifact=90, commercial=90, match=90, failures=None, **sub):
+    c = {k: commercial for k in ("lighting", "composition", "product_presentation", "background_cleanliness", "camera_feel",
+                                 "visual_variety", "real_ad_feeling", "amateur_look", "ai_look")}
+    c.update(sub)
+    return {"scores": {"visual": visual, "product_accuracy": product, "ai_artifact": artifact, "commercial_feel": commercial,
+                       "scene_script_match": match},
+            "commercial": c, "frame_script": [{"frame": i, "match": match, "issue": ""} for i in range(6)],
+            "distinct_scenes": 6, "failures": failures or [], "top_issues": []}
+
+
+PERFECT_LOCAL = dict(hook=100, visual_quality=100, product_consistency=100, story=100, pacing=100, caption=100, audio=100,
+                     ai_artifact=96, cta=100)
+
+
+def _score(local=None, vision=None, div=90, pq=None):
+    from shortsmaker.studio.qa import score_v2
+    return score_v2({**PERFECT_LOCAL, **(local or {})}, 96, div, 80,
+                    {"unique_sources": 4, "cuts": 8, "effective_scenes": 4.6}, vision, pq, usage_missing=False)
+
+
+def test_visual_58_never_yields_high_final_or_complete():
+    """보고된 문제: Visual 58 인데 나머지 100점 평균으로 Overall 90 + '품질 미달'."""
+    r = _score(vision=_vision(visual=58, commercial=90))
+    assert r["scores"]["technical"] == 96                       # 로컬 기술 점수는 높아도
+    assert r["scores"]["final"] <= 74 and r["verdict"] == "QUALITY_FAIL"
+    assert any(g["hit"] and g["gate"].startswith("Visual <") for g in r["gates"])
+    assert r["scores"]["overall"] == r["scores"]["final"]       # UI 의 overall 은 최종 점수
+
+
+def test_weakest_link_caps_and_gates():
+    assert _score(vision=_vision(artifact=70))["scores"]["final"] <= 79
+    r = _score(vision=_vision(product=80))
+    assert r["verdict"] == "QUALITY_FAIL" and any("Product Accuracy" in b for b in r["blockers"])
+    r = _score(vision=_vision(match=75))
+    assert r["verdict"] == "QUALITY_FAIL" and any("Scene-Script" in b for b in r["blockers"])
+    r = _score(vision=_vision(visual=65, commercial=65))
+    assert r["verdict"] == "QUALITY_FAIL" and any("둘 다" in b or "Commercial" in b for b in r["blockers"])
+
+
+def test_only_genuinely_good_video_is_complete():
+    r = _score(vision=_vision())
+    assert r["verdict"] == "COMPLETE" and r["scores"]["final"] >= 85 and not r["blockers"] and not r["failed"]
+    # 사람 눈 기준 실패 항목이 하나라도 보이면 COMPLETE 불가
+    assert _score(vision=_vision(failures=["warped_product"]))["verdict"] == "QUALITY_FAIL"
+    # 세부 Commercial 항목 하나가 심하게 낮으면 평균에 묻히지 않고 감점 (amateur 30)
+    assert _score(vision=_vision(commercial=85, amateur_look=30))["scores"]["commercial_feel"] < 80
+
+
+def test_no_vision_means_needs_review_not_complete():
+    r = _score(vision=None)
+    assert r["verdict"] == "NEEDS_REVIEW" and r["scores"]["final"] <= 79 and r["scores"]["commercial_feel"] is None
+    assert r["scores"]["vision_quality"] is None
+    assert any(i["cause"] == "Vision 평가 없음" for i in r["improvements"])
+    # Vision 호출이 오류로 끝나도 같은 취급
+    assert _score(vision={"error": "x"})["verdict"] == "NEEDS_REVIEW"
+
+
+def test_repeated_same_photo_lowers_visual_diversity_and_lists_reason():
+    from shortsmaker.studio.qa import score_v2
+    r = score_v2(PERFECT_LOCAL, 96, 40, 35, {"unique_sources": 2, "cuts": 12, "effective_scenes": 3.5}, _vision(), None, usage_missing=True)
+    assert r["verdict"] == "QUALITY_FAIL" and "visual_diversity" in r["failed"]
+    causes = [i["cause"] for i in r["improvements"]]
+    assert "같은 제품 이미지 반복" in causes and "실제 사용 장면 없음" in causes
+
+
+def test_improvements_include_photo_quality_reasons():
+    pq = {"photos": [{"grade_before": "C", "reasons": ["해상도 부족 (400x300)"]}, {"grade_before": "A", "reasons": []}]}
+    r = _score(vision=_vision(visual=70, commercial=70), pq=pq)
+    first = [i["cause"] for i in r["improvements"]]
+    assert "원본 사진 품질 부족" in first and first.index("원본 사진 품질 부족") <= 1
+
+
+# ------------------------------------------------------------------ 12~15초 압축
+def test_compact_beats_keep_one_per_role_and_no_repeat():
+    from shortsmaker.studio.director import compact_beats, COMPACT_DURATION, COMPACT_RANGE
+    beats = [{"beat": b} for b in ("hook", "problem", "reveal", "demo", "detail", "detail", "benefit", "cta")]
+    out = [b["beat"] for b in compact_beats(beats)]
+    assert out == ["hook", "reveal", "demo", "benefit", "cta"]
+    assert COMPACT_RANGE[0] <= sum(COMPACT_DURATION[b] for b in out) <= COMPACT_RANGE[1]
+
+
+def test_compact_pipeline_is_12_to_15_seconds_without_same_photo_splits(tmp_path):
+    from shortsmaker.studio.pipeline import run_job
+    photos = make_photos("kitchen_tumbler", tmp_path / "p", 2)
+    P = PRODUCTS["kitchen_tumbler"]
+    r = run_job({"name": P["name"], "features": P["features"], "problem": P["problem"], "category_hint": "주방",
+                 "photos": photos, "compact": True}, "PRO", ["youtube"], out_root=tmp_path / "out",
+                db=DB(tmp_path / "db.sqlite"), render=(270, 480, 10))
+    assert r["plan"]["compact"] is True
+    total = r["edl"]["total"]
+    assert 12.0 <= total <= 15.5, total
+    assert len(r["edl"]["shots"]) <= 7 and [s["scene_id"] for s in r["edl"]["shots"]].count("S3") == 1   # 시연 장면을 두 컷으로 쪼개지 않음

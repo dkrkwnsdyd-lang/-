@@ -34,3 +34,53 @@ source_image:
   min_short_side: 480
   min_sharpness: 40        # 라플라시안 분산 근사치
   exposure: [35, 225]      # 평균 밝기 허용 범위
+
+# FINAL QA V2 - 로컬 기술 점수 / Vision 품질 점수 / 최종 품질 점수를 구분한다.
+# '품질 미달인데 Overall 90' 이 나오지 않도록: 가중 평균 + 최약 항목 상한 + Hard Gate.
+final_qa_v2:
+  core_weights:                 # 최종 점수에 들어가는 항목 (Vision 이 있어야 채워지는 항목 포함)
+    visual_quality: 2.0
+    product_accuracy: 2.0
+    commercial_feel: 2.0
+    ai_artifact: 1.5
+    scene_script_match: 1.5
+    pacing: 1.0
+    hook: 1.0
+    visual_diversity: 1.0
+    story: 0.5
+    caption: 0.5
+  critical: [visual_quality, product_accuracy, commercial_feel, ai_artifact, scene_script_match]
+  weakest_link_margin: 20       # 최종 점수 <= (가장 약한 핵심 항목 + 20)
+  complete_thresholds:          # COMPLETE 조건 (모두 충족)
+    final: 85
+    visual_quality: 80
+    product_accuracy: 90
+    commercial_feel: 80
+    ai_artifact: 85
+    scene_script_match: 85
+    hook: 80
+    story: 80
+    pacing: 80
+    caption: 80
+    audio: 70
+    cta: 80
+    visual_diversity: 60
+  gates:                        # Hard Gate
+    visual_cap: {below: 70, max_final: 74}
+    ai_artifact_cap: {below: 75, max_final: 79}
+    product_accuracy_block: 85          # 미만이면 COMPLETE 금지
+    scene_script_block: 80              # 미만이면 COMPLETE 금지
+    visual_and_commercial_fail: 70      # 둘 다 미만이면 QUALITY_FAIL
+    no_vision_cap: 79                   # Vision 평가가 없으면 최대 79 + NEEDS_REVIEW
+  commercial_weights:
+    lighting: 1.2
+    composition: 1.2
+    product_presentation: 1.3
+    background_cleanliness: 1.2
+    camera_feel: 0.8
+    visual_variety: 0.8
+    real_ad_feeling: 1.3
+    amateur_look: 1.0
+    ai_look: 0.8
+  repeat_same_source_credit: 0.3        # 같은 사진의 Zoom/Crop 만 다른 컷은 새 장면으로 30% 만 인정
+  visual_diversity_target: 0.5          # 유효 장면 수 >= 컷 수 * 0.5

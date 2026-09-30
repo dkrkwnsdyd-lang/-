@@ -23,6 +23,7 @@ from .director import BEAT_DURATION, direct_scenes, llm_director, rule_director,
 from .editor import edit, edl_summary, time_words
 from .motion import MotionRenderer, caption_font_path
 from . import clips as clips_mod
+from . import enhance as enhance_mod
 from .product import ProductInput, analyze_photo, build_identity, import_from_url
 from .qa import best_take, final_qa, storyboard_qa, vision_review
 from . import vision as vision_mod
@@ -202,18 +203,53 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 shutil.copy(ph, dst)
                 photos.append(str(dst))
                 db.add_asset(job_id, str(dst), "product_photo", p.photo_rights, ph)
+            src_copies = list(photos)          # ORIGINAL (덮어쓰지 않음)
             video_paths = []
             for i, vd in enumerate(p.videos):
                 dst = src_dir / f"clip_{i}{Path(vd).suffix.lower() or '.mp4'}"
                 shutil.copy(vd, dst)
                 video_paths.append(str(dst))
                 db.add_asset(job_id, str(dst), "product_video", p.photo_rights, vd)
+            # PHOTO ENHANCEMENT V2: ORIGINAL(src/)은 그대로, 보정본은 enhanced/, 비교 자료는 derived/
+            originals = list(photos)
+            user_boxes = {photos[i]: tuple(p.product_boxes[Path(o).name]) for i, o in enumerate(p.photos)
+                          if Path(o).name in p.product_boxes and len(p.product_boxes[Path(o).name]) == 4}
+            if p.enhance:
+                enh = enhance_mod.process_photos(photos, out_dir, router if mode == "PRO" else None, boxes=user_boxes)
+                photos = list(enh["effective"])
+                for orig_path, eff, item in zip(originals, photos, enh["photos"]):
+                    if eff != orig_path:
+                        db.add_asset(job_id, eff, "product_photo_enhanced", p.photo_rights, orig_path)
+                result["photo_quality"] = {"summary": enh["summary"], "photos": [
+                    {k: v for k, v in it.items() if k not in ("attempts",)} for it in enh["photos"]]}
+                grades = [it["grade_after"] for it in enh["photos"]]
+                good = [i for i, g in enumerate(grades) if g != "C"]
+                if len(good) >= 2 and len(good) < len(photos):
+                    dropped = [i for i in range(len(photos)) if i not in good]
+                    for i in dropped:
+                        result.setdefault("warnings", []).append(f"사진 {i + 1}: 품질 부족(C) - 영상에서 제외 ({'; '.join(enh['photos'][i]['reasons'][:2])})")
+                    photos = [photos[i] for i in good]
+                    originals = [originals[i] for i in good]
+                    enh["photos"] = [enh["photos"][i] for i in good]
+                elif any(g == "C" for g in grades):
+                    result.setdefault("warnings", []).append("품질 부족(C) 사진뿐이라 그대로 사용합니다. 확대 컷은 쓰지 않으며 결과 품질이 낮을 수 있어요")
+                for i, it in enumerate(enh["photos"]):
+                    if it["grade_before"] != "A" and it["reasons"]:
+                        result.setdefault("photo_notes", []).append(f"사진 {i + 1} [{it['grade_before']}]: " + "; ".join(it["reasons"][:3]))
+                path_map = dict(zip(originals, photos))
+            else:
+                enh = None
+                path_map = {o: o for o in photos}
             analyses = [analyze_photo(ph) for ph in photos]
-            saved_by_name = {Path(orig).name: saved for orig, saved in zip(p.photos, photos)}
+            if enh:
+                for a, it in zip(analyses, enh["photos"]):
+                    a.quality_grade = it["grade_after"]
+            saved_by_name = {Path(orig).name: path_map[c] for orig, c in zip(p.photos, src_copies) if c in path_map}
+            name_by_eff = {v: k for k, v in saved_by_name.items()}
             p.feature_photos = {feat: saved_by_name[name] for feat, name in p.feature_photos.items()
                                 if name in saved_by_name and feat in p.features}
-            for orig, a in zip(p.photos, analyses):
-                box = p.product_boxes.get(Path(orig).name)
+            for a in analyses:
+                box = p.product_boxes.get(name_by_eff.get(a.path, ""))
                 if box and len(box) == 4 and 0 <= box[0] < box[2] <= 1 and 0 <= box[1] < box[3] <= 1:
                     a.product_box = tuple(box)
                     a.focus = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
@@ -384,18 +420,23 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 master = adapter.export_platform(video_only, mix, vdir / "MASTER.mp4", profiles["youtube"])
             with job.step("FINAL_QA"):
                 vision = None
-                if mode == "PRO" and router.has_real("vision"):
-                    frames = []
-                    for i, s in enumerate(edl["shots"][:6]):
-                        fp = vdir / f"qa_{i}.jpg"
-                        renderer.frame(s, s.duration / 2, i).resize((540, 960)).save(fp, quality=85)
+                if router.has_real("vision"):     # 로컬 기술 점수만으로는 고품질 판정을 하지 않는다 (FAST 도 1회 평가)
+                    shots_all = edl["shots"]
+                    pick = sorted({round(i * (len(shots_all) - 1) / 7) for i in range(8)}) if len(shots_all) > 8 else list(range(len(shots_all)))
+                    tts_of = {sc.scene_id: sc.tts_line for sc in plan.scenes}
+                    frames, finfo = [], []
+                    for j, i in enumerate(pick):
+                        sh = shots_all[i]
+                        fp = vdir / f"qa_{j}.jpg"
+                        renderer.frame(sh, sh.duration / 2, i).resize((540, 960)).save(fp, quality=85)
                         frames.append(str(fp))
-                    vision = vision_review(router, frames, f"제품: {p.name}. 원본 사진과 제품이 같은지, 상업 영상 품질인지 평가")
+                        finfo.append({"caption": " ".join(w.text for w in sh.caption_words), "tts": tts_of.get(sh.scene_id, "")})
+                    vision = vision_review(router, frames, f"제품: {p.name}. 원본 사진과 제품이 같은지, 상업 영상 품질인지 평가", finfo)
                 qa = final_qa(master, plan, edl, bool(voice), caption_font_path() is not None, identity, vision,
-                              caption_scale=getattr(renderer.captions, "last_scale", 1.0))
+                              caption_scale=getattr(renderer.captions, "last_scale", 1.0), photo_quality=result.get("photo_quality"))
                 db.add_qa(job_id, "final", f"v{version}", qa["scores"], qa["passed"], json.dumps(qa["notes"], ensure_ascii=False))
                 history.append({"version": version, "scores": qa["scores"], "failed": qa["failed"], "notes": qa["notes"]})
-            if qa["passed"] or version > max_final:
+            if qa["passed"] or version > max_final or qa["verdict"] == "NEEDS_REVIEW":
                 break
             actions = _repair(plan, qa, identity)
             history[-1]["repair"] = actions
@@ -443,7 +484,7 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
             exports[pf] = {"file": str(out), "verdict": verdict, "reasons": gate["platforms"][pf]["reasons"]}
         result["exports"] = exports
         renderer.close_clips()
-        result["status"] = "COMPLETE" if qa["passed"] else "QUALITY_FAIL"
+        result["status"] = qa["verdict"]      # COMPLETE | QUALITY_FAIL | NEEDS_REVIEW (Vision 평가 없음)
         result["cost"] = db.job_cost(job_id)
         result["router_trace"] = router.trace
         result["log"] = job.log

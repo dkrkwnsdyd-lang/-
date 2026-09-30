@@ -48,7 +48,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         problem: str = Form(""), target: str = Form(""), price: str = Form(""), category: str = Form(""),
         affiliate: str = Form("NONE"), photo_rights: str = Form("OWNED"), reference_url: str = Form(""),
         mode: str = Form("PRO"), platforms: str = Form("youtube,instagram,tiktok,threads"),
-        boxes: str = Form(""), feature_photos: str = Form(""), my_take: str = Form(""),
+        boxes: str = Form(""), feature_photos: str = Form(""), my_take: str = Form(""), compact: str = Form(""),
     ):
         if len(photos) > MAX_PHOTOS:
             raise HTTPException(400, f"사진은 최대 {MAX_PHOTOS}장까지 올릴 수 있어요.")
@@ -113,7 +113,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         mode = mode.upper() if mode.upper() in ("FAST", "PRO") else "PRO"
         pfs = [p for p in platforms.split(",") if p in PLATFORMS] or list(PLATFORMS)
         inputs = {"name": name.strip(), "description": description.strip(), "features": features,
-                  "problem": problem.strip(), "target": target.strip(), "my_take": my_take.strip()[:200], "price": price.strip(), "url": url.strip(),
+                  "problem": problem.strip(), "target": target.strip(), "my_take": my_take.strip()[:200], "compact": compact == "1", "price": price.strip(), "url": url.strip(),
                   "photos": saved, "videos": saved_videos, "photo_rights": photo_rights, "reference_url": reference_url.strip(),
                   "affiliate": affiliate, "category_hint": category, "product_boxes": product_boxes,
                   "feature_photos": linked}

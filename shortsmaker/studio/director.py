@@ -100,6 +100,7 @@ class CreativePlan:
     director: str
     tension: str = ""
     payoff: str = ""
+    compact: bool = False               # 12~15초 압축 구조 (같은 사진의 확대 반복으로 컷 수를 채우지 않는다)
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -169,6 +170,26 @@ def josa(word: str, pair: tuple[str, str]) -> str:
     if "가" <= ch <= "힣":
         return pair[0] if (ord(ch) - 0xAC00) % 28 else pair[1]
     return pair[1]
+
+
+COMPACT_DURATION = {"hook": 1.2, "reveal": 2.7, "demo": 3.6, "detail": 3.0, "benefit": 3.3, "cta": 3.0}
+COMPACT_RANGE = (12.0, 15.0)
+
+
+def compact_beats(beats: list[dict]) -> list[dict]:
+    """12~15초 구조: 강한 훅(0~1.2) -> 제품 공개 -> 사용/기능 시연 -> 핵심 혜택/결과 -> 짧은 CTA.
+    문제(problem) 장면은 훅으로 흡수하고, 각 역할마다 1개만 남겨 같은 내용의 반복으로 시간을 채우지 않는다."""
+    def first(*names):
+        return next((b for b in beats if b["beat"] in names), None)
+    hook, reveal, cta = first("hook"), first("reveal"), beats[-1]
+    demo = first("demo")
+    rest = [b for b in beats if b not in (hook, reveal, demo, cta) and b["beat"] in ("detail", "benefit", "demo")]
+    demo = demo or (rest.pop(0) if rest else None)
+    benefit = next((b for b in rest if b["beat"] == "benefit"), None) or (rest[0] if rest else None)
+    out = [b for b in (hook, reveal, demo, benefit) if b]
+    if len(out) < 3 and (problem := first("problem")):          # 재료가 부족하면 문제 장면으로 보충 (입력에 문제가 있을 때만 존재)
+        out.insert(1, problem)
+    return out + [cta]
 
 
 def decide_duration_class(pattern: str, n_features: int, mode: str) -> tuple[str, tuple[float, float]]:
@@ -402,6 +423,8 @@ def zoomable(identity: ProductIdentity, path: str | None) -> bool:
         if ph["path"] == path:
             if min(ph["width"], ph["height"]) < MIN_ZOOM_SIDE:   # 저해상도 원본은 확대하면 뭉개진다
                 return False
+            if ph.get("quality_grade") == "C":                    # 품질 부족 사진은 확대하지 않는다
+                return False
             return ph["background"] == "plain" or bool(ph.get("focus"))
     return False
 
@@ -447,7 +470,11 @@ def direct_scenes(plan_data: dict, identity: ProductIdentity, p: ProductInput, m
     if not beats or beats[-1]["beat"] != "cta":
         beats.append({"beat": "cta", "tts_line": "자세한 정보는 링크에서 확인하세요", "caption": "정보는 [[링크]]에서"})
     dclass, (dmin, dmax) = decide_duration_class(story, len(p.features), mode)
-    max_scenes = 5 if mode == "FAST" else 8
+    compact = bool(getattr(p, "compact", False))
+    if compact:
+        beats = compact_beats(beats)
+        dclass, (dmin, dmax) = "compact", COMPACT_RANGE
+    max_scenes = 5 if (mode == "FAST" or compact) else 8
     if len(beats) > max_scenes:
         beats = beats[:max_scenes - 1] + [beats[-1]]
 
@@ -506,13 +533,16 @@ def direct_scenes(plan_data: dict, identity: ProductIdentity, p: ProductInput, m
             seen_reveal = True
         elif not seen_reveal:
             s.duration = 1.8 if s.beat == "hook" else 1.5
+    if compact:
+        for s in scenes:
+            s.duration = COMPACT_DURATION.get(s.beat, 2.5)
     # 목표 길이 범위로 보정 (공개 이후 장면만 스케일, 비트별 한계 유지)
     total = sum(s.duration for s in scenes)
     target = min(max(total, dmin), dmax)
     reveal_idx = next((i for i, s in enumerate(scenes) if s.beat == "reveal"), 0)
     post = scenes[reveal_idx:]
     fixed = total - sum(s.duration for s in post)
-    if abs(total - target) > 0.05 and post:
+    if abs(total - target) > 0.05 and post and not compact:
         k = (target - fixed) / (total - fixed)
         for s in post:
             lo, hi = BEAT_DURATION[s.beat]
@@ -533,4 +563,4 @@ def direct_scenes(plan_data: dict, identity: ProductIdentity, p: ProductInput, m
         story_pattern=story, hook_candidates=hooks, hook_type=hooks[0]["type"] if hooks else "unknown",
         duration_class=dclass, target_duration=(dmin, dmax), reveal_at=round(reveal_at, 2),
         cta_at=round(cta_at, 2), scenes=scenes, director=plan_data.get("_director", "local:rule_director_v1"),
-        tension=plan_data.get("tension", ""), payoff=plan_data.get("payoff", ""))
+        tension=plan_data.get("tension", ""), payoff=plan_data.get("payoff", ""), compact=compact)
