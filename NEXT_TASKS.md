@@ -13,6 +13,20 @@
 - 사용자 사진은 쿠팡 상품 이미지. 게시 전 쿠팡 파트너스 약관(이미지 사용 조건) 확인 또는 판매자 허락/직접 촬영 사진 필요
 - 나중에: Coupang Partners API 로 상품 정보/이미지를 가져오는 정식 경로 연동 검토 (Seller API / Partners / 페이지 import 를 혼동하지 말 것)
 
+## 000. SHOPPING_SHORTS_STRATEGY_ENGINE 다음 단계 (2026-10-01)
+- 완료: 7단계 전략 엔진(`studio/strategy/`) + Quality Gate + 자동 수정 + 영상 스타일 3종(FAST_COMMERCE/STORY_AD/UGC_REVIEW, 구조·Hook·CTA 가 다름) + 파이프라인/Preview/UI/CLI 연결
+- 남은 문제 (TEST_RESULTS.md 참고)
+  1. Preview 에서 대본/자막을 직접 고치면 전략의 Conversion Audit 점수는 다시 계산되지 않음 (edits 이후 재점검 필요)
+  2. 영상 스타일 차이가 '구조/문구'까지만 반영됨. 컷 템포·모션·음악·자막 스타일 차이(Video Style Variation)는 아직 없음
+  3. Hook 9개(유형별 3개)를 항상 채우지는 못함: 사실 검증기가 엄격해 입력 정보가 적은 상품(문제 미입력)은 3~7개만 남음
+  4. 전략 한 번에 100~160초 (LLM 호출 약 10회 + 사실 검증). 병렬화/캐시 필요
+  5. 사실 검증기(LLM)는 '풀어쓴 효과'("바로 풀어보세요")를 일부 통과시킴. 판매 주장 장면은 입력 사실과의 겹침(A)을 요구하지만 Hook/CTA 는 B 허용
+  6. Proof 는 후기/직접 써본 느낌/영상이 없으면 '실제 모습' 수준 → trust_proof 상한 70
+  7. 카테고리 '흔한 패턴'은 일반 경향(B)이며 외부 영상 실측이 아님 (경쟁 영상 수집 기능 없음)
+  8. 중간 Soft CTA 는 미구현(기록만), 댓글 장치는 별도 짧은 장면으로 삽입(FAST/12~15초는 삽입 안 함)
+  9. 쿠팡 상품 URL 은 이 개발 환경에서 접속 불가(403) → 실제 쿠팡 페이지 대상 테스트는 사용자 PC 에서만 가능
+- DO NOT REDO: strategy 패키지(selling/angles/hooks/script/comment/cta/audit/revise/engine)
+
 ## 00. STORYBOARD V2 다음 단계 (지시서 순서)
 - 완료: Storyboard Engine, Scene Director, Layout Engine, Motion Director, Storyboard→Renderer 연결, 영상 퀄리티 규칙 검증기, 효과음 9종, 신뢰도 A/B/C
 - 완료: **Preview Mode** (`storyboard/preview.py`, `POST /api/v2/jobs`(preview=1) → PREVIEW_READY → `POST /api/v2/jobs/{id}/render`). 남은 것: 장면 단위 '재생성'(AI 문구 다시 쓰기)과 레이아웃 변경 시 모션 선택지 즉시 갱신(UI), 미리보기 → 렌더 때 분석 단계 재실행 비용 줄이기(캐시)

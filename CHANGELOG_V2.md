@@ -1,5 +1,15 @@
 # CHANGELOG_V2
 
+## 2026-10-01 — SHOPPING_SHORTS_STRATEGY_ENGINE
+### Added
+- `studio/strategy/` (독립 모듈): selling.py(구매 이유 후보 6기준 평가→PRIMARY), angles.py(차별화 Angle 7기준→2개 선택), hooks.py(PROBLEM/CURIOSITY/EMPATHY x3→BEST_HOOK), script.py(HOOK→PROBLEM→SOLUTION→PROOF→CTA, 스타일별 구조), comment.py(OPINION_SPLIT/EXPERIENCE_SHARE/CURIOSITY), cta.py(SCARCITY/LOSS_AVERSION/SOCIAL_PROOF/DIRECT), audit.py(Funnel·8지표·이탈 타임라인·P0~P3·삭제 분석·Quality Gate), revise.py(자동 수정: 삭제/교체 우선), engine.py(단계 결과 저장·재사용·`pick`·기존 director 데이터로 변환), common.py(FACT SAFETY)
+- 영상 스타일 3종 FAST_COMMERCE / STORY_AD / UGC_REVIEW (`ProductInput.video_style`, Storyboard.style)
+- 파이프라인: STRATEGY 단계 → 기존 direct_scenes/Storyboard/Preview/Renderer 그대로 사용, Quality Gate 미통과 시 렌더 전 `STRATEGY_BLOCKED` (`strategy_force` 로 우회)
+- API: `POST /api/v2/jobs/{id}/strategy`(재생성/선택/자동수정), `/storyboard`(Storyboard 만들기), render 는 게이트 미통과 시 409; UI: 전략 패널(단계별 [재생성], 후보 선택, 점검·자동 수정 내역), AUTO 최적화, 영상 스타일 선택; CLI: `--style --no-strategy --manual-strategy --force`
+### Fixed
+- 영상 클립 소스가 시연/사용 레이아웃이 아닌 레이아웃에 배정되면 렌더러가 mp4 를 이미지로 열어 실패 → 사진으로 되돌림
+- LLM 점수 척도(1~5/0~1) 정규화, 사실 검증기 일시 오류 재시도, 게이트는 재현 가능한 규칙 점수만 사용
+
 ## 2026-10-01 — Preview Mode
 ### Added
 - `studio/storyboard/preview.py`: 수정(edits) 반영 — 순서/삭제/나레이션/자막(대본), 레이아웃/모션/전환/이미지 교체/효과음 끔(스토리보드). 훅은 맨 앞·CTA는 맨 뒤 고정, 사용할 수 없는 레이아웃(시연 영상 없는 demo 등)·맞지 않는 모션은 이유와 함께 거부
