@@ -75,6 +75,36 @@ def _blockiness(g: np.ndarray) -> float:
     return float(on / (off + 1e-6))
 
 
+def _blur_ratio(g: np.ndarray) -> tuple[float | None, int]:
+    """재블러 비율(Crete 등): 한 번 더 흐려도 구배가 거의 안 줄면 이미 흐린 것. 0 선명 ~ 1 흐림.
+    질감의 양에 덜 민감해서, 매끈한 흰색 제품 + 흐린 배경(인물사진 보케)을 '흐린 사진'으로 오판하지 않는다."""
+    gb = np.asarray(Image.fromarray(g.astype(np.uint8)).filter(ImageFilter.GaussianBlur(2.0)), dtype=np.float32)
+    dx, dxb = np.abs(g[:, 1:] - g[:, :-1]), np.abs(gb[:, 1:] - gb[:, :-1])
+    dy, dyb = np.abs(g[1:, :] - g[:-1, :]), np.abs(gb[1:, :] - gb[:-1, :])
+    sx, sy = dx > 5, dy > 5
+    n = int(sx.sum() + sy.sum())
+    if n < 40:
+        return None, n
+    drop = np.maximum(0, dx - dxb)[sx].sum() + np.maximum(0, dy - dyb)[sy].sum()
+    tot = dx[sx].sum() + dy[sy].sum()
+    return float(1 - drop / (tot + 1e-6)), n
+
+
+def focus_blur(g: np.ndarray, grid: int = 6) -> float | None:
+    """가장 선명한 영역 기준 흐림 정도 (타일별 재블러 비율의 하위 20%). 배경이 흐려도 제품이 선명하면 낮게 나온다.
+    기준(임시 보정, 실사진 4장 + 합성/열화 샘플 12종): 선명 ≤0.37 / 약간 흐림 0.38~0.52 / 흐림 >0.52. 표본이 적으니 사진이 쌓이면 재보정할 것."""
+    g = np.asarray(Image.fromarray(g.astype(np.uint8)).filter(ImageFilter.MedianFilter(3)), dtype=np.float32)   # 잡음의 구배가 '선명함'으로 읽히지 않게
+    h, w = g.shape
+    th, tw = h // grid, w // grid
+    vals = []
+    for i in range(grid):
+        for j in range(grid):
+            r, n = _blur_ratio(g[i * th:(i + 1) * th, j * tw:(j + 1) * tw])
+            if r is not None and n >= 150:
+                vals.append(r)
+    return float(np.percentile(vals, 20)) if vals else None
+
+
 def _neutral_gains(arr: np.ndarray) -> tuple[np.ndarray, float] | None:
     """중립색(채도 낮음, 중간 밝기) 픽셀로 화이트밸런스 게인 추정. 신뢰할 수 없으면 None."""
     a = arr.reshape(-1, 3)
@@ -99,6 +129,7 @@ def analyze_quality(path: str | Path | Image.Image, box: tuple[float, float, flo
     arr = np.asarray(ImageOps.contain(img, (1024, 1024), Image.LANCZOS), dtype=np.float32)
     rgb_small = arr
     sharp = _lapvar(g)
+    fb = focus_blur(g)
     edges = _sobel(g)
     noise = _noise_sigma(_gray(img, 2000))      # 축소하면 잡음이 줄어 과소평가되므로 원본에 가까운 해상도로
     lum = g
@@ -138,7 +169,7 @@ def analyze_quality(path: str | Path | Image.Image, box: tuple[float, float, flo
     return {
         "resolution": [w, h], "min_side": min(w, h),
         "sharpness": round(sharp, 1),
-        "blur": round(float(np.clip(1 - sharp / 200.0, 0, 1)), 3),      # 0 선명 ~ 1 심하게 흐림 (1024px 기준 lapvar 200 이상이면 0)
+        "blur": None if fb is None else round(fb, 3),                   # 0 선명 ~ 1 흐림 (가장 선명한 영역 기준)
         "noise": round(noise, 2),
         "exposure": {"mean": round(mean_l, 1), "mean_raw": round(mean_raw, 1), "white_background": round(white_bg, 3), "highlight_clip": round(hi_clip, 4), "shadow_clip": round(lo_clip, 4)},
         "white_balance_cast": None if cast is None else round(cast, 3),
@@ -156,10 +187,11 @@ def grade_photo(m: dict) -> tuple[str, list[str]]:
     c_reasons, b_reasons = [], []
     if m["min_side"] < MIN_SIDE_C:
         c_reasons.append(f"해상도 부족 ({m['resolution'][0]}x{m['resolution'][1]})")
-    if m["sharpness"] < 20:
-        c_reasons.append(f"심하게 흐림 (선명도 {m['sharpness']})")
-    elif m["sharpness"] < 60:
-        b_reasons.append(f"선명도 낮음 ({m['sharpness']})")
+    blur = m.get("blur")
+    if blur is not None and blur > 0.52:
+        c_reasons.append(f"심하게 흐림 (초점 흐림 {blur:.2f})")
+    elif blur is not None and blur > 0.38:
+        b_reasons.append(f"약간 흐림 (초점 흐림 {blur:.2f})")
     ex = m["exposure"]
     if ex["mean"] < 45 or ex["mean"] > 225:
         c_reasons.append(f"노출 극단 (평균 밝기 {ex['mean']})")
@@ -262,15 +294,16 @@ def step_denoise(img: Image.Image, m: dict, ops: list) -> Image.Image:
 
 def step_sharpen(img: Image.Image, m: dict, ops: list) -> Image.Image:
     """소프트한 사진은 두 스케일 언샵으로 선명도 복원. 진짜 디컨볼루션이 아니므로 흐린 사진을 '복구'하지는 못한다."""
-    s = m["sharpness"]
-    if s >= 250:
-        return img
+    blur = m.get("blur")
+    if blur is None or blur <= 0.36:
+        return img                                  # 이미 선명 (보케 배경이 흐린 건 의도된 것)
     scale = max(img.size) / 1080.0
-    amt = 90 if s < 60 else 60 if s < 120 else 40
+    soft = blur > 0.45
+    amt = 80 if soft else 45
     out = img.filter(ImageFilter.UnsharpMask(radius=max(0.8, 1.2 * scale), percent=amt, threshold=3))
-    if s < 60:
+    if soft:
         out = out.filter(ImageFilter.UnsharpMask(radius=max(2.0, 3.0 * scale), percent=35, threshold=4))
-    ops.append({"op": "sharpen", "percent": amt, "two_scale": s < 60})
+    ops.append({"op": "sharpen", "percent": amt, "two_scale": soft, "focus_blur": blur})
     return out
 
 

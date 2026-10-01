@@ -867,3 +867,71 @@ def test_parallax_never_crops_product_when_cutout_unavailable(tmp_path):
     a = r.frame(Shot("S", "parallax", str(photo), 2.0), 1.0, 0)
     b = r.frame(Shot("S", "hero_push", str(photo), 2.0), 1.0, 0)
     assert a.tobytes() == b.tobytes()
+
+
+# ------------------------------------------------------------------ PHOTO ENHANCEMENT V2
+def _bokeh_photo(path, blur_all=0.0):
+    """흰색 매끈한 제품(로고 선명) + 흐린 나무 배경 = 인물사진 모드. 전체 평균 선명도는 낮지만 흐린 사진이 아니다."""
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFilter, ImageFont
+    rng = np.random.default_rng(7)
+    bg = Image.fromarray(np.clip(rng.normal(150, 40, (1200, 900, 3)) + np.linspace(0, 40, 900)[None, :, None], 0, 255).astype("uint8"))
+    bg = bg.filter(ImageFilter.GaussianBlur(14))                      # 배경은 심하게 흐림(보케)
+    d = ImageDraw.Draw(bg)
+    d.ellipse([180, 330, 720, 870], fill=(238, 238, 240))              # 흰 제품
+    try:
+        font = ImageFont.truetype(__import__("shortsmaker.studio.motion", fromlist=["x"]).caption_font_path() or "", 60)
+    except Exception:
+        font = ImageFont.load_default()
+    d.text((330, 560), "LGU+", fill=(120, 120, 128), font=font)         # 선명한 로고
+    d.rectangle([300, 640, 600, 648], fill=(150, 150, 158))
+    if blur_all:
+        bg = bg.filter(ImageFilter.GaussianBlur(blur_all))
+    bg.save(path, quality=95)
+    return str(path)
+
+
+def test_photo_grade_bokeh_is_not_blurry_but_truly_blurry_is_c(tmp_path):
+    from shortsmaker.studio import enhance
+    sharp = enhance.analyze_quality(_bokeh_photo(tmp_path / "bokeh.jpg"))
+    assert enhance.grade_photo(sharp)[0] != "C" and sharp["blur"] <= 0.5       # 오판 방지 (실제 사례: LG U+ 사진이 C 로 판정됐었다)
+    blurry = enhance.analyze_quality(_bokeh_photo(tmp_path / "blurry.jpg", blur_all=6.0))
+    grade, why = enhance.grade_photo(blurry)
+    assert grade == "C" and any("흐림" in w for w in why)
+
+
+def test_enhance_degraded_photo_improves_and_never_overwrites_original(tmp_path):
+    import hashlib
+    import numpy as np
+    from PIL import Image
+    from shortsmaker.studio import enhance
+    src = Image.open(_bokeh_photo(tmp_path / "ok.jpg")).convert("RGB")
+    dark = Image.fromarray((np.asarray(src, dtype="float32") * 0.3).astype("uint8"))      # 어둡게 열화 (평균 밝기 < 85)
+    p = tmp_path / "dark.jpg"
+    dark.save(p, quality=95)
+    before = hashlib.sha256(p.read_bytes()).hexdigest()
+    res = enhance.process_photos([str(p)], tmp_path / "job")
+    it = res["photos"][0]
+    assert hashlib.sha256(p.read_bytes()).hexdigest() == before                          # ORIGINAL 은 그대로
+    assert it["decision"].startswith("enhanced") and it["enhanced"] and it["enhanced"] != str(p)
+    assert it["metrics_after"]["exposure"]["mean"] > it["metrics_before"]["exposure"]["mean"] + 15
+    assert it["fidelity"]["local"]["ok"] and (tmp_path / "job" / "derived" / "photo_quality.json").exists()
+
+
+def test_c_grade_photo_is_not_enhanced_or_upscaled(tmp_path):
+    from shortsmaker.studio import enhance
+    p = _bokeh_photo(tmp_path / "bad.jpg", blur_all=6.0)
+    res = enhance.process_photos([p], tmp_path / "job")
+    it = res["photos"][0]
+    assert it["grade_before"] == "C" and it["decision"].startswith("original (C") and it["effective"] == p
+
+
+def test_fidelity_local_rejects_changed_product(tmp_path):
+    """제품 형태/색이 달라지면 보정본을 폐기한다 (PRODUCT ACCURACY > BEAUTIFICATION)."""
+    from PIL import Image, ImageDraw
+    from shortsmaker.studio import enhance
+    orig = Image.open(_bokeh_photo(tmp_path / "o.jpg")).convert("RGB")
+    changed = orig.copy()
+    ImageDraw.Draw(changed).ellipse([200, 360, 700, 860], fill=(200, 40, 40))             # 제품을 빨갛게 덮어씀
+    assert enhance.fidelity_local(orig, changed)["ok"] is False
+    assert enhance.fidelity_local(orig, orig.copy())["ok"] is True
