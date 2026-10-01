@@ -110,3 +110,7 @@ Multi/Best Take → (TTS) → AI Editor → 렌더(body + CTA) → 믹스 → MA
 - 음악/효과음은 코드로 합성 (저작권 리스크 0)
 - UNKNOWN 카테고리는 자동 GREEN 금지 → 플랫폼 판정 UNKNOWN, export 보류
 - Compliance 판정이 PASS/PASS_WITH_WARNING 인 플랫폼만 export
+
+
+## SHOPPING_SHORTS_STRATEGY_ENGINE (2026-10-01)
+상품 분석 → 구매 이유 → 차별화 Angle → Hook → 판매 대본 → 댓글 장치 → CTA → Conversion Audit(+자동 수정, Quality Gate) → Storyboard → Preview → MP4. 기존 Renderer/Storyboard/Preview 그대로 연결, 기존 director 는 `--no-strategy` 로 유지. 한계는 NEXT_TASKS.md 000 항목, 실측 결과는 TEST_RESULTS.md 참고.
