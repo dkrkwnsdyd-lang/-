@@ -143,7 +143,7 @@ def issues_from(ctx: Ctx, m: dict, scores: dict, tl: list[dict]) -> list[dict]:
         add("P0", "flow_break", "장면 순서가 흐름에 맞지 않음", "Hook 이 처음이 아니거나 CTA 가 마지막이 아니거나 공개 전에 데모", "순서 재배치", "흐름 단절 방지", None, "reorder")
     if scores["selling_point_clarity"] < GATE_MIN["selling_point_clarity"]:
         add("P1", "selling_diluted", f"핵심 구매 이유 전달 {scores['selling_point_clarity']}점",
-            "핵심 구매 이유가 대본에 충분히 드러나지 않거나 기능이 분산됨", "핵심 기능 장면을 앞으로, 곁가지 기능 제거", "'그래서 뭐가 좋은데'를 한 번에 이해", None, "focus")
+            "핵심 구매 이유가 대본에 충분히 드러나지 않거나 기능이 분산됨", "핵심 기능 장면을 앞으로, 곁가지 기능 제거", "'그래서 뭐가 좋은데'를 한 번에 이해", None, "ensure_primary")
     if (m["reveal_at"] or 0) > 5.0:
         add("P1", "late_reveal", f"제품 공개가 {m['reveal_at']}초", "공개 전 장면이 김", "문제 장면 축소/삭제", "관심 유지", None, "shorten_intro")
     if m["repeats"]:
@@ -233,14 +233,15 @@ def run(router, ctx: Ctx, state: dict, script: dict) -> dict:
     issues = issues_from(ctx, m, scores, tl)
     for i in llm_issues[:3]:
         pri = i.get("priority") if i.get("priority") in ("P0", "P1", "P2", "P3") else "P2"
-        issues.append({"priority": pri, "code": "llm_note", "problem": str(i.get("problem")), "cause": str(i.get("cause", "")), "fix": str(i.get("fix", "")),
+        pri = {"P0": "P1"}.get(pri, pri)                    # 검증되지 않은 LLM 의견은 P0 로 올리지 않는다
+        issues.append({"priority": pri, "source": "llm", "code": "llm_note", "problem": str(i.get("problem")), "cause": str(i.get("cause", "")), "fix": str(i.get("fix", "")),
                        "effect": str(i.get("effect", "")), "scene_id": i.get("scene_id"), "op": "none"})
-    issues.sort(key=lambda x: (x["priority"], x["code"]))
+    issues.sort(key=lambda x: (x["priority"], x["code"] == "llm_note", x["code"]))   # 같은 우선순위에서는 측정된 문제가 먼저
     funnel = {"SCROLL_STOP": scores["hook_strength"], "ATTENTION": round((scores["hook_strength"] + scores["retention"]) / 2),
               "INTEREST": scores["selling_point_clarity"],
               "PROBLEM_RECOGNITION": 78 if ctx.p.problem and any(s["beat"] == "problem" or jaccard(s["narration"], ctx.p.problem) > 0.4 for s in _scenes(script)) else 45,
               "PRODUCT_DESIRE": scores["purchase_motivation"], "TRUST": scores["trust_proof"], "ACTION": scores["cta_strength"]}
     g = gate(ctx, m, scores)
     return {"basis": basis, "scores": scores, "llm_scores": llm_scores, "overall": round(sum(scores.values()) / len(scores), 1), "funnel": funnel,
-            "timeline": tl, "issues": issues, "top_fixes": issues[:5], "removals": removals(ctx, script, m), "measurements": m, "gate": g,
+            "timeline": tl, "issues": issues, "top_fixes": ([i for i in issues if i["op"] != "none"] + [i for i in issues if i["op"] == "none"])[:5], "removals": removals(ctx, script, m), "measurements": m, "gate": g,
             "high_risk": [t for t in tl if t["risk"] == "HIGH"]}

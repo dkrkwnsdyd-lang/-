@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-from .common import Ctx, ask, clean_sentence, grade, jaccard, line_issues, num, scale_scores, tail_phrase, tokens, unsupported, verify, weighted
+from .common import Ctx, ask, clean_sentence, grade, jaccard, line_issues, num, scale_scores, tail_phrase, tokens, weighted
 
 CRITERIA = ("instant_understanding", "problem_strength", "purchase_desire", "shortform_fit", "visual_potential", "target_relevance")
 WEIGHTS = {"instant_understanding": 0.20, "problem_strength": 0.20, "purchase_desire": 0.20,
@@ -19,7 +19,7 @@ SYSTEM = (
     '"candidates":[{"text":"한 문장 구매 이유","kind":"FUNCTIONAL|EMOTIONAL|PAIN_POINT|DIFFERENTIATION","feature":"근거가 된 입력 특징(없으면 빈 문자열)",'
     '"pain":{"now":"","why":"","solution":""},"emotion":{"from":"","to":""},'
     '"scores":{"instant_understanding":0-100,"problem_strength":0-100,"purchase_desire":0-100,"shortform_fit":0-100,"visual_potential":0-100,"target_relevance":0-100}}]} '
-    "근거가 입력에 없는 후보는 만들지 않는다. 모든 장점을 한 영상에 넣으려 하지 않는다."
+    "candidate text 는 입력 특징을 풀어쓴 한 문장(광고 문구 금지, 입력에 없는 상황/효과/수치 추가 금지)이고, feature 에는 근거가 된 입력 특징 문장을 그대로 넣는다. 모든 장점을 한 영상에 넣으려 하지 않는다."
 )
 
 
@@ -87,6 +87,10 @@ def _normalize(ctx: Ctx, raw: list[dict], basis: str) -> list[dict]:
     return cands
 
 
+def rcands_fallback(ctx: Ctx) -> bool:
+    return bool(ctx.p.features or ctx.p.problem)
+
+
 def run(router, ctx: Ctx, picks: dict | None = None) -> dict:
     raw = ask(router, SYSTEM, ctx.brief())
     basis = "llm" if raw else "rule"
@@ -101,20 +105,20 @@ def run(router, ctx: Ctx, picks: dict | None = None) -> dict:
         cands = _normalize(ctx, rcands, "rule")
         basis = "rule"
     pick = (picks or {}).get("selling_point")
-    if basis == "llm":                                       # 구매 이유 문장도 입력 사실로 검증: 근거 없는 후보는 C(확인 불가)로 표시하고 대표로 쓰지 않는다
-        problems = verify(router, ctx, [c["text"] for c in cands])
-        for c in cands:
-            pr = unsupported(problems, c["text"]) if problems is not None else None
-            if problems is None:
-                c["reliability"] = "B"
-                c["note"] = "사실 검증 불가 (AI 해석)"
-            elif pr:
-                c["reliability"], c["note"] = "C", f"입력에 없는 내용 포함: {pr.get('phrase')}"
-                c["total"] = round(c["total"] - 15, 1)
-        cands.sort(key=lambda c: -c["total"])
-        for i, c in enumerate(cands):
-            c["id"] = f"SP{i + 1}"
-    primary = next((c for c in cands if c["id"] == pick), None) or next((c for c in cands if c["reliability"] != "C"), None)
+    # 구매 이유는 '해석(B)'이라 문장 전체를 사실 검증기로 걸러내지 않는다(광고 문구 수준의 풀어쓰기는 항상 걸림). 대신
+    # (1) 결정적 규칙(수치/성능/희소성 등 근거 없는 주장)으로 걸러내고 (2) 입력 특징/불편과 연결된 후보만 대표(PRIMARY)가 될 수 있게 한다.
+    # 영상에 실제로 나가는 문장(Hook/대본/CTA)은 따로 사실 검증을 거친다.
+    for c in cands:
+        if basis == "llm" and not c["feature"] and c["kind"] != "PAIN_POINT":
+            c["reliability"], c["note"] = "B", "입력 특징과 연결되지 않은 해석"
+    pool = [c for c in cands if c["reliability"] != "C" and (c["feature"] or c["kind"] == "PAIN_POINT")]
+    primary = next((c for c in cands if c["id"] == pick), None) or (pool[0] if pool else next((c for c in cands if c["reliability"] != "C"), None))
+    if primary is None and rcands_fallback(ctx):                 # LLM 후보가 모두 부적합하면 규칙 기반 후보로
+        analysis, rc = rule_candidates(ctx)
+        cands, basis = _normalize(ctx, rc, "rule"), "rule"
+        primary = cands[0] if cands else None
+    if primary and not primary["feature"] and ctx.p.features:     # 대표 구매 이유는 반드시 입력 특징 하나와 연결 (대본에서 그 특징을 보여주기 위해)
+        primary["feature"] = max(ctx.p.features, key=lambda f: jaccard(f, primary["text"]))
     return {"basis": basis, "product_analysis": analysis, "candidates": cands, "primary": primary,
             "shortage": len(cands) < 5,
             "reason": (f"6개 기준 가중 평균 {primary['total']}점 (순간 이해/문제 강도/구매 욕구 각 20%)" if primary else "후보 없음")}

@@ -76,6 +76,16 @@ def apply(router, ctx: Ctx, state: dict, script: dict, issues: list[dict]) -> tu
             for a, b, _ in (issues and [(0, i.get("scene_id"), 0) for i in issues if i["op"] == "drop_repeat"]) or []:
                 if b:
                     _drop(sc, b, log, "앞 장면과 중복")
+        elif op == "ensure_primary":
+            pf = (state.get("primary_selling_point") or {}).get("feature") or ""
+            if pf and not any(pf == s.get("feature") for s in sc):
+                from ..director import feature_lines
+                tts, cap = feature_lines([pf])[0]
+                tgt = next((s for s in sc if s["beat"] == "demo"), None) or next((s for s in sc if s["beat"] == "detail"), None)
+                if tgt:
+                    log.append({"op": op, "scene_id": tgt["scene_id"], "before": tgt["narration"], "after": strip_marks(tts), "why": "핵심 구매 이유(대표 특징)를 보여주는 장면으로 교체"})
+                    _set(tgt, tts, cap, ctx)
+                    tgt["feature"] = pf
         elif op == "focus":
             feats = [s for s in sc if s["scene_role"] == "SOLUTION" and s.get("feature")]
             if len(feats) > 2:

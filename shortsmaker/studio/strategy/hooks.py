@@ -94,7 +94,7 @@ def run(router, ctx: Ctx, primary: dict | None, angle: dict | None, analysis: di
     payload = {**ctx.brief(), "primary_selling_point": primary, "selected_angle": angle, "product_analysis": analysis}
     hooks, rejected, basis = [], [], "rule"
     feedback = ""
-    for attempt in range(2):                                   # 검증에서 걸러져 9개가 안 되면 1회 보충 생성 (걸러진 표현을 알려주고)
+    for attempt in range(3):                                   # 검증에서 걸러져 9개가 안 되면 최대 2회 보충 생성 (걸러진 표현을 알려주고)
         need = {t: 3 - sum(1 for h in hooks if h["type"] == t) for t in TYPES}
         if attempt and not any(v > 0 for v in need.values()):
             break

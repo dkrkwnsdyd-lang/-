@@ -6,8 +6,10 @@
 """
 from __future__ import annotations
 
+import re
+
 from ..director import BEAT_DURATION, BEAT_PURPOSE, feature_lines, josa_end
-from .common import (Ctx, STYLE_KO, ask, clean_sentence, grade, jaccard, line_issues, make_caption, speak_seconds, strip_marks, tail_phrase,
+from .common import (FILLER, PRAISE, Ctx, STYLE_KO, ask, clean_sentence, grade, jaccard, line_issues, make_caption, speak_seconds, strip_marks, tail_phrase,
                      unsupported, verify)
 
 ROLE = {"hook": "HOOK", "problem": "PROBLEM", "reveal": "SOLUTION", "demo": "SOLUTION", "detail": "SOLUTION", "benefit": "PROOF", "cta": "CTA"}
@@ -157,6 +159,14 @@ def _validate_llm(router, ctx: Ctx, raw: list[dict], primary: dict | None, hook:
                 continue
             tts, cap = fb["tts_line"], fb["caption"]
             b = {**b, "_replaced": [i["code"] for i in issues] + (["too_long"] if too_long else [])}
+        if not (issues or too_long or not tts) and name in ("problem", "reveal", "demo", "detail", "benefit"):
+            # 판매 주장이 실리는 장면은 문장 대부분이 입력 사실이어야 한다(등급 A). 풀어쓴 효과/인과('덕분에', '맞게 자극')는 규칙 문장으로 교체
+            if grade(tts + " " + strip_marks(cap), ctx) != "A" and name in fallback:
+                issues = issues + [{"code": "not_grounded", "detail": "입력 사실과 겹치지 않는 풀어쓴 표현"}]
+                fb = fallback[name]
+                tts, cap = fb["tts_line"], fb["caption"]
+                b = {**b, "_replaced": ["not_grounded"]}
+        tts = re.sub(r"\s{2,}", " ", PRAISE.sub("", FILLER.sub("", tts))).strip()
         feat = str(b.get("feature") or "")
         if feat and feat not in ctx.p.features:
             feat = max(ctx.p.features, key=lambda f: jaccard(f, feat), default="") if any(jaccard(f, feat) > 0.3 for f in ctx.p.features) else ""
