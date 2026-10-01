@@ -150,6 +150,6 @@ def _ensure_not_all_zoom(scenes: list, features: list[str]) -> None:
         alts = [m for m in allowed_for(sc.layout) if m not in ZOOM_FAMILY and m not in (prev, nxt)]
         if alts:
             alt = sorted(alts, key=lambda m: -BASE.get(sc.scene_type, {}).get(m, 0))[0]
-            sc.decisions["motion"] += f" → 줌 계열 과다로 {LABELS[alt]} 로 교체"
+            sc.decisions["motion"] = sc.decisions.get("motion", "") + f" → 줌 계열 과다로 {LABELS[alt]} 로 교체"
             sc.image_motion, sc.camera_motion = alt, CAMERA_TEXT[alt]
             zoom_idx.remove(i)

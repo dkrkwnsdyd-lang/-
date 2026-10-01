@@ -109,7 +109,57 @@ def audio_duration(path: str | Path) -> float:
     return len(decode_audio(path)) / SR
 
 
-SFX = {"whoosh": whoosh, "hit": hit, "pop": pop, "riser": riser}
+def click(dur: float = 0.04) -> np.ndarray:
+    """짧은 딸깍: 날카로운 노이즈 틱 + 높은 톤"""
+    n = int(dur * SR)
+    t = np.arange(n) / SR
+    tick = np.random.default_rng(4).normal(0, 1, n) * np.exp(-t * 220) * 0.5
+    return (np.sin(2 * np.pi * 2400 * t) * _env(n, 0.0005, 0.008) * 0.35 + tick) * 0.8
+
+
+def ding(dur: float = 0.6) -> np.ndarray:
+    """맑은 종소리: 기본음 + 배음, 천천히 감쇠"""
+    n = int(dur * SR)
+    t = np.arange(n) / SR
+    tone = np.sin(2 * np.pi * 1760 * t) + 0.45 * np.sin(2 * np.pi * 2640 * t) + 0.2 * np.sin(2 * np.pi * 3520 * t)
+    return tone * _env(n, 0.002, 0.22) * 0.22
+
+
+def impact(dur: float = 0.6) -> np.ndarray:
+    """묵직한 타격: 저음 스윕 + 노이즈 버스트"""
+    n = int(dur * SR)
+    t = np.arange(n) / SR
+    body = np.sin(2 * np.pi * np.cumsum(95 * np.exp(-t * 5) + 38) / SR) * _env(n, 0.002, 0.25)
+    burst = np.random.default_rng(5).normal(0, 1, n) * np.exp(-t * 40) * 0.35
+    return (body + burst) * 0.55
+
+
+def swipe(dur: float = 0.22) -> np.ndarray:
+    """가벼운 쓸어넘김: 짧은 필터 노이즈"""
+    n = int(dur * SR)
+    noise = np.random.default_rng(6).normal(0, 1, n)
+    out, acc = np.zeros(n), 0.0
+    alpha = np.linspace(0.05, 0.5, n)
+    for i in range(n):
+        acc += alpha[i] * (noise[i] - acc)
+        out[i] = acc
+    return out * np.sin(np.linspace(0, np.pi, n)) ** 1.5 * 0.7
+
+
+def soft_hit(dur: float = 0.25) -> np.ndarray:
+    """부드러운 쿵: 낮은 톤 + 빠른 감쇠"""
+    n = int(dur * SR)
+    t = np.arange(n) / SR
+    return np.sin(2 * np.pi * np.cumsum(130 * np.exp(-t * 9) + 60) / SR) * _env(n, 0.003, 0.07) * 0.7
+
+
+def transition_hit(dur: float = 0.35) -> np.ndarray:
+    """전환 타격: hit 보다 짧고 밝게"""
+    return hit(dur) * 0.8
+
+
+SFX = {"whoosh": whoosh, "hit": hit, "pop": pop, "riser": riser, "click": click, "ding": ding, "impact": impact, "swipe": swipe,
+       "soft_hit": soft_hit, "transition_hit": transition_hit}
 
 
 def build_mix(total: float, events: list[dict], voice: list[tuple[float, str]], out: Path,

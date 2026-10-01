@@ -24,16 +24,24 @@ RANK = {"A": 0, "B": 1, "C": 2}
 
 
 def split_caption(caption: str) -> tuple[str, str, list[str]]:
-    """자막 -> (main, sub, emphasis). main 은 강조 단어가 있는 줄, 나머지는 sub."""
+    """자막 -> (main, sub, emphasis). 읽는 순서를 유지한다: main = 첫 줄, sub = 나머지 줄. 강조 단어는 emphasis 목록으로."""
     emph = legacy.emphasis_of(caption)
     lines = [ln.strip() for ln in legacy.strip_marks(caption).split("\n") if ln.strip()]
     if not lines:
         return "", "", emph
-    marked = [ln.strip() for ln in caption.split("\n") if ln.strip()]
-    idx = next((i for i, ln in enumerate(marked) if "[[" in ln), 0)
-    main = lines[idx]
-    sub = " ".join(ln for i, ln in enumerate(lines) if i != idx)
-    return main, sub, emph
+    return lines[0], "\n".join(lines[1:]), emph
+
+
+def caption_text(scene) -> str:
+    """Storyboard 의 main/sub 자막 -> 렌더러가 쓰는 자막 문자열 ([[강조]] 표시 복원). Preview 에서 사용자가 고친 자막도 같은 경로."""
+    out, used = [], set()
+    for ln in [scene.main_caption] + ([scene.sub_caption] if scene.sub_caption else []):
+        for w in sorted({e for e in scene.emphasis if e}, key=len, reverse=True):
+            if w not in used and w in ln and "[[" not in ln:
+                ln = ln.replace(w, f"[[{w}]]", 1)
+                used.add(w)                                        # 강조 단어는 한 번만 표시
+        out.extend(ln.split("\n"))
+    return "\n".join(out)
 
 
 # 사실 여부와 무관한 문법/연결 표현 (판정 대상에서 제외)

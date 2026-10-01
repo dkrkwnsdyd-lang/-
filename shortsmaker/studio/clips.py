@@ -133,8 +133,12 @@ def assign(shots: list, scenes: list, infos: list[dict]) -> list[dict]:
     if not infos:
         return []
     beat_of = {s.scene_id: s.beat for s in scenes}
-    cands = [s for s in shots if beat_of.get(s.scene_id) in BEAT_PRIORITY]
-    cands.sort(key=lambda s: (BEAT_PRIORITY[beat_of[s.scene_id]], -s.duration))
+    layout_mode = any(getattr(s, "layout", "") for s in shots)             # Storyboard 경로: 시연/사용 장면 레이아웃에만 영상 클립
+    if layout_mode:
+        cands = [s for s in shots if s.layout in ("demo", "lifestyle")]
+    else:
+        cands = [s for s in shots if beat_of.get(s.scene_id) in BEAT_PRIORITY]
+    cands.sort(key=lambda s: (BEAT_PRIORITY.get(beat_of.get(s.scene_id), 9), -s.duration))
     used: dict[int, list[tuple[float, float]]] = {i["index"]: [] for i in infos}
     report = []
     for shot in cands:
@@ -149,7 +153,8 @@ def assign(shots: list, scenes: list, infos: list[dict]) -> list[dict]:
             continue
         info, w = best
         used[info["index"]].append((w["start"], w["start"] + w["dur"]))
-        shot.shot = "video_clip"
+        if not layout_mode:
+            shot.shot = "video_clip"
         shot.source = info["path"]
         shot.clip_start = w["start"]
         shot.clip_aspect = info["aspect"]

@@ -25,6 +25,7 @@ from .motion import MotionRenderer, caption_font_path
 from . import clips as clips_mod
 from . import enhance as enhance_mod
 from .storyboard import build_storyboard
+from .storyboard_edit import edit_from_storyboard
 from .product import ProductInput, analyze_photo, build_identity, import_from_url
 from .qa import best_take, final_qa, storyboard_qa, vision_review
 from . import vision as vision_mod
@@ -416,8 +417,11 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 (out_dir / f"v{version}" / "storyboard.json").write_text(sb.to_json(), encoding="utf-8")
                 result["storyboard"] = sb.to_dict()
             with job.step("EDIT"):
-                edl = edit(plan, takes, voice, label=label,
-                           zoomable_paths={ph['path'] for ph in identity.photos if zoomable(identity, ph['path'])})
+                if p.legacy_render:
+                    edl = edit(plan, takes, voice, label=label,
+                               zoomable_paths={ph['path'] for ph in identity.photos if zoomable(identity, ph['path'])})
+                else:      # Storyboard(JSON) -> EDL -> Renderer. AI 와 Renderer 는 Storyboard 로만 연결된다
+                    edl = edit_from_storyboard(sb, voice, label=label)
             clip_report = clips_mod.assign(edl["shots"], plan.scenes, clip_infos)
             if video_paths:
                 result["clips"] = {"provided": len(video_paths), "usable": len(clip_infos), "used": clip_report}

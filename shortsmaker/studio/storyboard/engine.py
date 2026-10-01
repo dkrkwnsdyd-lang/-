@@ -8,6 +8,7 @@ from __future__ import annotations
 from .. import grounding
 from . import layouts as layout_engine
 from . import motion_director
+from . import validator
 from . import sfx_director
 from .scene_director import SceneDirector
 from .schema import Storyboard, duration_class
@@ -68,6 +69,7 @@ def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str]
         s.transition = "cut" if i == 0 else s.transition
     layout_engine.select_layouts(scenes, layout_context(identity, product, clip_paths, cutout_ok))
     motion_director.select_motions(scenes, [f for f in product.features if f])
+    issues = validator.validate(scenes, [f for f in product.features if f])      # 품질 규칙 검사 + 안전한 자동 수정
     sfx_director.direct_sfx(scenes)       # 효과음은 layout/motion 이 정해진 뒤 (콜아웃 click, pan swipe 등)
     distinct = {s.visual_source.get("path") for s in scenes if s.visual_source.get("path")}
     if len(scenes) > 2 * len(distinct) + 1:
@@ -82,5 +84,5 @@ def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str]
                     duration_class=cls, scene_range=rng,
                     music={"mood": MUSIC_BY_STYLE.get(style, MUSIC_BY_STYLE["STANDARD"]),
                            "cues": [{"scene_id": s.scene_id, "cue": s.music_cue} for s in scenes]},
-                    facts=[{"text": f, "reliability": "A"} for f in facts], warnings=warnings)
+                    facts=[{"text": f, "reliability": "A"} for f in facts], warnings=warnings, issues=issues)
     return sb

@@ -28,6 +28,7 @@ class ProductInput:
     url: str = ""
     photos: list[str] = field(default_factory=list)
     compact: bool = False             # 12~15초 압축 구조
+    legacy_render: bool = False       # True 면 Storyboard 대신 기존 편집/렌더 경로 (비교 테스트/안전망)
     review_quotes: list[str] = field(default_factory=list)   # 사용자가 가진 실제 후기 문구 (review_quote 레이아웃, 없으면 사용 안 함)
     before_after: list[str] = field(default_factory=list)    # [전 사진, 후 사진] (before_after 레이아웃)
     comparison: list[dict] = field(default_factory=list)     # [{"label","ours","other"}] 사용자가 근거를 가진 비교 데이터

@@ -738,7 +738,8 @@ def test_pipeline_with_video_clip(tmp_path):
                 out_root=tmp_path / "out", db=DB(tmp_path / "db.sqlite"), render=(270, 480, 10))
     assert r["status"] in ("COMPLETE", "QUALITY_FAIL", "NEEDS_REVIEW"), r.get("error")
     assert r["clips"]["provided"] == 2 and r["clips"]["usable"] == 1 and r["clips"]["used"]
-    assert any(s["shot"] == "video_clip" for s in r["edl"]["shots"])
+    clip_shots = [s for s in r["edl"]["shots"] if s["shot"] == "video_clip" or (str(s["source"]).endswith(".mp4") and s["layout"] in ("demo", "lifestyle"))]
+    assert clip_shots                                                    # Storyboard 경로: 시연/사용 장면 레이아웃에 영상 클립이 들어감
     warns = " ".join(r.get("warnings", []))
     assert "사용할 수 없어 제외" in warns                      # 깨진 파일은 제외하고 계속
     assert "개인 정보" in warns                                  # Vision 이 없으면 직접 확인 안내
@@ -1226,3 +1227,69 @@ def test_every_motion_actually_changes_the_picture_over_time(tmp_path):
         diff = float(np.abs(np.asarray(a, np.float32) - np.asarray(b, np.float32)).mean())
         assert diff > 0.4, (m, diff)                                                         # 정적인 모션 없음
         assert np.array_equal(np.asarray(r.frame(sh, 1.4, 0)), np.asarray(b))                # 같은 시각 = 같은 프레임 (랜덤 없음)
+
+
+# ------------------------------------------------------------------ STORYBOARD V2 - 4단계 (Storyboard -> EDL -> Renderer, 검증기)
+def test_caption_split_keeps_reading_order_and_roundtrips():
+    from shortsmaker.studio.storyboard.scene_director import caption_text, split_caption
+    from shortsmaker.studio.storyboard.schema import StoryScene
+    main, sub, emph = split_caption("이 거치대\n혹시 [[보셨어요]]?")
+    assert (main, sub, emph) == ("이 거치대", "혹시 보셨어요?", ["보셨어요"])                # 읽는 순서 유지 (강조 줄을 앞으로 빼지 않는다)
+    sc = StoryScene(scene_id="S1", scene_type="HOOK", duration=2, purpose="", narration="n", main_caption=main, sub_caption=sub, emphasis=emph)
+    assert caption_text(sc) == "이 거치대\n혹시 [[보셨어요]]?"
+    sc.main_caption = "이 링 보셨어요"                                                        # Preview 에서 사용자가 고친 자막도 같은 경로
+    assert caption_text(sc) == "이 링 [[보셨어요]]\n혹시 보셨어요?"                          # 강조 단어는 한 번만 표시
+
+
+def test_edit_from_storyboard_makes_one_cut_per_scene_with_layout_motion_sfx(tmp_path):
+    from shortsmaker.studio.storyboard import build_storyboard
+    from shortsmaker.studio.storyboard_edit import edit_from_storyboard
+    p, ident, plan = _plan_for(tmp_path)
+    sb = build_storyboard(plan, ident, p)
+    edl = edit_from_storyboard(sb)
+    assert edl["storyboard"] is True and len(edl["shots"]) == len(sb.scenes)                 # 장면 1개 = 컷 1개 (같은 사진을 쪼개 컷 수를 채우지 않음)
+    for shot, sc in zip(edl["shots"], sb.scenes):
+        assert shot.layout == sc.layout and shot.motion == sc.image_motion and shot.scene_id == sc.scene_id
+        assert shot.caption_words and shot.transition_in == ("cut" if sc is sb.scenes[0] else sc.transition)
+    assert len(edl["events"]) <= sum(len(s.sound_effect) for s in sb.scenes)                 # 효과음은 Storyboard 가 정한 지점에만
+    assert edl["timing"]["first_caption"] is not None and edl["timing"]["reveal_at"] is not None
+    if sb.scenes[0].image_motion in ("punch_in", "mask_reveal", "shake", "zoom_in", "object_focus"):
+        assert edl["timing"]["first_visual_change"] <= 1.3                                   # Hook 첫 2초 시각 변화
+    # 음성이 있으면 대사 길이에 맞춰 컷이 늘어난다 (Dead air 제거)
+    voice = {sb.scenes[1].scene_id: (4.0, str(tmp_path / "v.wav"))}
+    longer = edit_from_storyboard(sb, voice)
+    assert longer["shots"][1].duration >= 4.2 and longer["voice"]
+
+
+def test_validator_detects_and_fixes_weak_hook_and_missing_feature_emphasis():
+    from shortsmaker.studio.storyboard.validator import validate
+    sc = _mscenes([("HOOK", "full_product", "첫 장면"), ("FEATURE", "close_up", "컬러 LED 링이 있어요"), ("DEMO", "split_screen", "시연"),
+                   ("CTA", "cta", "링크")])
+    for s, m in zip(sc, ("slow_zoom", "zoom_in", "pan_left", "light_sweep")):
+        s.image_motion = m
+        s.visual_source = {"path": f"/p/{s.scene_id}.jpg"}
+    sc[-1].transition = "cut"
+    issues = validate(sc, ["컬러 LED 링"])
+    rules = {i["rule"]: i for i in issues}
+    assert rules["hook_weak"]["fixed"] and sc[0].image_motion in ("punch_in", "mask_reveal", "zoom_in")
+    assert rules["feature_not_emphasized"]["fixed"] and sc[1].image_motion == "object_focus"   # 특징을 말하는 순간 해당 영역 강조
+    assert "cta_no_transition" in rules and "pre_cta_no_change" not in rules
+    # 위반 탐지: 같은 레이아웃/모션 연속, 같은 사진 장시간, 줌 일색
+    bad = _mscenes([("HOOK", "full_product", "a"), ("FEATURE", "full_product", "b"), ("DEMO", "full_product", "c"), ("BENEFIT", "full_product", "d")])
+    for s in bad:
+        s.image_motion, s.visual_source = "zoom_in", {"path": "/p/same.jpg"}
+    found = {i["rule"] for i in validate(bad, [], fix=False)}
+    assert {"layout_repeat", "motion_repeat", "same_image_long", "all_zoom", "slideshow", "always_centered"} <= found
+
+
+def test_storyboard_path_is_default_and_legacy_path_still_works(tmp_path):
+    from shortsmaker.studio.pipeline import run_job
+    photos = make_photos("kitchen_tumbler", tmp_path / "p", 3)
+    P = PRODUCTS["kitchen_tumbler"]
+    base = {"name": P["name"], "features": P["features"], "problem": P["problem"], "category_hint": "주방", "photos": photos}
+    r = run_job(base, "FAST", ["youtube"], out_root=tmp_path / "o1", db=DB(tmp_path / "d1.sqlite"), render=(270, 480, 10))
+    assert r["edl"]["shots"] and all(s["layout"] and s["motion"] for s in r["edl"]["shots"])
+    assert len(r["edl"]["shots"]) == len(r["storyboard"]["scenes"])
+    legacy = run_job({**base, "legacy_render": True}, "FAST", ["youtube"], out_root=tmp_path / "o2", db=DB(tmp_path / "d2.sqlite"),
+                     render=(270, 480, 10))
+    assert legacy["status"] in ("COMPLETE", "QUALITY_FAIL", "NEEDS_REVIEW") and all(not s["layout"] for s in legacy["edl"]["shots"])

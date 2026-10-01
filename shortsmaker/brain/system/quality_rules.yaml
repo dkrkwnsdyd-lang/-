@@ -17,6 +17,7 @@ first_3_seconds:           # 기본 참고 패턴 (초)
   reveal: [2.0, 4.0]
 pacing:
   avg_shot_length: [0.9, 2.6]
+  storyboard_avg_shot_length: [1.4, 3.2]   # Storyboard 경로: 장면 1개 = 컷 1개이고 장면마다 레이아웃/모션이 달라 컷이 조금 길어도 단조롭지 않다
   max_shot_length: 3.6
   min_shot_length: 0.45
 visual_qa_fail:            # 하나라도 있으면 FAIL

@@ -83,6 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--reference", default="", help="참고 영상 URL 또는 mp4 (구조만 분석)")
     st.add_argument("--mode", default="PRO", choices=["FAST", "PRO"])
     st.add_argument("--compact", action="store_true", help="12~15초 압축 구조 (훅→공개→시연→혜택→CTA)")
+    st.add_argument("--legacy-render", action="store_true", help="Storyboard 대신 기존 편집/렌더 경로 (비교용)")
     st.add_argument("--no-enhance", action="store_true", help="사진 보정(PHOTO ENHANCEMENT V2)을 끄고 원본 그대로 (비교 테스트용)")
     st.add_argument("--platforms", default="youtube,instagram,tiktok,threads")
     st.add_argument("--bgm", default=None, help="배경음악 (권리 보유 음원만)")
@@ -144,7 +145,7 @@ def _studio(args) -> int:
     from .studio.pipeline import run_job
     inputs = {"photos": args.photos, "url": args.url, "name": args.name, "features": args.features,
               "problem": args.problem, "category_hint": args.category, "affiliate": args.affiliate,
-              "photo_rights": args.rights, "compact": args.compact, "enhance": not args.no_enhance, "reference_url": args.reference, "bgm_path": args.bgm,
+              "photo_rights": args.rights, "compact": args.compact, "enhance": not args.no_enhance, "legacy_render": args.legacy_render, "reference_url": args.reference, "bgm_path": args.bgm,
               "product_boxes": {k: [float(x) for x in v.split(",")] for k, v in (b.split("=", 1) for b in args.box)},
               "feature_photos": dict(fp.split("=", 1) for fp in args.feature_photo)}
     r = run_job(inputs, args.mode, _split(args.platforms, ","), out_root="output/v2",

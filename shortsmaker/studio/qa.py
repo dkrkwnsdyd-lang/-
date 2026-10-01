@@ -340,11 +340,12 @@ def final_qa(video: Path, plan, edl: dict, has_voice: bool, font_ok: bool, ident
     # --- pacing
     pace = 100
     avg = timing["avg_shot"]
-    if not (pacing["avg_shot_length"][0] <= avg <= pacing["avg_shot_length"][1]):
+    avg_rng = pacing.get("storyboard_avg_shot_length", pacing["avg_shot_length"]) if edl.get("storyboard") else pacing["avg_shot_length"]
+    if not (avg_rng[0] <= avg <= avg_rng[1]):
         pace -= 20; notes["pacing"].append(f"평균 컷 {avg}s")
     if timing["max_shot"] > pacing["max_shot_length"]:
         pace -= 15; notes["pacing"].append(f"최장 컷 {timing['max_shot']}s")
-    same = sum(1 for a, b in zip(edl["shots"], edl["shots"][1:]) if a.shot == b.shot and a.source == b.source and a.clip_start == b.clip_start)
+    same = sum(1 for a, b in zip(edl["shots"], edl["shots"][1:]) if a.shot == b.shot and a.source == b.source and a.clip_start == b.clip_start and a.layout == b.layout)
     if same:
         pace -= 10 * same; notes["pacing"].append(f"같은 구도 연속 {same}회")
     # 실제 화면 기준 반복 검사: 컷마다 중간 프레임을 비교 (샷 이름이 달라도 화면이 같으면 반복)
@@ -357,7 +358,7 @@ def final_qa(video: Path, plan, edl: dict, has_voice: bool, font_ok: bool, ident
     looks = _distinct_looks(mids)
     shots = edl["shots"]
     repeat_scenes = sorted({shots[i + 1].scene_id for i, (x, y) in enumerate(zip(mids, mids[1:]))
-                            if _similar(x, y) or (shots[i].shot == shots[i + 1].shot and shots[i].source == shots[i + 1].source and shots[i].clip_start == shots[i + 1].clip_start)})
+                            if _similar(x, y) or (shots[i].shot == shots[i + 1].shot and shots[i].source == shots[i + 1].source and shots[i].clip_start == shots[i + 1].clip_start and shots[i].layout == shots[i + 1].layout)})
     repeats = sum(1 for x, y in zip(mids, mids[1:]) if _similar(x, y))
     if repeats:
         pace -= 8 * repeats; notes["pacing"].append(f"연속 컷 화면이 거의 같음 {repeats}회")
@@ -395,7 +396,7 @@ def final_qa(video: Path, plan, edl: dict, has_voice: bool, font_ok: bool, ident
 
     # --- DIVERSITY: 같은 제품 사진의 Zoom/Crop 만 바꾼 컷은 새 장면으로 100% 인정하지 않는다
     shots = edl["shots"]
-    src_keys = [(s_.source, round(s_.clip_start, 1)) if s_.shot == "video_clip" else (s_.source, 0.0) for s_ in shots]
+    src_keys = [(s_.source, round(s_.clip_start, 1)) if (s_.shot == "video_clip" or str(s_.source).lower().endswith((".mp4", ".mov", ".m4v", ".webm", ".mkv", ".3gp"))) else (s_.source, 0.0) for s_ in shots]
     unique_src = len(set(src_keys))
     n_cuts = max(1, len(shots))
     n_looks = looks if mids else unique_src

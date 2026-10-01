@@ -170,7 +170,7 @@ def _ensure_off_center(scenes: list, ctx: LayoutContext, used: dict) -> None:
                     best = (sco, l)
         if best:
             used[sc.layout] -= 1
-            sc.decisions["layout"] += f" → 비중앙 구도 확보를 위해 {LABELS[best[1]]} 로 교체"
+            sc.decisions["layout"] = sc.decisions.get("layout", "") + f" → 비중앙 구도 확보를 위해 {LABELS[best[1]]} 로 교체"
             sc.layout = best[1]
             used[best[1]] = used.get(best[1], 0) + 1
             have += 1
