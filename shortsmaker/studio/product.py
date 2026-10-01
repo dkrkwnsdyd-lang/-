@@ -28,6 +28,9 @@ class ProductInput:
     url: str = ""
     photos: list[str] = field(default_factory=list)
     compact: bool = False             # 12~15초 압축 구조
+    review_quotes: list[str] = field(default_factory=list)   # 사용자가 가진 실제 후기 문구 (review_quote 레이아웃, 없으면 사용 안 함)
+    before_after: list[str] = field(default_factory=list)    # [전 사진, 후 사진] (before_after 레이아웃)
+    comparison: list[dict] = field(default_factory=list)     # [{"label","ours","other"}] 사용자가 근거를 가진 비교 데이터
     enhance: bool = True              # PHOTO ENHANCEMENT V2 (False 면 원본 그대로: 비교 테스트용)
     videos: list[str] = field(default_factory=list)   # 직접 찍은 상품 영상 클립 (사용 장면용, 원본 소리는 쓰지 않음)
     photo_rights: str = "OWNED"       # OWNED | SELLER_PROVIDED | LICENSED | STOCK_LICENSED | UNKNOWN

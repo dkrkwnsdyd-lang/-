@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from .. import grounding
+from . import layouts as layout_engine
 from . import sfx_director
 from .scene_director import SceneDirector
 from .schema import Storyboard, duration_class
@@ -43,8 +44,18 @@ def fit_scene_count(scenes: list, rng: tuple[int, int], warnings: list[str]) -> 
     return scenes
 
 
+def layout_context(identity, product, clip_paths, cutout_ok=None) -> layout_engine.LayoutContext:
+    from ..director import zoomable
+    ba = tuple(product.before_after[:2]) if len(getattr(product, "before_after", []) or []) >= 2 else None
+    return layout_engine.LayoutContext(
+        photos=list(identity.photos), usage_path=identity.usage_reference, clip_paths=list(clip_paths or []),
+        cutout_ok=set(cutout_ok or ()), zoomable={ph["path"] for ph in identity.photos if zoomable(identity, ph["path"])},
+        features=[f for f in product.features if f], review_quotes=list(getattr(product, "review_quotes", []) or []),
+        before_after=ba, comparison=(list(getattr(product, "comparison", []) or []) or None))
+
+
 def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str] | None = None, style: str = "STANDARD",
-                     mode: str = "PRO") -> Storyboard:
+                     mode: str = "PRO", cutout_ok=None) -> Storyboard:
     facts = grounding.allowed_facts(product, vision)
     warnings: list[str] = []
     director = SceneDirector(identity, product, facts, clip_paths)
@@ -54,7 +65,8 @@ def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str]
     scenes = fit_scene_count(scenes, rng, warnings)
     for i, s in enumerate(scenes):                     # 장면이 빠졌어도 첫 장면 전환/CTA 전 전환 규칙 유지
         s.transition = "cut" if i == 0 else s.transition
-    sfx_director.direct_sfx(scenes)
+    layout_engine.select_layouts(scenes, layout_context(identity, product, clip_paths, cutout_ok))
+    sfx_director.direct_sfx(scenes)       # 효과음은 layout/motion 이 정해진 뒤 (콜아웃 click, pan swipe 등)
     distinct = {s.visual_source.get("path") for s in scenes if s.visual_source.get("path")}
     if len(scenes) > 2 * len(distinct) + 1:
         warnings.append(f"서로 다른 원본 {len(distinct)}개로 장면 {len(scenes)}개를 만들면 같은 화면이 반복돼요")

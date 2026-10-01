@@ -410,7 +410,8 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
             renderer.captions.cache.clear()
             with job.step("STORYBOARD_V2"):
                 # Script -> Storyboard(JSON). 지금은 연출 결정을 '기록'만 하고 렌더링은 기존 경로 (Layout/Motion 연결은 다음 단계)
-                sb = build_storyboard(plan, identity, p, result.get("vision"), [c["path"] for c in clip_infos], mode=mode)
+                sb = build_storyboard(plan, identity, p, result.get("vision"), [c["path"] for c in clip_infos], mode=mode,
+                                      cutout_ok={ph["path"] for ph in identity.photos if renderer.cache.cutout(ph["path"]) is not None})
                 (out_dir / f"v{version}").mkdir(exist_ok=True)
                 (out_dir / f"v{version}" / "storyboard.json").write_text(sb.to_json(), encoding="utf-8")
                 result["storyboard"] = sb.to_dict()

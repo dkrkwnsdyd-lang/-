@@ -1052,3 +1052,105 @@ def test_rule_script_does_not_invent_size_or_benefit_claims():
     from shortsmaker.studio.storyboard.scene_director import claim_reliability
     assert claim_reliability("컬러 LED 링, 이게 생각보다 커요", ["특징: 컬러 LED 링"])[0] == "B"     # 문장 일부만 사실이면 A 가 아니다
     assert claim_reliability("컬러 LED 링이 있어요", ["특징: 컬러 LED 링"])[0] == "A"
+
+
+# ------------------------------------------------------------------ STORYBOARD V2 - 2단계 (Layout Engine)
+def _scenes(types):
+    from shortsmaker.studio.storyboard.schema import StoryScene
+    return [StoryScene(scene_id=f"S{i + 1}", scene_type=t, duration=2.5, purpose="", narration="n", main_caption="c",
+                       visual_source={"path": "/p/a.jpg", "kind": "user_photo"}, emphasis=["x"]) for i, t in enumerate(types)]
+
+
+def _ctx(**kw):
+    from shortsmaker.studio.storyboard.layouts import LayoutContext
+    base = dict(photos=[{"path": "/p/a.jpg", "focus": [0.5, 0.5]}, {"path": "/p/b.jpg", "focus": [0.5, 0.5]}], zoomable={"/p/a.jpg", "/p/b.jpg"},
+                features=["컬러 LED 링", "송풍구 클립 거치"], cutout_ok=set())
+    base.update(kw)
+    return LayoutContext(**base)
+
+
+def test_layout_catalog_has_all_17_and_renderers():
+    from shortsmaker.studio.layout_render import RENDERERS
+    from shortsmaker.studio.storyboard.layouts import FAMILY, FITNESS, LABELS, LAYOUTS
+    want = {"full_product", "product_center", "split_screen", "before_after", "problem_solution", "feature_callout", "review_quote",
+            "three_benefits", "comparison", "close_up", "lifestyle", "product_overlay", "floating_product", "text_focus", "demo", "result", "cta"}
+    assert set(LAYOUTS) == want and set(RENDERERS) == want and set(FAMILY) == want and set(LABELS) == want
+    assert all(l in want for fit in FITNESS.values() for l in fit)
+
+
+def test_layout_selection_no_consecutive_repeat_and_deterministic():
+    from shortsmaker.studio.storyboard.layouts import select_layouts
+    types = ["HOOK", "PROBLEM", "PRODUCT_REVEAL", "FEATURE", "FEATURE", "DEMO", "BENEFIT", "CTA"]
+    a, b = _scenes(types), _scenes(types)
+    ctx = _ctx(usage_path="/p/use.jpg")
+    select_layouts(a, ctx), select_layouts(b, ctx)
+    assert [s.layout for s in a] == [s.layout for s in b]                                   # 랜덤 없음
+    assert all(x.layout != y.layout for x, y in zip(a, a[1:]))                              # 연속 반복 금지
+    assert a[-1].layout == "cta" and a[0].scene_type == "HOOK" and all(s.decisions.get("layout") for s in a)
+    assert len({s.layout for s in a}) >= 6                                                  # 슬라이드쇼처럼 한 두 가지로 돌려 쓰지 않는다
+
+
+def test_layouts_that_need_real_data_are_unavailable_without_it():
+    """후기/비교/전후/시연/라이프스타일은 사용자가 준 실제 데이터(또는 사용 장면)가 있을 때만 후보가 된다."""
+    from shortsmaker.studio.storyboard.layouts import availability, select_layouts
+    sc = _scenes(["PROOF", "DEMO", "BENEFIT"])
+    ctx = _ctx()
+    for name, i in (("review_quote", 0), ("comparison", 0), ("before_after", 2), ("demo", 1), ("lifestyle", 2)):
+        assert availability(name, sc[i], ctx)[0] is False, name
+    select_layouts(sc, ctx)
+    assert not ({"review_quote", "comparison", "before_after", "demo", "lifestyle"} & {s.layout for s in sc})
+    ok = _ctx(review_quotes=["링 색이 예뻐요"], comparison=[{"label": "링", "ours": "컬러", "other": "단색"}], before_after=("/p/a.jpg", "/p/b.jpg"),
+              clip_paths=["/p/u.mp4"])
+    for name, i in (("review_quote", 0), ("comparison", 0), ("before_after", 2), ("demo", 1), ("lifestyle", 2)):
+        assert availability(name, sc[i], ok)[0] is True, name
+    sc2 = _scenes(["PROOF"])
+    select_layouts(sc2, ok)
+    assert sc2[0].layout in ("review_quote", "comparison") and (sc2[0].layout_data.get("quote") or sc2[0].layout_data.get("rows"))
+
+
+def test_layout_off_center_quota_and_card_family_before_cta():
+    from shortsmaker.studio.storyboard.layouts import FAMILY, OFF_CENTER, select_layouts
+    sc = _scenes(["HOOK", "PRODUCT_REVEAL", "FEATURE", "BENEFIT", "CTA"])
+    select_layouts(sc, _ctx())
+    assert sum(1 for s in sc if s.layout in OFF_CENTER) >= 2                                # 상품이 항상 정중앙 금지 (5장면 -> 2개 이상)
+    assert FAMILY[sc[-2].layout] != "card"                                                  # CTA 직전엔 CTA(카드)와 다른 화면
+
+
+def test_all_17_layouts_render_valid_frames_and_respect_privacy_tight_crop(tmp_path):
+    from PIL import Image
+    from shortsmaker.studio.motion import MotionRenderer, Shot
+    from shortsmaker.studio.storyboard.layouts import LAYOUTS
+    a = make_photos("kitchen_tumbler", tmp_path / "p", 2)
+    r = MotionRenderer(width=270, height=480, fps=10)
+    data = {"callout": "특징", "items": ["하나", "둘"], "quote": "좋아요", "rows": [{"label": "a", "ours": "b", "other": "c"}], "before": a[0], "after": a[1]}
+    seen = set()
+    for lay in LAYOUTS:
+        f = r.frame(Shot("S", "hero_push", a[0], 2.0, layout=lay, source2=a[1], data=data), 1.0, 0)
+        assert f.size == (270, 480) and f.mode == "RGB", lay
+        seen.add(f.tobytes()[:2000])
+    assert len(seen) >= 12                                                                  # 17종이 서로 다른 화면 (복사본 아님)
+    # 레거시 경로는 layout 이 비어 있으면 그대로 동작
+    assert r.frame(Shot("S", "hero_push", a[0], 2.0), 1.0, 0).size == (270, 480)
+    r.cache.boxes[a[0]] = (0.3, 0.3, 0.7, 0.7)
+    r.cache.tight = {a[0]}
+    assert r.frame(Shot("S", "hero_push", a[0], 2.0, layout="full_product"), 1.0, 0).size == (270, 480)
+    assert r.frame(Shot("S", "hero_push", a[0], 2.0, layout="close_up"), 1.0, 0).size == (270, 480)
+
+
+def test_macro_on_tight_crop_keeps_whole_product():
+    """개인정보 타이트 크롭에서 매크로가 제품을 자르지 않는다 (박스 비율을 전체 사진이 아니라 크롭 영역 기준으로)."""
+    from PIL import Image, ImageDraw
+    import tempfile, numpy as np
+    from shortsmaker.studio.motion import MotionRenderer, macro_plate
+    d = tempfile.mkdtemp()
+    im = Image.new("RGB", (1800, 2400), (30, 30, 30))
+    ImageDraw.Draw(im).ellipse([300, 600, 1500, 1800], fill=(240, 240, 240))               # 큰 원형 제품
+    path = f"{d}/ring.jpg"
+    im.save(path)
+    r = MotionRenderer(width=270, height=480, fps=10)
+    r.cache.boxes[path] = (300 / 1800, 600 / 2400, 1500 / 1800, 1800 / 2400)
+    r.cache.tight = {path}
+    plate = np.asarray(macro_plate(r.cache, path, None).convert("L"))
+    h, w = plate.shape
+    ys, xs = np.nonzero(plate > 200)
+    assert xs.min() > 0.02 * w and xs.max() < 0.98 * w                                      # 제품(흰 원)이 좌우 가장자리에서 잘리지 않음

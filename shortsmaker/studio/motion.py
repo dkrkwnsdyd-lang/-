@@ -84,6 +84,11 @@ class Shot:
     label: str = ""                     # 좌상단 고지 라벨 (예: 광고)
     clip_start: float = 0.0             # shot == "video_clip": 원본 영상에서 쓸 구간 시작(초)
     clip_aspect: float = 0.5625         # 원본 영상 가로/세로 비율
+    # --- Storyboard V2: layout 이 지정되면 layout_render 가 그린다 (비어 있으면 기존 shot 경로)
+    layout: str = ""
+    motion: str = ""                    # Motion Director 의 motion id
+    source2: str = ""                   # split_screen / before_after 의 두 번째 이미지
+    data: dict = field(default_factory=dict)   # layout 이 쓰는 실제 데이터 (items/callout/quote/rows)
 
 
 # ------------------------------------------------------------------ plates
@@ -294,10 +299,25 @@ def macro_plate(cache: PlateCache, path: str, focus: tuple[float, float] | None)
     crop_w = max(int(min(sw, sh * 9 / 16) * 0.55), 64)
     if path in cache.boxes:   # 제품 전체가 화면 폭을 채우도록 (제품을 잘라내지 않는다: 폭 + 여백 12%)
         bx0, by0, bx1, by1 = cache.boxes[path]
-        need_w = (bx1 - bx0) * sw * 1.25          # Vision 박스가 조금 좁아도 확대 컷에서 제품 가장자리가 잘리지 않게
-        need_h = (by1 - by0) * sh * 1.25
+        fw, fh = ((0.94, 0.94) if path in cache.tight else (bx1 - bx0, by1 - by0))   # 타이트 크롭은 이미 제품 주변만이라 제품이 영역을 채운다
+        need_w = fw * sw * 1.25          # Vision 박스가 조금 좁아도 확대 컷에서 제품 가장자리가 잘리지 않게
+        need_h = fh * sh * 1.25
         crop_w = max(64, int(max(need_w, need_h * 9 / 16)))
         crop_w = min(crop_w, int(sh * 9 / 16), sw)
+    if path in cache.boxes and need_w > int(sh * 9 / 16) + 2:
+        # 제품이 9:16 창보다 넓다(원형/정사각형 제품): 잘라내지 말고 제품 전체를 가운데 두고 위아래를 흐린 배경으로 채운다
+        rw = int(min(need_w, sw))
+        rh = int(min(max(need_h, rw * 0.5), sh))
+        left = int(min(max(focus[0] * sw - rw / 2, 0), sw - rw))
+        top = int(min(max(focus[1] * sh - rh / 2, 0), sh - rh))
+        region = src.crop((left, top, left + rw, top + rh))
+        out_w = int(W * 1.15)
+        out_h = int(out_w * 16 / 9)
+        filler = ImageOps.fit(region, (out_w, out_h), Image.BILINEAR).filter(ImageFilter.GaussianBlur(26)).point(lambda v: int(v * 0.55))
+        fgp = ImageOps.contain(region, (out_w, out_h), Image.LANCZOS)
+        filler.paste(fgp, ((out_w - fgp.width) // 2, (out_h - fgp.height) // 2))
+        cache.plates[key] = filler
+        return filler
     crop_h = int(crop_w * 16 / 9)
     if crop_h > sh:
         crop_h = sh
@@ -570,7 +590,10 @@ class MotionRenderer:
         kind = shot.shot
         if kind == "parallax" and self.cache.cutout(shot.source) is None:
             kind = "hero_push"      # 배경 제거가 안 되는 사진에서 패럴랙스는 제품 카드를 1.2배로 키워 화면 밖으로 밀어낸다 (제품 잘림)
-        if kind == "video_clip":
+        if shot.layout:
+            from . import layout_render
+            frame = layout_render.draw(self, shot, t)
+        elif kind == "video_clip":
             frame = self._clip_frame(shot, t)
             if punch:
                 frame = self._crop(frame, 1.0 + punch, 0.5, 0.5)

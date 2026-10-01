@@ -52,6 +52,7 @@ class StoryScene:
     # --- 부가 정보 (렌더러/Preview 용)
     legacy_beat: str = ""
     secondary_source: str = ""                              # split/comparison 등 두 번째 이미지
+    layout_data: dict = field(default_factory=dict)         # 레이아웃이 쓰는 실제 데이터 {items, callout, quote, rows ...} (신뢰 등급 A 만)
     reliability: str = "A"                                  # 이 장면 문구의 신뢰 등급 중 가장 낮은 값
     claims: list = field(default_factory=list)              # [{"text","reliability","note"}]
     decisions: dict = field(default_factory=dict)           # {"layout": 이유, "motion": 이유, ...} 감사용
