@@ -37,7 +37,7 @@ def route_visual_source(scene_type: str, primary: str | None, identity, clip_pat
     usage = getattr(identity, "usage_reference", None)
     # DEMO/BENEFIT 은 사용 장면을 우선: 영상 클립 > 사용 사진 > 기본 사진
     if scene_type in NEEDS_USAGE and clip_paths:
-        return {"kind": "user_video", "path": clip_paths[0], "tier": 1, "reason": "사용자가 올린 사용 장면 영상 우선"}
+        return {"kind": "user_video", "path": clip_paths[0], "tier": 1, "reason": "사용자가 올린 사용 장면 영상 우선", "fallback_path": primary}
     if scene_type in NEEDS_USAGE and usage:
         return {"kind": "user_photo", "path": usage, "tier": 1, "reason": "사용 장면 사진 우선"}
     out = {"kind": "user_photo", "path": primary, "tier": 1, "reason": "사용자 업로드 사진"}

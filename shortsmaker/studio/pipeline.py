@@ -27,6 +27,7 @@ from . import enhance as enhance_mod
 from .storyboard import build_storyboard, preview as preview_mod
 from .storyboard.engine import layout_context
 from .storyboard_edit import edit_from_storyboard
+from . import strategy as strategy_mod
 from .product import ProductInput, analyze_photo, build_identity, import_from_url
 from .qa import best_take, final_qa, storyboard_qa, vision_review
 from . import vision as vision_mod
@@ -157,6 +158,12 @@ def contact_sheet(renderer: MotionRenderer, shots, out: Path) -> Path:
         sheet.paste(t, (8 + (i % cols) * 224, 8 + (i // cols) * 392))
     sheet.save(out, quality=88)
     return out
+
+
+class StrategyBlocked(Exception):
+    def __init__(self, gate: dict):
+        super().__init__("strategy quality gate")
+        self.gate = gate
 
 
 def _preview_result(renderer, sb, edl, identity, ctx, out_dir: Path) -> dict:
@@ -332,8 +339,20 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
             p.compact = True
             result.setdefault("warnings", []).append("원본 사진이 2장 이하라 같은 사진을 반복하지 않도록 12~15초로 짧게 만들었어요")
         with job.step("SCRIPT"):
+            sctx = strategy_mod.make_ctx(p, p.video_style, mode, identity, result.get("vision"), has_clip=bool(video_paths),
+                                         reference=result.get("reference"))
             if p.director_data:        # Preview 에서 확인한 대본을 그대로 쓴다 (AI 가 다시 쓰면 확인한 내용이 달라짐)
                 data = dict(p.director_data)
+                if p.strategy_state:
+                    result["strategy"] = p.strategy_state
+            elif p.strategy:           # SHOPPING_SHORTS_STRATEGY_ENGINE: 무엇을/누구에게/왜 팔지 정한 뒤 Hook -> 대본 -> 댓글 -> CTA -> 점검 -> 자동 수정
+                with job.step("STRATEGY"):
+                    state = strategy_mod.run_strategy(router, sctx, state=p.strategy_state, auto=p.strategy_auto, progress=job.say)
+                    data = strategy_mod.to_director_data(sctx, state)
+                    result["strategy"] = state
+                    result["director_data"] = data
+                    if not state["gate"]["passed"] and not p.preview and not p.strategy_force:
+                        raise StrategyBlocked(state["gate"])
             else:
                 data = llm_director(router, p, identity, mode, result.get("vision")) if router.has_real("llm") else rule_director(p, mode)
             if "_director" not in data:
@@ -441,9 +460,13 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 # Script -> Storyboard(JSON). 지금은 연출 결정을 '기록'만 하고 렌더링은 기존 경로 (Layout/Motion 연결은 다음 단계)
                 cutout_ok = {ph["path"] for ph in identity.photos if renderer.cache.cutout(ph["path"]) is not None}
                 clip_paths = [c["path"] for c in clip_infos]
-                sb = build_storyboard(plan, identity, p, result.get("vision"), clip_paths, mode=mode, cutout_ok=cutout_ok)
+                sb = build_storyboard(plan, identity, p, result.get("vision"), clip_paths, style=p.video_style, mode=mode, cutout_ok=cutout_ok)
                 lctx = layout_context(identity, p, clip_paths, cutout_ok)
                 sb_edits = preview_mod.apply_sb_edits(sb, p.edits, lctx, identity, [f for f in p.features if f])
+                if result.get("strategy"):
+                    strategy_mod.annotate_storyboard(sb, result["strategy"])
+                    result["strategy"]["final_storyboard"] = strategy_mod.final_storyboard_view(sb)
+                    strategy_mod.save_state(out_dir, result["strategy"])
                 if p.edits:
                     result["edits_report"] = {k: plan_edits[k] + sb_edits[k] for k in ("applied", "rejected")}
                 (out_dir / f"v{version}").mkdir(exist_ok=True)
@@ -549,6 +572,11 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
         result["router_trace"] = router.trace
         result["log"] = job.log
         db.update_job(job_id, result["status"], result)
+    except StrategyBlocked as e:
+        result["status"] = "STRATEGY_BLOCKED"
+        result["blocked"] = {"reason": "Conversion Audit 의 Quality Gate 를 통과하지 못해 영상 제작을 시작하지 않았어요", "gate": e.gate}
+        result["log"] = job.log
+        db.update_job(job_id, "STRATEGY_BLOCKED", result)
     except Exception as e:
         try:
             renderer.close_clips()

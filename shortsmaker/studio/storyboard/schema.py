@@ -56,6 +56,8 @@ class StoryScene:
     reliability: str = "A"                                  # 이 장면 문구의 신뢰 등급 중 가장 낮은 값
     claims: list = field(default_factory=list)              # [{"text","reliability","note"}]
     decisions: dict = field(default_factory=dict)           # {"layout": 이유, "motion": 이유, ...} 감사용
+    scene_role: str = ""                                    # Strategy Engine: HOOK|PROBLEM|SOLUTION|PROOF|CTA
+    product_visibility: str = ""                            # NONE|HINT|PARTIAL|FULL
 
     def to_dict(self) -> dict:
         return asdict(self)

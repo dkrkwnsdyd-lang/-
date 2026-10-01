@@ -31,6 +31,15 @@ class V2PublishRequest(BaseModel):
 
 class RenderRequest(BaseModel):
     edits: dict = {}
+    force: bool = False            # Quality Gate 미통과여도 사용자가 확인하고 제작
+
+
+class StrategyRequest(BaseModel):
+    action: str = "regenerate"     # regenerate | pick | revise
+    stage: str = "audit"
+    id: str | None = None
+    style: str | None = None
+    auto: bool | None = None
 
 def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path) -> None:
     db = DB(Path(output_dir).resolve().parent / "data" / "shorts.db")
@@ -53,7 +62,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         affiliate: str = Form("NONE"), photo_rights: str = Form("OWNED"), reference_url: str = Form(""),
         mode: str = Form("PRO"), platforms: str = Form("youtube,instagram,tiktok,threads"),
         boxes: str = Form(""), feature_photos: str = Form(""), my_take: str = Form(""), compact: str = Form(""),
-        preview: str = Form(""),
+        preview: str = Form(""), video_style: str = Form("FAST_COMMERCE"), auto_strategy: str = Form("1"),
     ):
         if len(photos) > MAX_PHOTOS:
             raise HTTPException(400, f"사진은 최대 {MAX_PHOTOS}장까지 올릴 수 있어요.")
@@ -118,7 +127,9 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         mode = mode.upper() if mode.upper() in ("FAST", "PRO") else "PRO"
         pfs = [p for p in platforms.split(",") if p in PLATFORMS] or list(PLATFORMS)
         inputs = {"name": name.strip(), "description": description.strip(), "features": features,
-                  "problem": problem.strip(), "target": target.strip(), "my_take": my_take.strip()[:200], "compact": compact == "1", "preview": preview == "1", "price": price.strip(), "url": url.strip(),
+                  "problem": problem.strip(), "target": target.strip(), "my_take": my_take.strip()[:200], "compact": compact == "1", "preview": preview == "1",
+                  "video_style": video_style if video_style in ("FAST_COMMERCE", "STORY_AD", "UGC_REVIEW") else "FAST_COMMERCE",
+                  "strategy_auto": auto_strategy != "0", "price": price.strip(), "url": url.strip(),
                   "photos": saved, "videos": saved_videos, "photo_rights": photo_rights, "reference_url": reference_url.strip(),
                   "affiliate": affiliate, "category_hint": category, "product_boxes": product_boxes,
                   "feature_photos": linked}
@@ -151,6 +162,8 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
                 pv["thumb_urls"] = {k: to_url(v) for k, v in pv.pop("thumbs", {}).items()}
                 pv["photos"] = [{"index": x["index"], "url": to_url(x["file"])} for x in pv.get("photos", [])]
             r.pop("director_data", None)
+            if r.get("strategy"):
+                r["strategy"] = {k: v for k, v in r["strategy"].items() if k not in ("draft_script",)}
             for pf, e in (r.get("exports") or {}).items():
                 e["url"] = to_url(e.get("file"))
             for k in ("trace", "router_trace", "identity", "edl"):
@@ -158,18 +171,22 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
             out["result"] = r
         return out
 
-    @app.post("/api/v2/jobs/{job_id}/render")
-    def render_from_preview(job_id: str, req: RenderRequest):
-        """[영상 제작]: 미리보기에서 확인/수정한 스토리보드로만 MP4 를 만든다 (새 작업으로 실행, 미리보기 작업은 그대로 보존)."""
+    def _spawn_from(job_id: str, req_edits: dict | None, preview: bool, force: bool = False) -> dict:
+        """미리보기 작업에서 확정한 대본/전략으로 새 작업을 만든다 (원래 작업은 보존). preview=True 면 Storyboard 만, False 면 MP4 까지."""
         job = db.job(job_id)
-        if not job or job["status"] != "PREVIEW_READY":
+        if not job or job["status"] not in ("PREVIEW_READY", "STRATEGY_BLOCKED"):
             raise HTTPException(400, "미리보기가 준비된 작업이 아니에요")
         base = json.loads(job["input_json"] or "{}")
         res = json.loads(job["result_json"] or "{}")
         if not res.get("director_data"):
             raise HTTPException(400, "미리보기 대본 정보를 찾을 수 없어요")
+        state = res.get("strategy")
+        if not preview and state and not (state.get("gate") or {}).get("passed", True) and not force:
+            fails = "; ".join(f"{f['code']}({f['detail']})" for f in state["gate"]["failures"])
+            raise HTTPException(409, f"Quality Gate 미통과: {fails}. 수정하거나 '그래도 제작'을 선택하세요.")
         new_id = uuid.uuid4().hex[:10]
-        inputs = {**base, "preview": False, "director_data": res["director_data"], "edits": req.edits or None}
+        inputs = {**base, "preview": preview, "director_data": res["director_data"], "strategy_state": state,
+                  "edits": req_edits or None, "strategy_force": force, "video_style": (state or {}).get("style", base.get("video_style", "FAST_COMMERCE"))}
         live[new_id] = []
 
         def work():
@@ -180,6 +197,55 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
 
         threading.Thread(target=work, daemon=True).start()
         return {"job_id": new_id, "from_preview": job_id}
+
+    @app.post("/api/v2/jobs/{job_id}/render")
+    def render_from_preview(job_id: str, req: RenderRequest):
+        """[영상 제작]: 미리보기에서 확인/수정한 스토리보드로만 MP4 를 만든다."""
+        return _spawn_from(job_id, req.edits, preview=False, force=req.force)
+
+    @app.post("/api/v2/jobs/{job_id}/storyboard")
+    def storyboard_from_strategy(job_id: str, req: RenderRequest):
+        """[Storyboard 만들기]: (전략을 고치고 난 뒤) 확정한 대본으로 Storyboard/미리보기를 다시 만든다. MP4 는 만들지 않는다."""
+        return _spawn_from(job_id, req.edits, preview=True)
+
+    @app.post("/api/v2/jobs/{job_id}/strategy")
+    def strategy_action(job_id: str, req: StrategyRequest):
+        """단계별 [재생성] / 후보 선택 / 자동 수정. 앞 단계 결과는 재사용하고 선택한 단계부터 다시 계산한다 (몇십 초 걸릴 수 있음)."""
+        from ..studio import strategy as sm
+        from ..studio.product import ProductInput
+        job = db.job(job_id)
+        if not job or job["status"] not in ("PREVIEW_READY", "STRATEGY_BLOCKED"):
+            raise HTTPException(400, "전략을 고칠 수 있는 작업이 아니에요")
+        res = json.loads(job["result_json"] or "{}")
+        state = res.get("strategy")
+        if not state:
+            raise HTTPException(400, "전략 결과가 없는 작업이에요")
+        p = ProductInput.from_dict(json.loads(job["input_json"] or "{}"))
+        style = req.style if req.style in sm.STYLES else state["style"]
+        ident = type("I", (), {"color_reference": (res.get("identity") or {}).get("color_reference", []), "photos": []})()
+        ctx = sm.make_ctx(p, style, job["mode"], ident, res.get("vision"), reference=res.get("reference"), has_clip=bool(p.videos))
+        ctx.n_photos = len(p.photos)
+        router = Router(db=db, job_id=job_id)
+        try:
+            if req.action == "pick":
+                start = sm.pick(state, req.stage, req.id or "")
+            elif req.action == "revise":
+                start = "audit"
+            elif req.stage in sm.STAGES:
+                start = req.stage
+            else:
+                raise ValueError("알 수 없는 단계예요")
+            if style != state["style"]:
+                start = "hook"
+            new = sm.run_strategy(router, ctx, state, start=start, auto=state["auto"] if req.auto is None else req.auto)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        res["strategy"] = new
+        res["director_data"] = sm.to_director_data(ctx, new)
+        res["storyboard_stale"] = True               # 장면 카드는 이전 대본 기준 -> [Storyboard 만들기] 필요
+        db.update_job(job_id, job["status"], res)
+        sm.save_state(Path(output_dir) / "v2" / job_id, new)
+        return {"strategy": new, "storyboard_stale": True}
 
     @app.get("/api/v2/jobs")
     def jobs():

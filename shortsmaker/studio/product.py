@@ -31,6 +31,11 @@ class ProductInput:
     preview: bool = False             # True 면 장면 카드(Storyboard)와 썸네일까지만 만들고 MP4 는 만들지 않는다 (Preview Mode)
     director_data: dict | None = None  # Preview 에서 확정한 대본 (있으면 AI 대본 생성을 다시 하지 않는다)
     edits: dict | None = None         # Preview 에서 사용자가 수정한 내용 (storyboard/preview.py 참고)
+    strategy: bool = True             # SHOPPING_SHORTS_STRATEGY_ENGINE (False 면 기존 director 로 대본 생성)
+    video_style: str = "FAST_COMMERCE"  # FAST_COMMERCE | STORY_AD | UGC_REVIEW
+    strategy_auto: bool = True        # AUTO 최적화: 전략 자동 선택 + Conversion Audit 자동 수정
+    strategy_state: dict | None = None  # Preview 에서 확정한 전략 단계 결과 (재사용)
+    strategy_force: bool = False      # Quality Gate 미통과여도 사용자가 확인하고 제작
     legacy_render: bool = False       # True 면 Storyboard 대신 기존 편집/렌더 경로 (비교 테스트/안전망)
     review_quotes: list[str] = field(default_factory=list)   # 사용자가 가진 실제 후기 문구 (review_quote 레이아웃, 없으면 사용 안 함)
     before_after: list[str] = field(default_factory=list)    # [전 사진, 후 사진] (before_after 레이아웃)

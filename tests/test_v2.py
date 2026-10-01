@@ -1365,3 +1365,271 @@ def test_render_after_preview_uses_confirmed_script_and_edits(tmp_path):
     assert Path(r["master"]).exists()
     assert next(s for s in r["storyboard"]["scenes"] if s["scene_id"] == sid)["narration"] == "확정한 나레이션"
     assert [s["scene_id"] for s in r["storyboard"]["scenes"]] == [s["scene_id"] for s in pv["storyboard"]["scenes"]]
+
+
+# ------------------------------------------------------------------ SHOPPING_SHORTS_STRATEGY_ENGINE
+def _sp(**kw):
+    from shortsmaker.studio.product import ProductInput
+    base = dict(name="보온보냉 스텐 텀블러", features=["원터치 뚜껑", "컵홀더에 쏙 들어가는 슬림형", "세척이 쉬운 넓은 입구"],
+                problem="텀블러 뚜껑 여는 게 번거로워요", target="출퇴근 직장인")
+    base.update(kw)
+    return ProductInput(**base)
+
+
+def test_strategy_chain_has_all_stages_and_three_styles_differ():
+    from shortsmaker.studio.strategy import make_ctx, run_strategy
+    out = {}
+    for st in ("FAST_COMMERCE", "STORY_AD", "UGC_REVIEW"):
+        s = run_strategy(None, make_ctx(_sp(), style=st))
+        for k in ("product_analysis", "primary_selling_point", "differentiation_angles", "selected_angle", "hook_candidates", "selected_hook",
+                  "script", "comment_trigger", "cta", "conversion_audit", "final_script", "before_after"):
+            assert s.get(k) not in (None, [], {}), (st, k)
+        out[st] = s
+    hooks = {s["selected_hook"]["text"] for s in out.values()}
+    flows = {tuple(x["beat"] for x in s["final_script"]["scenes"]) for s in out.values()}
+    ctas = {s["final_script"]["scenes"][-1]["narration"] for s in out.values()}
+    assert len(hooks) == 3 and len(flows) >= 2 and len(ctas) == 3          # 대사만 바꾼 것이 아니라 Hook/구조/CTA 가 다르다
+    assert all(x["narration"] for s in out.values() for x in s["final_script"]["scenes"])
+
+
+def test_strategy_scene_fields_roles_and_visibility():
+    from shortsmaker.studio.strategy import make_ctx, run_strategy
+    s = run_strategy(None, make_ctx(_sp(), style="STORY_AD"))
+    sc = s["final_script"]["scenes"]
+    assert sc[0]["scene_role"] == "HOOK" and sc[-1]["scene_role"] == "CTA"
+    assert {x["product_visibility"] for x in sc} <= {"NONE", "HINT", "PARTIAL", "FULL"}
+    assert all(set(x) >= {"scene_id", "time", "purpose", "narration", "caption", "visual_source", "visual_prompt", "product_visibility"} for x in sc)
+    assert sc[0]["time"][0] == 0 and all(a["time"][1] <= b["time"][0] + 1e-6 for a, b in zip(sc, sc[1:]))
+
+
+def test_fact_safety_blocks_unverified_claims_and_cliches():
+    from shortsmaker.studio.strategy import make_ctx
+    from shortsmaker.studio.strategy.common import line_issues
+    ctx = make_ctx(_sp())
+    codes = lambda t: {i["code"] for i in line_issues(t, ctx)}
+    assert "cliche" in codes("이거 꼭 보세요") and "cliche" in codes("요즘 핫한 제품입니다")
+    assert "direct_comment" in codes("댓글 남겨주세요") and "direct_comment" in codes("여러분 생각은?")
+    assert "scarcity_unverified" in codes("오늘만 할인")
+    assert "social_unverified" in codes("후기가 난리예요") or "cliche" in codes("후기가 난리예요")
+    assert "performance_unverified" in codes("방수라서 튼튼해요") and "data_unverified" in codes("12시간 보온")
+    assert not codes("원터치 뚜껑이 있어요")
+    ok = make_ctx(_sp(description="오늘만 할인 쿠폰 제공"))                 # 입력에 실제로 있으면 쓸 수 있다
+    assert "scarcity_unverified" not in {i["code"] for i in line_issues("오늘만 할인", ok)}
+
+
+def test_cta_scarcity_and_social_proof_only_when_input_has_them():
+    from shortsmaker.studio.strategy import make_ctx, run_strategy
+    plain = run_strategy(None, make_ctx(_sp()))["cta"]
+    assert not plain["eligibility"]["SCARCITY"]["allowed"] and not plain["eligibility"]["SOCIAL_PROOF"]["allowed"]
+    assert all(c["strategy"] not in ("SCARCITY", "SOCIAL_PROOF") for c in plain["candidates"])
+    rich = run_strategy(None, make_ctx(_sp(review_quotes=["뚜껑이 한 번에 열려요"], description="쿠폰 적용 가능")))["cta"]
+    assert rich["eligibility"]["SOCIAL_PROOF"]["allowed"] and rich["eligibility"]["SCARCITY"]["allowed"]
+    assert {c["strategy"] for c in rich["candidates"]} >= {"SOCIAL_PROOF", "SCARCITY"}
+
+
+def test_comment_trigger_never_requests_comments_and_skips_short_videos():
+    from shortsmaker.studio.strategy import make_ctx, run_strategy
+    from shortsmaker.studio.strategy.common import DIRECT_COMMENT
+    s = run_strategy(None, make_ctx(_sp(), style="STORY_AD"))
+    ct = s["comment_trigger"]
+    assert ct["selected"] and not DIRECT_COMMENT.search(ct["selected"]["text"]) and len(ct["candidates"]) >= 3
+    short = run_strategy(None, make_ctx(_sp(compact=True), style="FAST_COMMERCE"))["comment_trigger"]
+    assert short["insert"] is False and short["skip_reason"]
+    # 호기심형은 영상에서 아직 안 쓴 실제 특징이 있을 때만: 특징이 1개뿐이면 만들지 않는다
+    one = run_strategy(None, make_ctx(_sp(features=["원터치 뚜껑"]), style="STORY_AD"))["comment_trigger"]
+    assert all(c["method"] != "CURIOSITY" for c in one["candidates"])
+
+
+def test_no_problem_input_means_no_problem_scene_and_no_loss_aversion():
+    from shortsmaker.studio.strategy import make_ctx, run_strategy
+    s = run_strategy(None, make_ctx(_sp(problem="", target=""), style="STORY_AD"))
+    assert all(x["beat"] != "problem" for x in s["final_script"]["scenes"])
+    assert not s["cta"]["eligibility"]["LOSS_AVERSION"]["allowed"]
+
+
+def test_audit_finds_problems_and_auto_revision_fixes_them_without_inventing():
+    import copy
+    from shortsmaker.studio.strategy import engine, make_ctx, run_strategy
+    ctx = make_ctx(_sp(), style="STORY_AD")
+    state = run_strategy(None, ctx, auto=False)
+    bad = copy.deepcopy(state["script"])
+    sc = bad["scenes"]
+    sc[0].update(tts_line="이거 꼭 보세요 정말 정말 대박 제품이에요 지금 바로 확인", narration="이거 꼭 보세요 정말 정말 대박 제품이에요 지금 바로 확인")
+    extra = copy.deepcopy(sc[3]); extra.update(scene_id="X1")
+    sc.insert(4, extra)                                         # 같은 말 반복
+    sc[2].update(tts_line="12시간 보온되고 방수까지 돼요", narration="12시간 보온되고 방수까지 돼요")   # 입력에 없는 성능
+    state["script"] = bad
+    engine._audit_and_revise(None, ctx, state, auto=False)
+    a0 = state["conversion_audit"]
+    codes = {i["code"] for i in a0["issues"]}
+    assert not a0["gate"]["passed"] and {"hook_weak", "cliche", "unproven_claim", "repeat"} <= codes
+    assert a0["issues"][0]["priority"] == "P0" and len(a0["top_fixes"]) <= 5
+    assert all({"problem", "cause", "fix", "effect"} <= set(i) for i in a0["issues"])
+    engine._audit_and_revise(None, ctx, state, auto=True)
+    a1 = state["conversion_audit"]
+    assert a1["rounds"] and a1["gate"]["passed"], a1["gate"]
+    final = " ".join(x["narration"] for x in state["final_script"]["scenes"])
+    assert "12시간" not in final and "방수" not in final and "대박" not in final
+    ba = state["before_after"]
+    assert ba["BEFORE"]["hook"] != ba["AFTER"]["hook"]
+    assert state["final_script"]["scenes"][0]["beat"] == "hook" and state["final_script"]["scenes"][-1]["beat"] == "cta"
+
+
+def test_audit_scores_are_deterministic_and_trust_is_capped_without_real_proof():
+    from shortsmaker.studio.strategy import make_ctx, run_strategy
+    a = run_strategy(None, make_ctx(_sp()))["conversion_audit"]
+    b = run_strategy(None, make_ctx(_sp()))["conversion_audit"]
+    assert a["scores"] == b["scores"]
+    assert a["scores"]["trust_proof"] <= 70                   # 후기/써본 느낌/영상이 없으면 높은 신뢰 점수 불가
+    rich = run_strategy(None, make_ctx(_sp(review_quotes=["뚜껑이 한 번에 열려요"], my_take="출근길에 한 손으로 열었어요"), has_clip=True))["conversion_audit"]
+    assert rich["scores"]["trust_proof"] > a["scores"]["trust_proof"]
+    assert set(a["funnel"]) == {"SCROLL_STOP", "ATTENTION", "INTEREST", "PROBLEM_RECOGNITION", "PRODUCT_DESIRE", "TRUST", "ACTION"}
+    assert a["timeline"] and all({"time", "risk", "reason", "viewer_thought", "fix"} <= set(t) for t in a["timeline"])
+
+
+def test_strategy_reuses_earlier_stages_and_pick_changes_only_downstream():
+    from shortsmaker.studio.strategy import make_ctx, pick, run_strategy
+    ctx = make_ctx(_sp(), style="FAST_COMMERCE")
+    s = run_strategy(None, ctx)
+    sp_before = s["selling_point_analysis"]
+    other = next(c for c in sp_before["candidates"] if c["id"] != s["primary_selling_point"]["id"] and c["reliability"] != "C")
+    start = pick(s, "selling_point", other["id"])
+    assert start == "angle"
+    s2 = run_strategy(None, ctx, s, start=start)
+    assert s2["selling_point_analysis"] is not sp_before and s2["selling_point_analysis"]["candidates"] == sp_before["candidates"]   # 후보는 재생성하지 않음
+    assert s2["primary_selling_point"]["id"] == other["id"]
+    try:
+        pick(s2, "hook", "H99")
+        assert False
+    except ValueError:
+        pass
+
+
+class _FakeLLM:
+    """결정적인 가짜 LLM: 단계별 JSON 을 돌려주고, '한 손' 이 들어간 문장은 근거 없음으로 판정한다."""
+    def __init__(self):
+        self.calls = []
+
+    def has_real(self, task):
+        return True
+
+    def run(self, task, method, system="", user="", **kw):
+        from types import SimpleNamespace as NS
+        self.calls.append(system[:20])
+        if system.startswith("You are a strict fact checker"):
+            lines = json.loads(user)["lines"]
+            return NS(provider="fake", model="m", value={"unsupported": [{"line": l, "phrase": "한 손", "reason": "입력에 없음"} for l in lines if "한 손" in l]})
+        sc5 = {"instant_understanding": 4, "problem_strength": 4, "purchase_desire": 4, "shortform_fit": 4, "visual_potential": 3, "target_relevance": 4}   # 1~5 척도
+        if "구매 이유" in system:
+            return NS(provider="fake", model="m", value={"product_analysis": {"shape": "원통형"}, "candidates": [
+                {"text": "원터치 뚜껑으로 바로 열림", "kind": "FUNCTIONAL", "feature": "특징: 원터치 뚜껑", "scores": sc5},
+                {"text": "방수라서 어디서나 안심", "kind": "FUNCTIONAL", "feature": "", "scores": sc5},
+                {"text": "슬림형이라 컵홀더에 들어감", "kind": "FUNCTIONAL", "feature": "컵홀더에 쏙 들어가는 슬림형", "scores": sc5},
+                {"text": "입구가 넓음", "kind": "FUNCTIONAL", "feature": "세척이 쉬운 넓은 입구", "scores": sc5},
+                {"text": "뚜껑 여는 불편", "kind": "PAIN_POINT", "feature": "원터치 뚜껑", "scores": sc5}]})
+        if "차별화 전략가" in system:
+            return NS(provider="fake", model="m", value={"angles": [
+                {"axis": "PAIN_POINT", "title": "뚜껑 불편", "premise": "뚜껑 여는 불편을 먼저", "story_form": "문제 해결", "evidence": ["x"], "scores": sc5},
+                {"axis": "TARGET", "title": "직장인", "premise": "출퇴근 직장인 호출", "story_form": "대상 호출", "evidence": ["y"], "scores": sc5}]})
+        if "Hook 작가" in system:
+            mk = lambda t, x: {"type": t, "text": x, "scores": sc5}
+            return NS(provider="fake", model="m", value={"hooks": [
+                mk("PROBLEM", "텀블러 뚜껑 여는 게 번거로우셨나요?"), mk("PROBLEM", "한 손으로 열리는 텀블러 찾으세요?"), mk("PROBLEM", "뚜껑 때문에 물 마시기 귀찮죠?"),
+                mk("CURIOSITY", "원터치 뚜껑, 어떻게 열릴까요?"), mk("CURIOSITY", "이 텀블러 뚜껑 보세요"), mk("CURIOSITY", "컵홀더에 쏙 들어가는 텀블러?"),
+                mk("EMPATHY", "뚜껑 여는 것도 은근 일이죠"), mk("EMPATHY", "텀블러 뚜껑, 나만 불편해?"), mk("EMPATHY", "텀블러 닦기도 번거롭죠")]})
+        if "판매 대본 작가" in system:
+            return NS(provider="fake", model="m", value={"beats": [
+                {"beat": "hook", "tts_line": "무시될 문장", "caption": "무시"}, {"beat": "reveal", "tts_line": "바로 이 텀블러예요", "caption": "바로 이 [[텀블러]]"},
+                {"beat": "demo", "tts_line": "한 손으로 열려요", "caption": "한 손으로 [[열려요]]", "feature": "원터치 뚜껑"},
+                {"beat": "benefit", "tts_line": "실제 모습은 이래요", "caption": "실제 [[모습]]"}, {"beat": "cta", "tts_line": "링크에서 확인", "caption": "[[링크]]"}]})
+        if "댓글 유도" in system:
+            return NS(provider="fake", model="m", value={"lines": [{"method": "OPINION_SPLIT", "text": "원터치 뚜껑 vs 슬림형, 뭐가 끌려요?", "scores": {"naturalness": 90, "relevance": 90, "flow_fit": 90}}]})
+        if "CTA 작가" in system:
+            return NS(provider="fake", model="m", value={"ctas": [{"strategy": "SCARCITY", "text": "오늘만 할인 링크 확인", "scores": {}},
+                                                              {"strategy": "DIRECT", "text": "링크에서 확인해보세요", "scores": {}}]})
+        if "전환 감사관" in system:
+            return NS(provider="fake", model="m", value={"scores": {"hook_strength": 5, "trust_proof": 5}, "timeline": [], "issues": []})
+        raise AssertionError(system[:40])
+
+
+def test_strategy_with_llm_filters_unsupported_text_and_normalizes_scores():
+    from shortsmaker.studio.strategy import make_ctx, run_strategy
+    r = _FakeLLM()
+    s = run_strategy(r, make_ctx(_sp(), style="FAST_COMMERCE"))
+    texts = " ".join(x["narration"] for x in s["final_script"]["scenes"]) + " " + " ".join(h["text"] for h in s["hook_candidates"])
+    assert "한 손" not in texts                                       # 사실 검증기가 걸러낸 문장은 Hook 후보/대본에 남지 않는다
+    assert any("근거 없는" in x["why"] for x in s["hook_analysis"]["rejected"])
+    assert all(0 <= c["total"] <= 100 and c["scores"]["instant_understanding"] == 80 for c in s["selling_point_analysis"]["candidates"][:1])   # 1~5 척도 -> 0~100
+    assert not any(c["text"].startswith("방수") for c in s["selling_point_analysis"]["candidates"])        # 입력에 없는 성능 주장 후보 제외
+    assert s["primary_selling_point"]["feature"] == "원터치 뚜껑"                                          # '특징: ' 접두어 정규화
+    assert s["cta"]["selected"]["strategy"] != "SCARCITY" and any(x["strategy"] == "SCARCITY" for x in s["cta"]["rejected"])   # 근거 없는 희소성 CTA 거부
+    assert s["selected_hook"]["text"] != "무시될 문장" and s["final_script"]["scenes"][0]["narration"] == s["selected_hook"]["text"]
+    assert s["conversion_audit"]["llm_scores"] and s["conversion_audit"]["scores"]["trust_proof"] <= 70   # LLM 점수는 참고용 (게이트에 쓰지 않음)
+    assert len(s["hook_candidates"]) >= 6
+
+
+def test_strategy_without_judge_does_not_use_llm_text():
+    from types import SimpleNamespace as NS
+    from shortsmaker.studio.strategy import make_ctx, run_strategy
+
+    class NoJudge(_FakeLLM):
+        def run(self, task, method, system="", user="", **kw):
+            if system.startswith("You are a strict fact checker"):
+                return NS(provider="local", model="-", value={})
+            return super().run(task, method, system, user, **kw)
+    s = run_strategy(NoJudge(), make_ctx(_sp()))
+    assert s["basis"]["hook"] == "rule" and s["basis"]["script"] == "rule"       # 검증할 수 없는 AI 글은 쓰지 않는다
+
+
+def test_pipeline_uses_strategy_engine_and_exposes_final_storyboard(tmp_path):
+    from shortsmaker.studio.pipeline import run_job
+    base = _preview_base(tmp_path)
+    r = run_job({**base, "preview": True, "video_style": "STORY_AD"}, "PRO", ["youtube"], out_root=tmp_path / "out",
+                db=DB(tmp_path / "db.sqlite"), render=(270, 480, 10))
+    assert r["status"] == "PREVIEW_READY", r.get("error")
+    st = r["strategy"]
+    fsb = st["final_storyboard"]
+    assert fsb and all(k in fsb[0] for k in ("scene_id", "time", "scene_role", "purpose", "narration", "caption", "visual_source", "visual_prompt",
+                                              "layout", "motion", "transition", "sfx", "product_visibility"))
+    assert r["storyboard"]["style"] == "STORY_AD" and r["director_data"]["_director"].startswith("strategy_engine")
+    assert (tmp_path / "out" / r["job_id"] / "strategy" / "state.json").exists()
+    # 전략이 만든 대본이 그대로 장면이 된다 (Storyboard 대사 = 전략 최종 대본 대사)
+    assert [s["narration"] for s in r["storyboard"]["scenes"]] == [s["narration"] for s in st["final_script"]["scenes"]][:len(r["storyboard"]["scenes"])]
+    assert any(s.get("scene_role") for s in r["storyboard"]["scenes"])
+    legacy = run_job({**base, "preview": True, "strategy": False}, "PRO", ["youtube"], out_root=tmp_path / "out2",
+                     db=DB(tmp_path / "db2.sqlite"), render=(270, 480, 10))
+    assert legacy["status"] == "PREVIEW_READY" and not legacy.get("strategy")        # 기존 경로 유지
+
+
+def test_quality_gate_blocks_render_but_force_goes_through(tmp_path, monkeypatch):
+    from shortsmaker.studio import pipeline
+    from shortsmaker.studio import strategy as sm
+    real = sm.run_strategy
+
+    def failing(*a, **k):
+        st = real(*a, **k)
+        st["gate"] = {"passed": False, "failures": [{"code": "hook_below", "detail": "테스트"}]}
+        return st
+    monkeypatch.setattr(sm, "run_strategy", failing)
+    base = _preview_base(tmp_path)
+    blocked = pipeline.run_job(base, "FAST", ["youtube"], out_root=tmp_path / "o1", db=DB(tmp_path / "d1.sqlite"), render=(270, 480, 10))
+    assert blocked["status"] == "STRATEGY_BLOCKED" and blocked["blocked"]["gate"]["failures"] and not list((tmp_path / "o1").rglob("*.mp4"))
+    assert blocked["director_data"]
+    forced = pipeline.run_job({**base, "strategy_force": True}, "FAST", ["youtube"], out_root=tmp_path / "o2", db=DB(tmp_path / "d2.sqlite"), render=(270, 480, 10))
+    assert forced["status"] in ("COMPLETE", "QUALITY_FAIL", "NEEDS_REVIEW") and Path(forced["master"]).exists()
+
+
+def test_strategy_api_validation(tmp_path):
+    from fastapi.testclient import TestClient
+    from shortsmaker.web.app import create_app
+    c = TestClient(create_app({}, tmp_path / "o", tmp_path / "u"))
+    assert c.post("/api/v2/jobs/nope/strategy", json={"action": "pick", "stage": "hook", "id": "H1"}).status_code == 400
+    assert c.post("/api/v2/jobs/nope/storyboard", json={}).status_code == 400
+
+
+def test_reference_is_passed_to_strategy_as_abstract_patterns_only():
+    from shortsmaker.studio.strategy import make_ctx
+    ref = {"hook_type": "question", "average_cut_length": 1.8, "product_reveal_time": 3.0, "story_pattern": "PROBLEM_SOLUTION",
+           "transcript": "고유 대사 그대로", "scene_list": ["고유 장면 배열"], "title": "크리에이터 제목", "status": "PARTIAL"}
+    b = make_ctx(_sp(), reference=ref).brief()["reference_patterns_abstract"]
+    assert set(b) == {"hook_type", "average_cut_length", "product_reveal_time", "story_pattern"}     # 고유 문장/장면 배열/제목은 전달하지 않는다

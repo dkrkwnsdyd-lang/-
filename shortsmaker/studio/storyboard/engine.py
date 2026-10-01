@@ -18,7 +18,7 @@ DROP_ORDER = ("PROOF", "FEATURE", "PROBLEM", "DEMO", "BENEFIT")
 KEEP_FIRST = {"HOOK", "PRODUCT_REVEAL", "CTA"}
 MUSIC_BY_STYLE = {"STANDARD": "clean, upbeat, instrumental, ~100 BPM, 첫 박부터 시작",
                   "FAST_COMMERCE": "energetic, tight drums, ~120 BPM", "PREMIUM": "soft, warm, slow build, ~80 BPM",
-                  "UGC_REVIEW": "light acoustic, natural, low volume"}
+                  "UGC_REVIEW": "light acoustic, natural, low volume", "STORY_AD": "cinematic, gentle build, emotional turn"}
 
 
 def fit_scene_count(scenes: list, rng: tuple[int, int], warnings: list[str]) -> list:
@@ -68,6 +68,11 @@ def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str]
     for i, s in enumerate(scenes):                     # 장면이 빠졌어도 첫 장면 전환/CTA 전 전환 규칙 유지
         s.transition = "cut" if i == 0 else s.transition
     layout_engine.select_layouts(scenes, layout_context(identity, product, clip_paths, cutout_ok))
+    for s in scenes:      # 영상 소스는 시연/사용 장면 레이아웃에서만 재생할 수 있다. 다른 레이아웃이 뽑히면 사진으로 되돌린다 (이미지로 못 여는 파일을 렌더러에 넘기지 않음)
+        vs = s.visual_source
+        if vs.get("kind") == "user_video" and s.layout not in ("demo", "lifestyle"):
+            vs.update({"kind": "user_photo", "path": vs.get("fallback_path") or next((ph["path"] for ph in identity.photos), None),
+                       "reason": vs.get("reason", "") + " (이 레이아웃은 영상을 재생하지 않아 사진 사용)"})
     motion_director.select_motions(scenes, [f for f in product.features if f])
     issues = validator.validate(scenes, [f for f in product.features if f])      # 품질 규칙 검사 + 안전한 자동 수정
     sfx_director.direct_sfx(scenes)       # 효과음은 layout/motion 이 정해진 뒤 (콜아웃 click, pan swipe 등)

@@ -83,6 +83,10 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--reference", default="", help="참고 영상 URL 또는 mp4 (구조만 분석)")
     st.add_argument("--mode", default="PRO", choices=["FAST", "PRO"])
     st.add_argument("--compact", action="store_true", help="12~15초 압축 구조 (훅→공개→시연→혜택→CTA)")
+    st.add_argument("--style", default="FAST_COMMERCE", choices=["FAST_COMMERCE", "STORY_AD", "UGC_REVIEW"], help="영상 스타일")
+    st.add_argument("--no-strategy", action="store_true", help="판매 전략 엔진 없이 기존 director 로 대본 생성")
+    st.add_argument("--manual-strategy", action="store_true", help="AUTO 최적화 끄기 (Conversion Audit 은 하지만 자동 수정은 안 함)")
+    st.add_argument("--force", action="store_true", help="Quality Gate 미통과여도 제작")
     st.add_argument("--legacy-render", action="store_true", help="Storyboard 대신 기존 편집/렌더 경로 (비교용)")
     st.add_argument("--no-enhance", action="store_true", help="사진 보정(PHOTO ENHANCEMENT V2)을 끄고 원본 그대로 (비교 테스트용)")
     st.add_argument("--platforms", default="youtube,instagram,tiktok,threads")
@@ -145,7 +149,7 @@ def _studio(args) -> int:
     from .studio.pipeline import run_job
     inputs = {"photos": args.photos, "url": args.url, "name": args.name, "features": args.features,
               "problem": args.problem, "category_hint": args.category, "affiliate": args.affiliate,
-              "photo_rights": args.rights, "compact": args.compact, "enhance": not args.no_enhance, "legacy_render": args.legacy_render, "reference_url": args.reference, "bgm_path": args.bgm,
+              "photo_rights": args.rights, "compact": args.compact, "enhance": not args.no_enhance, "legacy_render": args.legacy_render, "video_style": args.style, "strategy": not args.no_strategy, "strategy_auto": not args.manual_strategy, "strategy_force": args.force, "reference_url": args.reference, "bgm_path": args.bgm,
               "product_boxes": {k: [float(x) for x in v.split(",")] for k, v in (b.split("=", 1) for b in args.box)},
               "feature_photos": dict(fp.split("=", 1) for fp in args.feature_photo)}
     r = run_job(inputs, args.mode, _split(args.platforms, ","), out_root="output/v2",
@@ -153,6 +157,17 @@ def _studio(args) -> int:
     if r["status"] == "FAILED":
         print(f"실패: {r.get('error')}", file=sys.stderr)
         return 1
+    st = r.get("strategy")
+    if st:
+        au = st["conversion_audit"]
+        print(f"\n전략[{st['style']}] 핵심: {st['primary_selling_point']['text']}")
+        print(f"  Angle: {(st['selected_angle'] or {}).get('title')}  Hook: {(st['selected_hook'] or {}).get('text')}")
+        print(f"  점검 {au['overall']}점 " + " ".join(f"{k}={v}" for k, v in au["scores"].items()) + f"  게이트 {'통과' if au['gate']['passed'] else '미통과'}")
+        for f in au["gate"]["failures"]:
+            print(f"    - {f['code']}: {f['detail']}")
+    if r["status"] == "STRATEGY_BLOCKED":
+        print("영상 제작 전 Quality Gate 미통과 (--force 로 강제 제작, 전략은 output/v2/<job>/strategy/state.json)", file=sys.stderr)
+        return 4
     s = r["qa"]["scores"]
     print(f"\n{r['status']}  FINAL {s.get('final', s['overall'])}  TECHNICAL {s.get('technical')}  VISION {s.get('vision_quality')}")
     print("  " + " ".join(f"{k}={v}" for k, v in s.items() if k not in ("overall", "final", "technical", "vision_quality")))

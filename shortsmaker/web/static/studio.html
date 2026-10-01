@@ -184,6 +184,10 @@
     <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" id="compact" style="margin-top:3px">
       <span><b>12~15초 짧게 만들기</b><br><span class="note">훅 → 제품 공개 → 사용/기능 → 핵심 혜택 → 짧은 CTA. 같은 사진의 확대 반복으로 시간을 채우지 않아요.</span></span></label>
 
+    <label class="f" for="vstyle">영상 스타일</label>
+    <select id="vstyle"><option value="FAST_COMMERCE">빠른 상품형 (FAST_COMMERCE · 12~18초)</option><option value="STORY_AD">스토리 광고형 (STORY_AD · 15~25초)</option><option value="UGC_REVIEW">사용 후기형 (UGC_REVIEW · 15~20초)</option></select>
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" id="autoStrategy" checked style="margin-top:3px">
+      <span><b>AUTO 최적화</b><br><span class="note">구매 이유 → 차별화 Angle → Hook → 대본 → 댓글 장치 → CTA → 전환 점검 → 자동 수정까지 시스템이 알아서 해요. 끄면 점검만 하고 고치는 건 직접 정해요.</span></span></label>
     <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" id="previewFirst" checked style="margin-top:3px">
       <span><b>미리보기 먼저 (장면 카드 확인 후 영상 제작)</b><br><span class="note">영상을 만들기 전에 장면별 구성을 보고 문구·순서·이미지·모션을 고칠 수 있어요. 음성/영상 렌더링은 [영상 제작]을 눌렀을 때만 해요.</span></span></label>
 
@@ -211,6 +215,7 @@
     <h2>장면 미리보기 <span id="pvInfo" class="note"></span></h2>
     <p class="note">아직 영상은 만들지 않았어요. 고칠 곳이 있으면 고치고 아래 [영상 제작]을 눌러주세요.</p>
     <div id="pvWarn"></div>
+    <div id="stratBox"></div>
     <div id="pvCards"></div>
     <button class="primary" id="pvRender">영상 제작</button>
     <div id="pvErr" class="note bad"></div>
@@ -371,6 +376,8 @@ $("go").onclick = async () => {
   fd.append("mode", document.querySelector("input[name=mode]:checked").value);
   fd.append("compact", $("compact").checked ? "1" : "");
   fd.append("preview", $("previewFirst").checked ? "1" : "");
+  fd.append("video_style", $("vstyle").value);
+  fd.append("auto_strategy", $("autoStrategy").checked ? "1" : "0");
   fd.append("platforms", [...document.querySelectorAll(".plats input:checked")].map(i => i.value).join(","));
   $("go").disabled = true;
   try {
@@ -402,11 +409,103 @@ async function poll(id) {
   $("progress").style.display = "none";
   keepAwake(false);
   if (d.status === "PREVIEW_READY") { showPreview(d); return; }
+  if (d.status === "STRATEGY_BLOCKED") { showBlocked(d); return; }
   showResult(d);
   $("result").scrollIntoView({ behavior:"smooth", block:"start" });
   loadHistory();
 }
 
+
+
+// ---------------------------------------------------------------- Strategy panel
+const STAGE_KO = { selling_point:"1. 핵심 Selling Point", angle:"2. 차별화 Angle", hook:"3. Hook 후보", script:"4. 영상 대본", comment:"5. 댓글 유도 장치", cta:"6. CTA", audit:"7. Conversion Audit" };
+const METRIC_KO = { hook_strength:"Hook", selling_point_clarity:"구매 이유 전달", purchase_motivation:"구매 동기", trust_proof:"신뢰/Proof", cta_strength:"CTA", retention:"유지력", information_density:"정보량", visual_selling_power:"비주얼" };
+const RISK_KO = { LOW:"낮음", MEDIUM:"보통", HIGH:"높음" };
+const GATE_KO = { hook_below:"Hook 기준 미달", selling_point_unclear:"Selling Point 불명확", unproven_claim:"근거 없는 과장 표현", scene_repeat:"장면 반복", cta_unnatural:"CTA 부자연스러움", info_overload:"정보량 과다", flow_break:"영상 흐름 단절", product_story_disconnect:"제품-스토리 연결 부족" };
+const REL = { A:"확인됨", B:"AI 해석", C:"확인 불가" };
+let strat = null, stratJob = null, stratStale = false;
+
+function relTag(r) { return `<span class="note ${r === "A" ? "" : r === "C" ? "bad" : "warn"}">[${REL[r] || r}]</span>`; }
+function stageHead(stage, extra) {
+  return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:12px"><b>${STAGE_KO[stage]}</b> <span class="note">${extra || ""}</span>
+    <button data-regen="${stage}" style="padding:4px 10px;min-height:32px">재생성</button></div>`;
+}
+function pickList(stage, items, selId, label) {
+  return items.map(it => `<label style="display:flex;gap:8px;align-items:flex-start;margin:4px 0;font-size:14px"><input type="radio" name="pick_${stage}" data-pick="${stage}" value="${it.id}" ${it.id === selId ? "checked" : ""} ${it.reliability === "C" ? "disabled" : ""}>
+    <span>${esc(label(it))}</span></label>`).join("");
+}
+
+function drawStrategy() {
+  const st = strat;
+  if (!st) { $("stratBox").innerHTML = ""; return; }
+  const sp = st.selling_point_analysis || {}, an = st.differentiation_angles || [], hk = st.hook_candidates || [], cm = st.comment_trigger || {}, ct = st.cta || {}, au = st.conversion_audit || {}, fs = st.final_script || { scenes: [] };
+  const basis = st.basis || {};
+  const g = au.gate || { passed: true, failures: [] };
+  let h = `<div class="card" style="margin:10px 0;padding:12px"><b>판매 전략</b> <span class="note">${esc(st.style_ko)} · ${st.auto ? "AUTO" : "수동"} · 생성: ${esc(Object.values(basis).join("/"))}</span>
+    <p class="note">${g.passed ? "🟢 Quality Gate 통과" : "🔴 Quality Gate 미통과: " + g.failures.map(f => esc(GATE_KO[f.code] || f.code) + "(" + esc(f.detail) + ")").join(", ")}</p>
+    <select id="stratStyle">${["FAST_COMMERCE","STORY_AD","UGC_REVIEW"].map(x => `<option value="${x}" ${x === st.style ? "selected" : ""}>${{FAST_COMMERCE:"빠른 상품형",STORY_AD:"스토리 광고형",UGC_REVIEW:"사용 후기형"}[x]}</option>`).join("")}</select>
+    <span class="note">스타일을 바꾸면 Hook 부터 다시 만들어요</span>`;
+  h += stageHead("selling_point", sp.shortage ? "후보 5개 미만 (입력 근거가 부족하면 억지로 늘리지 않아요)" : "");
+  h += pickList("selling_point", sp.candidates || [], (st.primary_selling_point || {}).id, c => `${c.text} · ${c.total}점 [${c.kind}] ${REL[c.reliability] || ""}${c.note ? " — " + c.note : ""}`);
+  h += stageHead("angle", `카테고리 일반 경향은 실측이 아니에요`);
+  h += pickList("angle", an, (st.selected_angle || {}).id, a => `${a.title} (${a.axis}) ${a.total}점 — ${a.premise}${(st.alternative_angle || {}).id === a.id ? "  ◀ 대안 방향" : ""}`);
+  h += stageHead("hook", hk.length + "개");
+  h += pickList("hook", hk, (st.selected_hook || {}).id, x => `[${x.type}] ${x.text} · ${x.total}점${x.notes && x.notes.length ? " ⚠" + x.notes.join(",") : ""}`);
+  const rej = ((st.hook_analysis || {}).rejected || []).length;
+  if (rej) h += `<p class="note">근거가 없어 제외된 Hook ${rej}개</p>`;
+  h += stageHead("script", `${fs.estimated_seconds ?? ""}초`);
+  h += `<ol style="margin:4px 0 0 18px;padding:0;font-size:14px">` + (fs.scenes || []).map(s => `<li><span class="note">${s.scene_role} · ${s.time[0]}~${s.time[1]}s · ${s.product_visibility}</span> ${esc(s.narration)} ${relTag(s.reliability)}</li>`).join("") + `</ol>`;
+  h += stageHead("comment", cm.insert ? "삽입됨" : "삽입 안 함");
+  h += cm.selected ? pickList("comment", cm.candidates || [], cm.selected.id, c => `[${c.method}] ${c.text} · ${c.total}점`) : "";
+  h += `<p class="note">${cm.insert ? "위치: " + esc(cm.placement) : esc(cm.skip_reason || "")}</p>`;
+  h += stageHead("cta", ct.selected ? esc(ct.selected.strategy) : "");
+  h += pickList("cta", ct.candidates || [], (ct.selected || {}).id, c => `[${c.strategy}] ${c.text} · ${c.total}점`);
+  const nr = (ct.rejected || []).length;
+  h += `<p class="note">사용 불가 전략: ${Object.entries(ct.eligibility || {}).filter(([k, v]) => !v.allowed).map(([k, v]) => k + "(" + v.why + ")").map(esc).join(" · ") || "없음"}</p>`;
+  h += stageHead("audit", `종합 ${au.overall ?? "-"}점 · 규칙 점수 기준`);
+  h += `<div class="note">` + Object.entries(au.scores || {}).map(([k, v]) => `${METRIC_KO[k] || k} <b>${v}</b>`).join(" · ") + `</div>`;
+  h += `<div class="note">Funnel: ` + Object.entries(au.funnel || {}).map(([k, v]) => `${k} ${v}`).join(" → ") + `</div>`;
+  const risky = (au.timeline || []).filter(t => t.risk !== "LOW");
+  if (risky.length) h += `<ul style="margin:6px 0 0 18px;padding:0;font-size:13px">` + risky.map(t => `<li>${t.time[0]}~${t.time[1]}s <b>${RISK_KO[t.risk]}</b> — ${esc(t.reason)}${t.viewer_thought ? ` “${esc(t.viewer_thought)}”` : ""}${t.fix ? ` → ${esc(t.fix)}` : ""}</li>`).join("") + `</ul>`;
+  const top = au.top_fixes || [];
+  if (top.length) h += `<p class="note"><b>수정 우선순위 TOP ${top.length}</b></p><ol style="margin:0 0 0 18px;padding:0;font-size:13px">` + top.map(i => `<li><b>${i.priority}</b> ${esc(i.problem)}<br><span class="note">원인: ${esc(i.cause)} → 수정: ${esc(i.fix)} → 효과: ${esc(i.effect)}</span></li>`).join("") + `</ol>`;
+  const rounds = au.rounds || [];
+  if (rounds.length) h += `<p class="note"><b>자동 수정 ${rounds.length}회</b></p>` + rounds.map(r => `<div class="note">` + r.applied.map(a => `${esc(a.op)} ${esc(a.scene_id)}: “${esc(a.before)}” → “${esc(a.after)}” (${esc(a.why)})`).join("<br>") + `</div>`).join("");
+  if (!st.auto) h += `<button data-revise="1" style="margin-top:8px">자동 수정 적용</button>`;
+  const ba = st.before_after;
+  if (ba && rounds.length) h += `<details><summary class="note">수정 전/후 비교</summary><div class="note">BEFORE: ${esc(ba.BEFORE.hook)} / ${esc(ba.BEFORE.cta)}<br>AFTER: ${esc(ba.AFTER.hook)} / ${esc(ba.AFTER.cta)}</div></details>`;
+  h += `<div id="stratBusy" class="note"></div>`;
+  h += stratStale ? `<button class="primary" data-sb="1">Storyboard 만들기 (전략 변경 반영)</button>` : "";
+  h += `</div>`;
+  $("stratBox").innerHTML = h;
+}
+
+async function stratCall(body) {
+  $("stratBusy").textContent = "다시 계산 중… (최대 1~2분)";
+  try {
+    const res = await fetch(`/api/v2/jobs/${stratJob}/strategy`, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(body) });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || "실패");
+    strat = d.strategy; stratStale = true; drawStrategy();
+  } catch (e) { $("stratBusy").textContent = "⚠ " + e.message; }
+}
+$("stratBox").addEventListener("click", async (ev) => {
+  const t = ev.target.closest("[data-regen],[data-revise],[data-sb]");
+  if (!t) return;
+  if (t.dataset.regen) stratCall({ action:"regenerate", stage:t.dataset.regen });
+  else if (t.dataset.revise) stratCall({ action:"revise", stage:"audit", auto:true });
+  else if (t.dataset.sb) {
+    const res = await fetch(`/api/v2/jobs/${stratJob}/storyboard`, { method:"POST", headers:{ "Content-Type":"application/json" }, body:"{}" });
+    const d = await res.json();
+    if (!res.ok) { $("stratBusy").textContent = "⚠ " + (d.detail || "실패"); return; }
+    $("preview").style.display = "none"; $("progress").style.display = "block"; keepAwake(true); poll(d.job_id);
+  }
+});
+$("stratBox").addEventListener("change", (ev) => {
+  const t = ev.target;
+  if (t.dataset && t.dataset.pick) stratCall({ action:"pick", stage:t.dataset.pick, id:t.value });
+  else if (t.id === "stratStyle") stratCall({ action:"regenerate", stage:"hook", style:t.value });
+});
 
 // ---------------------------------------------------------------- Preview Mode
 const LAYOUT_KO = { full_product:"상품 꽉 채움", product_center:"상품 중앙", split_screen:"분할", before_after:"전/후", problem_solution:"문제→해결",
@@ -418,13 +517,27 @@ const TRANS_KO = { cut:"컷", whip:"휩", flash:"플래시", soft:"소프트" };
 let pv = null;     // { id, sb, ov, order, edits }
 const esc = (t) => String(t ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
 
+function showBlocked(d) {
+  const r = d.result;
+  pv = null; strat = r.strategy || null; stratJob = d.job_id; stratStale = true;
+  $("preview").style.display = "block"; $("pvRender").style.display = "none";
+  $("pvInfo").textContent = "Quality Gate 미통과";
+  const f = ((r.blocked || {}).gate || {}).failures || [];
+  $("pvWarn").innerHTML = `<p class="note bad">영상 제작을 시작하지 않았어요. ${f.map(x => esc(GATE_KO[x.code] || x.code) + "(" + esc(x.detail) + ")").join(", ")}<br>아래 전략을 고치고 [Storyboard 만들기]를 누르세요.</p>`;
+  $("pvCards").innerHTML = "";
+  drawStrategy();
+  $("preview").scrollIntoView({ behavior:"smooth", block:"start" });
+}
+
 function showPreview(d) {
+  $("pvRender").style.display = "";
   const r = d.result, sb = r.storyboard;
   pv = { id: d.job_id, sb, pvr: r.preview, order: sb.scenes.map(s => s.scene_id), edits: {}, dropped: new Set() };
   $("preview").style.display = "block";
   $("pvInfo").textContent = `${sb.scenes.length}장면 · ${sb.total_duration.toFixed(1)}초`;
   const warns = [...(sb.warnings || []), ...(sb.issues || []).map(i => (i.message || i.rule || i))];
   $("pvWarn").innerHTML = warns.length ? `<p class="note warn">⚠ ${warns.map(esc).join("<br>⚠ ")}</p>` : "";
+  strat = r.strategy || null; stratJob = d.job_id; stratStale = false; drawStrategy();
   drawCards();
   $("preview").scrollIntoView({ behavior:"smooth", block:"start" });
 }
@@ -488,8 +601,12 @@ $("pvRender").onclick = async () => {
   $("pvRender").disabled = true;
   try {
     const res = await fetch(`/api/v2/jobs/${pv.id}/render`, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ edits:{ scenes, order } }) });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "실패");
+    let data = await res.json();
+    if (res.status === 409 && confirm(data.detail + "\n그래도 영상을 제작할까요?")) {
+      const res2 = await fetch(`/api/v2/jobs/${pv.id}/render`, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ edits:{ scenes, order }, force:true }) });
+      data = await res2.json();
+      if (!res2.ok) throw new Error(data.detail || "실패");
+    } else if (!res.ok) throw new Error(data.detail || "실패");
     $("preview").style.display = "none"; $("progress").style.display = "block";
     try { localStorage.setItem("lastJob", data.job_id); } catch (_) {}
     keepAwake(true);
@@ -594,7 +711,7 @@ $("platforms").addEventListener("click", async (e) => {
 });
 
 // ---------------- 최근 작업 / 이어보기
-const STATUS_KO = { COMPLETE:"통과", QUALITY_FAIL:"품질 미달", NEEDS_REVIEW:"확인 필요", PREVIEW_READY:"미리보기", FAILED:"실패", RUNNING:"만드는 중", PENDING:"대기" };
+const STATUS_KO = { STRATEGY_BLOCKED:"전략 점검 미통과", COMPLETE:"통과", QUALITY_FAIL:"품질 미달", NEEDS_REVIEW:"확인 필요", PREVIEW_READY:"미리보기", FAILED:"실패", RUNNING:"만드는 중", PENDING:"대기" };
 async function loadHistory() {
   try {
     const res = await fetch("/api/v2/jobs");
@@ -612,6 +729,7 @@ $("historyList").addEventListener("click", async (e) => {
   if (["RUNNING", "PENDING"].includes(d.status) || !d.result) { $("progress").style.display = "block"; poll(b.dataset.id); return; }
   $("result").style.display = "none";
   if (d.status === "PREVIEW_READY") { showPreview(d); return; }
+  if (d.status === "STRATEGY_BLOCKED") { showBlocked(d); return; }
   showResult(d);
   $("result").scrollIntoView({ behavior:"smooth", block:"start" });
 });
