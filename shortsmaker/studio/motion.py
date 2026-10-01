@@ -89,6 +89,7 @@ class Shot:
     motion: str = ""                    # Motion Director 의 motion id
     source2: str = ""                   # split_screen / before_after 의 두 번째 이미지
     data: dict = field(default_factory=dict)   # layout 이 쓰는 실제 데이터 (items/callout/quote/rows)
+    emph_at: float | None = None        # 강조 단어가 나오는 시각(초): object_focus/punch 의 시작점
 
 
 # ------------------------------------------------------------------ plates
@@ -526,6 +527,11 @@ class MotionRenderer:
         if rd is None:
             rd = self._clips[key] = ClipReader(shot.source, shot.clip_start, shot.clip_aspect, W, H, self.fps)
         return rd.read(int(t * self.fps + 1e-6))
+
+    def cam_for(self, shot: Shot, t: float, p: float):
+        """layout 경로의 카메라: Storyboard 의 motion id 를 수식(camera.cam_at)으로 계산 (랜덤 없음)."""
+        from . import camera
+        return camera.cam_at(shot.motion, shot, t, p)
 
     def close_clips(self) -> None:
         for rd in self._clips.values():

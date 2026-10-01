@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from .. import grounding
 from . import layouts as layout_engine
+from . import motion_director
 from . import sfx_director
 from .scene_director import SceneDirector
 from .schema import Storyboard, duration_class
@@ -66,6 +67,7 @@ def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str]
     for i, s in enumerate(scenes):                     # 장면이 빠졌어도 첫 장면 전환/CTA 전 전환 규칙 유지
         s.transition = "cut" if i == 0 else s.transition
     layout_engine.select_layouts(scenes, layout_context(identity, product, clip_paths, cutout_ok))
+    motion_director.select_motions(scenes, [f for f in product.features if f])
     sfx_director.direct_sfx(scenes)       # 효과음은 layout/motion 이 정해진 뒤 (콜아웃 click, pan swipe 등)
     distinct = {s.visual_source.get("path") for s in scenes if s.visual_source.get("path")}
     if len(scenes) > 2 * len(distinct) + 1:

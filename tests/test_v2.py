@@ -1154,3 +1154,75 @@ def test_macro_on_tight_crop_keeps_whole_product():
     h, w = plate.shape
     ys, xs = np.nonzero(plate > 200)
     assert xs.min() > 0.02 * w and xs.max() < 0.98 * w                                      # 제품(흰 원)이 좌우 가장자리에서 잘리지 않음
+
+
+# ------------------------------------------------------------------ STORYBOARD V2 - 3단계 (Motion Director)
+EXPECTED_MOTIONS = {"zoom_in", "zoom_out", "slow_zoom", "pan_left", "pan_right", "parallax", "depth_zoom", "mask_reveal", "object_focus",
+                    "background_blur", "light_sweep", "floating_product", "punch_in", "shake", "ken_burns"}
+
+
+def _mscenes(specs):
+    """specs: [(scene_type, layout, narration)]"""
+    from shortsmaker.studio.storyboard.schema import StoryScene
+    return [StoryScene(scene_id=f"S{i + 1}", scene_type=t, duration=2.5, purpose="", narration=n, main_caption=n, layout=l)
+            for i, (t, l, n) in enumerate(specs)]
+
+
+def test_motion_catalog_is_complete_on_both_sides():
+    from shortsmaker.studio.camera import MOTIONS as RM, cam_at
+    from shortsmaker.studio.storyboard.motion_director import MOTIONS as DM, CAMERA_TEXT, LABELS
+    assert set(DM) == set(RM) == EXPECTED_MOTIONS and set(CAMERA_TEXT) == set(LABELS) == EXPECTED_MOTIONS
+
+    class S:
+        duration, emph_at = 2.0, 0.3
+    for m in EXPECTED_MOTIONS:
+        assert cam_at(m, S, 0.5, 0.25) is not None and cam_at(m, S, 0.5, 0.25).scale >= 0.99
+
+
+def test_motion_is_chosen_from_meaning_not_random():
+    from shortsmaker.studio.storyboard.motion_director import select_motions
+    feats = ["컬러 LED 링", "송풍구 클립 거치"]
+    spec = [("HOOK", "full_product", "이 거치대, 아직 안 써보셨어요?"), ("PRODUCT_REVEAL", "product_center", "바로 이 거치대예요"),
+            ("FEATURE", "feature_callout", "컬러 LED 링이 있어요"), ("DEMO", "split_screen", "게다가 송풍구 클립 거치까지 돼요"),
+            ("BENEFIT", "product_center", "실제 모습은 이렇게"), ("CTA", "cta", "정보는 링크에서")]
+    a, b = _mscenes(spec), _mscenes(spec)
+    select_motions(a, feats), select_motions(b, feats)
+    assert [s.image_motion for s in a] == [s.image_motion for s in b]                      # 같은 입력 = 같은 결과
+    assert a[0].image_motion == "mask_reveal" and "의문" in a[0].decisions["motion"]       # 질문 훅 -> 마스크 공개
+    assert a[2].image_motion == "object_focus" and "컬러 LED 링" in a[2].decisions["motion"]   # 특징을 말하는 순간 해당 부분 강조
+    assert a[3].image_motion in ("pan_left", "pan_right")                                   # 거치/고정 동작 -> 패닝
+    assert "빛/색" not in a[5].decisions["motion"]                                           # '링크' 의 '링' 을 LED 링으로 오인하지 않는다
+    assert all(x.image_motion != y.image_motion for x, y in zip(a, a[1:]))                  # 연속 같은 모션 금지
+    assert all(s.camera_motion and s.decisions["motion"] for s in a)
+
+
+def test_motion_layout_compatibility_and_not_all_zoom():
+    from shortsmaker.studio.storyboard.motion_director import ALLOWED, LAYERED, ZOOM_FAMILY, allowed_for, select_motions
+    for lay in ("full_product", "close_up", "split_screen", "feature_callout", "review_quote", "before_after", "demo", "lifestyle"):
+        assert not ({"parallax", "depth_zoom", "floating_product"} & allowed_for(lay)), lay    # 배경/제품이 분리된 레이아웃에서만
+    for lay in LAYERED:
+        assert "pan_left" not in allowed_for(lay)
+    spec = [("HOOK", "full_product", "첫 장면"), ("PRODUCT_REVEAL", "product_center", "공개"), ("FEATURE", "close_up", "특징 하나"),
+            ("FEATURE", "product_overlay", "특징 둘"), ("DEMO", "full_product", "시연"), ("BENEFIT", "result", "결과"),
+            ("BENEFIT", "floating_product", "또 결과"), ("CTA", "cta", "링크")]
+    sc = _mscenes(spec)
+    select_motions(sc, [])
+    zoomish = sum(1 for s in sc if s.image_motion in ZOOM_FAMILY)
+    assert zoomish <= int(len(sc) * 0.6)                                                    # 모든 장면 동일 줌 효과 금지
+    assert all(s.image_motion in allowed_for(s.layout) for s in sc)
+
+
+def test_every_motion_actually_changes_the_picture_over_time(tmp_path):
+    import numpy as np
+    from shortsmaker.studio.camera import MOTIONS
+    from shortsmaker.studio.motion import MotionRenderer, Shot
+    photo = make_photos("kitchen_tumbler", tmp_path / "p", 1)[0]
+    r = MotionRenderer(width=270, height=480, fps=10)
+    r.cache.boxes[photo] = (0.2, 0.2, 0.8, 0.8)
+    for m in MOTIONS:
+        lay = "product_center" if m in ("parallax", "depth_zoom", "floating_product") else "full_product"
+        sh = Shot("S", "hero_push", photo, 2.0, layout=lay, motion=m, emph_at=0.2)
+        a, b = r.frame(sh, 0.05, 0), r.frame(sh, 1.4, 0)
+        diff = float(np.abs(np.asarray(a, np.float32) - np.asarray(b, np.float32)).mean())
+        assert diff > 0.4, (m, diff)                                                         # 정적인 모션 없음
+        assert np.array_equal(np.asarray(r.frame(sh, 1.4, 0)), np.asarray(b))                # 같은 시각 = 같은 프레임 (랜덤 없음)

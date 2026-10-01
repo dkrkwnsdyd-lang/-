@@ -29,6 +29,8 @@ class Cam:
     shake: tuple = (0, 0)        # px
     sweep: float | None = None   # 라이트 스윕 진행 0~1
     ring: float = 0.0            # 강조 링 강도 0~1
+    bg_scale: float | None = None  # 배경 전용 확대 (제품과 다르게 움직여 깊이감: parallax/depth_zoom)
+    bg_dx: float = 0.0
     extra: dict = field(default_factory=dict)
 
 
@@ -188,26 +190,45 @@ def L_close_up(r, shot, t, p, cam):
     return cam_crop(plate, cam), (0.12, 0.25, 0.88, 0.75)
 
 
+def _fg_layer(r, path: str, ratio: float, cy: float, scale: float = 1.2):
+    """제품 카드(또는 컷아웃) + 그림자 를 RGBA 한 장으로 (배경과 분리: 패럴랙스/깊이 줌/떠 있기)."""
+    def build():
+        bg, fg, a, (x, y) = _hero(r, path, ratio, cy, scale)
+        lay = Image.new("RGBA", bg.size, (0, 0, 0, 0))
+        shadow = Image.new("RGBA", bg.size, (0, 0, 0, 0))
+        sh = M.drop_shadow(a, blur=int(bg.width * 0.025), opacity=160)
+        shadow.paste((0, 0, 0, 255), (x + int(bg.width * 0.012), y + int(bg.height * 0.018)), sh)
+        lay.alpha_composite(shadow)
+        lay.paste(fg.convert("RGBA"), (x, y), a)
+        return lay, (x, y, x + fg.width, y + fg.height)
+    return _plate(r, ("fglayer", path, ratio, cy, scale), build)
+
+
+def _card_layout(r, shot, cam, ratio=0.8, cy=0.56, glow_k: float = 0.0):
+    bg, _, _, _ = _hero(r, shot.source, ratio, cy, 1.2)
+    lay, rect_px = _fg_layer(r, shot.source, ratio, cy)
+    cam_bg = Cam(scale=cam.bg_scale or cam.scale, dx=cam.bg_dx or cam.dx, dy=cam.dy)
+    base = cam_crop(bg, cam_bg)
+    if glow_k > 0:
+        glow = _plate(r, ("glow", bg.size), lambda: _glow(bg.size))
+        base = ImageChops.screen(base, cam_crop(Image.eval(glow, lambda v: int(v * glow_k)), cam_bg))
+    fcam = Cam(scale=cam.scale, dx=cam.dx, dy=cam.dy - cam.bob)       # bob>0 이면 제품이 위로 떠오름
+    fg = cam_crop(lay, fcam)
+    out = base.convert("RGBA")
+    out.alpha_composite(fg)
+    return out.convert("RGB"), to_frame(rect_px, lay.size, fcam)
+
+
 def L_product_center(r, shot, t, p, cam):
-    plate = M.hero_plate(r.cache, shot.source, fg_ratio=0.8)
-    bg, fg, a, (x, y) = _hero(r, shot.source, 0.8, 0.56, 1.2)
-    rect = to_frame((x, y, x + fg.width, y + fg.height), plate.size, cam)
-    return cam_crop(plate, cam), rect
+    return _card_layout(r, shot, cam, 0.8, 0.56)
 
 
 def L_floating_product(r, shot, t, p, cam):
-    bg, fg, a, (x, y) = _hero(r, shot.source, 0.78, 0.55, 1.2)
-    plate, rect_px = _card_with_shadow(r, shot.source, 1.2, 0.78, 0.55, bob_px=int(cam.bob * bg.height))
-    return cam_crop(plate, cam), to_frame(rect_px, plate.size, cam)
+    return _card_layout(r, shot, cam, 0.78, 0.55)
 
 
 def L_result(r, shot, t, p, cam):
-    plate = M.hero_plate(r.cache, shot.source, fg_ratio=0.8)
-    bg, fg, a, (x, y) = _hero(r, shot.source, 0.8, 0.56, 1.2)
-    glow = _plate(r, ("glow", plate.size), lambda: _glow(plate.size))
-    k = min(1.0, 0.35 + 0.65 * M.ease(p))
-    lit = ImageChops.screen(plate, Image.eval(glow, lambda v: int(v * k)))
-    return cam_crop(lit, cam), to_frame((x, y, x + fg.width, y + fg.height), plate.size, cam)
+    return _card_layout(r, shot, cam, 0.8, 0.56, glow_k=min(1.0, 0.35 + 0.65 * M.ease(p)))
 
 
 def _glow(size: tuple[int, int]) -> Image.Image:
@@ -219,9 +240,7 @@ def _glow(size: tuple[int, int]) -> Image.Image:
 
 
 def L_cta(r, shot, t, p, cam):
-    plate = M.hero_plate(r.cache, shot.source, fg_ratio=0.84)
-    bg, fg, a, (x, y) = _hero(r, shot.source, 0.84, 0.56, 1.2)
-    return cam_crop(plate, cam), to_frame((x, y, x + fg.width, y + fg.height), plate.size, cam)
+    return _card_layout(r, shot, cam, 0.84, 0.56)
 
 
 def L_product_overlay(r, shot, t, p, cam):
