@@ -1096,6 +1096,8 @@ def test_layouts_that_need_real_data_are_unavailable_without_it():
     from shortsmaker.studio.storyboard.layouts import availability, select_layouts
     sc = _scenes(["PROOF", "DEMO", "BENEFIT"])
     ctx = _ctx()
+    assert availability("demo", sc[1], _ctx(usage_path="/p/use.jpg"))[0] is False        # 사용 '사진'만으로는 시연이 아니다
+    assert availability("lifestyle", sc[2], _ctx(usage_path="/p/use.jpg"))[0] is True
     for name, i in (("review_quote", 0), ("comparison", 0), ("before_after", 2), ("demo", 1), ("lifestyle", 2)):
         assert availability(name, sc[i], ctx)[0] is False, name
     select_layouts(sc, ctx)

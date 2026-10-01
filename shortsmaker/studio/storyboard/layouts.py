@@ -68,7 +68,9 @@ def availability(layout: str, scene, ctx: LayoutContext) -> tuple[bool, str]:
         return bool(ctx.comparison), "비교 데이터가 없어서 사용 불가"
     if layout == "three_benefits":
         return len(ctx.features) >= 2, "특징이 2개 미만"
-    if layout in ("demo", "lifestyle"):
+    if layout == "demo":
+        return bool(ctx.clip_paths), "실제 시연 영상이 없어서 사용 불가 (정지 사진을 '시연'이라고 표시하지 않음)"
+    if layout == "lifestyle":
         return bool(ctx.clip_paths or ctx.usage_path), "사용 장면(영상/사용 사진)이 없어서 사용 불가"
     if layout == "close_up":
         return path in ctx.zoomable, "확대할 수 없는 사진 (해상도 부족/제품 위치 미상)"

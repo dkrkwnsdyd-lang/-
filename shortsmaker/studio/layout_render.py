@@ -338,13 +338,16 @@ def L_feature_callout(r, shot, t, p, cam):
     cx, cy = x + rc.width * 0.5, y + rc.height * 0.5
     pulse = 0.55 + 0.45 * math.sin(t * 7)
     out = ring_overlay(base, cx, cy, min(rc.width, rc.height) * 0.36, 0.9 * max(cam.ring, 0.5 + 0.3 * pulse), 7)
-    label = shot.data.get("callout") or shot.label or ""
+    label = shot.data.get("callout") or ""
     if label:
-        lb = chip(r, label, int(W * 0.05), fill=(255, 255, 255, 235), color=(20, 20, 24, 255))
-        lx, ly = int(W * 0.50), int(H * 0.24)
+        # 라벨은 카드 아래(자막 영역 밖)에 둔다: 상단은 자막이 쓰는 영역이라 겹치면 서로 가린다
+        lb = chip(r, label, int(W * 0.05), fill=(255, 225, 90, 240), color=(20, 20, 24, 255))
+        lx = min(max(int(cx - lb.width * 0.5), int(W * 0.04)), W - lb.width - int(W * 0.04))
+        ly = y + rc.height + int(H * 0.03)
         d = ImageDraw.Draw(out)
-        d.line([(cx + min(rc.width, rc.height) * 0.28, cy - min(rc.width, rc.height) * 0.28), (lx + lb.width * 0.2, ly + lb.height)], fill=(255, 225, 90), width=5)
-        paste_rgba(out, lb, (min(lx, W - lb.width - int(W * 0.04)), ly))
+        rad = min(rc.width, rc.height) * 0.36
+        d.line([(cx, cy + rad), (cx, ly)], fill=(255, 225, 90), width=5)
+        paste_rgba(out, lb, (lx, ly))
     return out, (x / W, y / H, (x + rc.width) / W, (y + rc.height) / H)
 
 
@@ -427,11 +430,8 @@ def L_lifestyle(r, shot, t, p, cam):
 
 
 def L_demo(r, shot, t, p, cam):
-    frame, rect = L_lifestyle(r, shot, t, p, cam)
-    W, H = _wh()
-    bar = int(W * (0.1 + 0.8 * p))
-    ImageDraw.Draw(frame).rounded_rectangle([int(W * 0.1), int(H * 0.915), bar, int(H * 0.922)], 4, fill=(255, 225, 90))
-    return frame, rect
+    """실제 시연 영상(클립)을 꽉 채워 보여준다. 장식 요소를 얹지 않는다."""
+    return L_lifestyle(r, shot, t, p, cam)
 
 
 L_TEXT = {  # 설명용

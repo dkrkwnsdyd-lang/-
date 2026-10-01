@@ -13,6 +13,16 @@
 - 사용자 사진은 쿠팡 상품 이미지. 게시 전 쿠팡 파트너스 약관(이미지 사용 조건) 확인 또는 판매자 허락/직접 촬영 사진 필요
 - 나중에: Coupang Partners API 로 상품 정보/이미지를 가져오는 정식 경로 연동 검토 (Seller API / Partners / 페이지 import 를 혼동하지 말 것)
 
+## 00. STORYBOARD V2 다음 단계 (지시서 순서)
+- 완료: Storyboard Engine, Scene Director, Layout Engine, Motion Director, Storyboard→Renderer 연결, 영상 퀄리티 규칙 검증기, 효과음 9종, 신뢰도 A/B/C
+- NEXT TASK 1: **Preview Mode** — Storyboard JSON 으로 장면 카드(썸네일/길이/대사/자막/소스/레이아웃/모션/전환/SFX) 먼저 보여주고, 순서 변경/대본 수정/이미지 교체/장면 재생성/모션 변경 후 [영상 제작]에서만 MP4 렌더. (`caption_text`, `edit_from_storyboard`, `Storyboard.from_json` 은 이미 편집 경로를 지원)
+- NEXT TASK 2: **Video Style Variation** — FAST_COMMERCE / PREMIUM / UGC_REVIEW 연출안 3종 (`Storyboard.style`, `MUSIC_BY_STYLE` 자리만 있음)
+- NEXT TASK 3: Visual Source Router 나머지 단계(상품 URL/상세페이지 이미지, 무료 B-roll(Pexels/Pixabay 키 있음·미연결), AI 이미지/영상 — provider 검증 후 부족 장면에만)
+- NEXT TASK 4: `text_animation` 렌더 지원 (현재 word_pop 만 렌더, scale_pop/fade_in/slide_up 은 기록만)
+- 사용자 조치: 소스(사진 3~4장 이상, 사용 장면 영상)가 점수를 결정함 (TEST_RESULTS.md)
+- 주의: 지시서의 'Remotion + FFmpeg' 는 이 저장소에 없고 렌더러는 Python(Pillow/numpy) → FFmpeg 파이프. Renderer 는 Storyboard JSON 으로만 입력받도록 분리됨
+- DO NOT REDO: storyboard 패키지, layout_render, camera, storyboard_edit, validator
+
 ## 0. 품질 개선 다음 단계 (V2 검증 결과 반영, 2026-09-30) — 최우선
 - 현재 문제: 사진 2장만으로는 Visual 52~55 / Commercial 47 (Gemini). 보정·크롭으로는 더 오르지 않음 (TEST_RESULTS.md)
 - NEXT TASK 1: **PRIORITY 6 Source Library + Semantic Clip Matcher** — 입력 사진/영상을 라이브러리로 저장, 영상은 장면 분할 + Gemini 로 metadata(action/usage/product_visibility/시간 구간), 대사·자막 의미와 맞는 클립 자동 배치, 불일치는 Final QA FAIL. (기존 `studio/clips.py` 의 구간 선택/재생/개인정보 검사를 재사용)

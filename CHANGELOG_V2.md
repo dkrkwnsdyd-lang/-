@@ -88,6 +88,14 @@
 - Fixed: 사진 품질 분석의 흐림 판정 오류 (`enhance.focus_blur`) - 전체 평균 선명도(lapvar)는 매끈한 흰색 제품+보케 배경을 'C 심하게 흐림'으로 오판했다. 타일별 재블러 비율의 하위 20% (잡음 median 전처리)로 교체, 선명화 강도도 이 값으로 결정. 임시 보정치(표본 12종)
 - Added(UI): 사진이 3장보다 적고 영상이 없으면 업로드 시점 안내 (실측 1장 61점 / 2장 67점)
 
+- Added (STORYBOARD V2, 2026-10-01) — 기존 director/editor/renderer 는 유지하고 사이에 모듈 추가:
+  - `studio/storyboard/`: `schema.py`(Storyboard/StoryScene JSON, 12/20/30/45초별 권장 장면 4~6/6~9/8~12/10~15), `engine.py`(대본 → Storyboard, 초과 시 우선순위 낮은 장면부터 제외·부족하면 억지로 늘리지 않고 경고), `scene_director.py`(장면별 narration/main·sub 자막/visual_source/transition/text_animation/music_cue/emphasis + 데이터 신뢰도 A/B/C), `sources.py`(Visual Source Router: 사용자 소스 우선, 부족 장면은 AI 영상 '후보'로만 기록·상한 2·provider 검증 전 호출 금지), `sfx_director.py`(전환/강조 지점에만, 연속 강타 금지, 장면 70% 상한), `layouts.py`(17종: 연속 반복 금지·계열 반복 벌점·비중앙 1/3 이상·후기/비교/전후는 사용자 실제 데이터가 있을 때만·시연은 실제 영상 클립이 있을 때만), `motion_director.py`(15종: 대사/목적/특징어/레이아웃 호환 기반, 랜덤 없음, 이유를 decisions 에 기록, 연속 동일 금지·줌 계열 60% 상한), `validator.py`(영상 퀄리티 규칙 11가지 검사 + 안전한 자동 수정)
+  - Renderer: `studio/layout_render.py`(17종 그리기, 배경/제품 분리 합성, 개인정보 타이트 크롭 존중), `studio/camera.py`(모션 15종 수식), `studio/storyboard_edit.py`(Storyboard → EDL: 장면 1개 = 컷 1개, 효과음 이벤트, 음성 길이 맞춤), `Shot.layout/motion/source2/data/emph_at`, `MotionRenderer.cam_for`
+  - 기본 렌더 경로가 Storyboard 로 전환 (기존 경로는 `ProductInput.legacy_render` / CLI `--legacy-render`), `ProductInput.review_quotes/before_after/comparison`
+  - 효과음 합성 5종 추가(click, ding, impact, swipe, soft_hit) + transition_hit → 총 9종
+  - QA: layout 을 구분해 연속 동일 구도 판정, 영상 클립 소스 키, Storyboard 경로 평균 컷 길이 기준 `storyboard_avg_shot_length [1.4,3.2]` (장면마다 레이아웃/모션이 달라 컷이 조금 길어도 단조롭지 않다는 근거. 기존 경로 기준은 그대로)
+- Fixed: 규칙 대본의 크기 주장 템플릿 '이게 생각보다 커요' 제거, 매크로 컷이 큰/원형 제품을 자르던 문제(레터박스, 타이트 크롭 기준 보정)
+
 ### Known Issues
 - 외부 AI(LLM/TTS/영상 생성) 실호출 미검증 — 키 없음 + 샌드박스 네트워크 차단
 - 사람/손이 나오는 실제 사용 장면은 영상 생성 provider 연결 전까지 만들 수 없음 (현재는 원본 사진 모션)

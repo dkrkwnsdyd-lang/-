@@ -70,6 +70,10 @@ PWA(홈 화면 설치) + 모바일 화면 + 접근 암호 + Docker 배포 파일
 PHOTO ENHANCEMENT V2(등급/보정/충실도 QA), FINAL QA V2(로컬 기술/Vision/최종 점수 분리 + Hard Gate + Commercial Feel + Scene-Script + 다양성), 12~15초 압축, 화면 개선, 참고 URL(검색결과 UNVERIFIED) 완료.
 **실사진(M-Circle 2장) 검증 결과 Final 66~68 QUALITY_FAIL — 성공 기준 미달.** 원인은 화질이 아니라 소스(어수선한 배경, 스냅 조명, 사진 2장 재사용, 사용 장면 없음). TEST_RESULTS.md 참고.
 
+## STORYBOARD V2 (2026-10-01)
+Script → Storyboard Engine → Scene Director → Layout Engine → Motion Director → (검증/자동수정) → Storyboard→EDL → Renderer 구조 완료(기본 경로). 17 레이아웃·15 모션·효과음 9종.
+**실사진(M-Circle 2장) 점수는 기존 경로와 구분되지 않음(71 vs 72/67, 모두 QUALITY_FAIL).** 레이아웃/모션은 표현을 다양화하지만 소스 부족(사진 2장 반복)은 해결하지 못함. 아직 없음: Preview 편집 UI, 연출안 3종(FAST_COMMERCE/PREMIUM/UGC_REVIEW), 무료 B-roll/상세페이지 소스, text_animation 일부(scale_pop/fade_in/slide_up)의 렌더 지원.
+
 ## Blocked
 - GitHub push: Claude GitHub App 쓰기 권한 403 (코드는 로컬 커밋 + 번들 파일로 전달)
 - 외부 API 실테스트: 키 없음 + 샌드박스 네트워크 정책
