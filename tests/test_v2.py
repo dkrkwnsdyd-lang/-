@@ -935,3 +935,120 @@ def test_fidelity_local_rejects_changed_product(tmp_path):
     ImageDraw.Draw(changed).ellipse([200, 360, 700, 860], fill=(200, 40, 40))             # 제품을 빨갛게 덮어씀
     assert enhance.fidelity_local(orig, changed)["ok"] is False
     assert enhance.fidelity_local(orig, orig.copy())["ok"] is True
+
+
+# ------------------------------------------------------------------ STORYBOARD V2 - 1단계 (Engine + Scene Director)
+def _plan_for(tmp_path, n_photos=2, compact=False, **extra):
+    from shortsmaker.studio.director import direct_scenes, rule_director
+    from shortsmaker.studio.product import ProductInput, analyze_photo, build_identity
+    photos = make_photos("kitchen_tumbler", tmp_path / "p", n_photos)
+    P = PRODUCTS["kitchen_tumbler"]
+    p = ProductInput(name=P["name"], features=P["features"], problem=P["problem"], category_hint="주방", photos=photos,
+                     compact=compact, **extra)
+    ident = build_identity(p, [analyze_photo(x) for x in photos], "P-sb")
+    return p, ident, direct_scenes(rule_director(p, "PRO"), ident, p, "PRO")
+
+
+def test_duration_class_and_scene_range_table():
+    from shortsmaker.studio.storyboard.schema import duration_class
+    assert duration_class(12) == ("12s", (4, 6)) and duration_class(14.9) == ("12s", (4, 6))
+    assert duration_class(20) == ("20s", (6, 9)) and duration_class(30) == ("30s", (8, 12)) and duration_class(45) == ("45s", (10, 15))
+
+
+def test_storyboard_has_all_scene_director_fields_and_roundtrips(tmp_path):
+    from dataclasses import fields
+    from shortsmaker.studio.storyboard import Storyboard, StoryScene, build_storyboard
+    p, ident, plan = _plan_for(tmp_path)
+    sb = build_storyboard(plan, ident, p)
+    need = {"scene_id", "scene_type", "duration", "purpose", "narration", "main_caption", "sub_caption", "visual_source", "visual_prompt",
+            "layout", "camera_motion", "image_motion", "text_animation", "transition", "sound_effect", "music_cue", "emphasis"}
+    assert need <= {f.name for f in fields(StoryScene)}
+    assert sb.scenes and all(s.scene_type in {"HOOK", "PROBLEM", "PRODUCT_REVEAL", "FEATURE", "DEMO", "BENEFIT", "PROOF", "CTA"} for s in sb.scenes)
+    assert sb.scenes[0].scene_type == "HOOK" and sb.scenes[-1].scene_type == "CTA" and sb.scenes[0].transition == "cut"
+    assert all(s.narration and s.main_caption and s.visual_source.get("path") and s.music_cue for s in sb.scenes)
+    back = Storyboard.from_json(sb.to_json())
+    assert [s.to_dict() for s in back.scenes] == [s.to_dict() for s in sb.scenes] and back.scene_range == sb.scene_range
+
+
+def test_storyboard_scene_count_respects_duration_class_and_never_pads(tmp_path):
+    from shortsmaker.studio.storyboard import build_storyboard
+    p, ident, plan = _plan_for(tmp_path)
+    sb = build_storyboard(plan, ident, p)
+    lo, hi = sb.scene_range
+    assert len(sb.scenes) <= hi                                    # 상한 초과 시 우선순위 낮은 장면부터 줄임
+    n_before = len(plan.scenes)
+    short = type(plan)(**{**plan.__dict__, "scenes": plan.scenes[:3] + plan.scenes[-1:]})
+    sb2 = build_storyboard(short, ident, p)
+    assert len(sb2.scenes) == 4 and not any("제외" in w for w in sb2.warnings)   # 줄여야 하는 상황이 아님 (12초급 4~6 범위)
+    assert n_before >= 4
+
+
+def test_storyboard_compress_drops_low_priority_first_and_keeps_hook_reveal_cta(tmp_path):
+    from shortsmaker.studio.storyboard.engine import fit_scene_count
+    from shortsmaker.studio.storyboard.schema import StoryScene
+    mk = lambda i, t: StoryScene(scene_id=f"S{i}", scene_type=t, duration=2, purpose="", narration="n", main_caption="c")
+    types = ["HOOK", "PRODUCT_REVEAL", "FEATURE", "FEATURE", "FEATURE", "DEMO", "BENEFIT", "CTA"]
+    warns: list = []
+    out = fit_scene_count([mk(i, t) for i, t in enumerate(types)], (4, 6), warns)
+    kept = [s.scene_type for s in out]
+    assert len(out) == 6 and kept[0] == "HOOK" and "PRODUCT_REVEAL" in kept and kept[-1] == "CTA" and "DEMO" in kept and "BENEFIT" in kept
+    assert kept.count("FEATURE") == 1 and len(warns) == 2      # 대표 특징 1개는 보존, 나머지 2개 제외 경고
+    few: list = []
+    assert len(fit_scene_count([mk(0, "HOOK"), mk(1, "CTA")], (4, 6), few)) == 2 and "반복해서 늘리지 않았어요" in few[0]
+
+
+def test_data_claims_without_input_are_flagged_c_and_sfx_is_sparse(tmp_path):
+    from shortsmaker.studio.storyboard.scene_director import claim_reliability
+    facts = ["상품명: 텀블러", "특징: 450ml 대용량"]
+    assert claim_reliability("450ml 대용량", facts)[0] == "A"
+    rel, claims = claim_reliability("평점 4.9 후기 3,000개 특가", facts)
+    assert rel == "C" and {c["reliability"] for c in claims} == {"C"}
+    assert claim_reliability("혹시 보셨어요?", facts)[0] == "B"
+    from shortsmaker.studio.storyboard import build_storyboard
+    p, ident, plan = _plan_for(tmp_path)
+    sb = build_storyboard(plan, ident, p)
+    with_sfx = [s for s in sb.scenes if s.sound_effect]
+    assert len(with_sfx) <= max(1, int(len(sb.scenes) * 0.7)) < len(sb.scenes) + 1
+    assert any(not s.sound_effect for s in sb.scenes)               # 모든 장면에 넣지 않는다
+    from shortsmaker.studio.storyboard.sfx_director import HEAVY
+    for a, b in zip(sb.scenes, sb.scenes[1:]):                     # 연속 장면에 강한 효과음 금지
+        assert not (any(e["sfx"] in HEAVY for e in a.sound_effect) and any(e["sfx"] in HEAVY for e in b.sound_effect))
+
+
+def test_visual_source_router_prefers_user_media_and_records_gap_without_calling_ai(tmp_path):
+    from shortsmaker.studio.storyboard.sources import route_visual_source
+    p, ident, plan = _plan_for(tmp_path)
+    r = route_visual_source("DEMO", ident.front_reference, ident, ["/x/use.mp4"], "텀블러", ["450ml"])
+    assert r["kind"] == "user_video" and r["tier"] == 1 and "gap" not in r
+    g = route_visual_source("DEMO", ident.front_reference, ident, [], "텀블러", ["450ml"])
+    ident.usage_reference = None
+    g = route_visual_source("DEMO", ident.front_reference, ident, [], "텀블러", ["450ml"])
+    assert g["gap"] == "usage_scene_missing" and "IDENTICAL to the reference image" in g["visual_prompt"] and "no face" in g["visual_prompt"]
+    assert g["ai_candidate"] is True and "미검증" in g["blocked"]      # 후보로만 기록, 실제 호출 없음
+    third = route_visual_source("DEMO", ident.front_reference, ident, [], "텀블러", [], ai_scenes_used=2)
+    assert third["ai_candidate"] is False                          # AI 영상은 핵심 장면 상한 2개
+
+
+def test_pipeline_writes_storyboard_json_and_keeps_rendering_unchanged(tmp_path):
+    from shortsmaker.studio.pipeline import run_job
+    photos = make_photos("kitchen_tumbler", tmp_path / "p", 3)
+    P = PRODUCTS["kitchen_tumbler"]
+    r = run_job({"name": P["name"], "features": P["features"], "problem": P["problem"], "category_hint": "주방", "photos": photos},
+                "FAST", ["youtube"], out_root=tmp_path / "out", db=DB(tmp_path / "db.sqlite"), render=(270, 480, 10))
+    assert r["status"] in ("COMPLETE", "QUALITY_FAIL", "NEEDS_REVIEW"), r.get("error")
+    sb = r["storyboard"]
+    assert sb["version"] == 1 and sb["scenes"] and sb["duration_class"] in ("12s", "20s", "30s", "45s")
+    saved = list((tmp_path / "out").glob("*/v*/storyboard.json"))
+    assert saved and json.loads(saved[-1].read_text(encoding="utf-8"))["scenes"]
+
+
+def test_rule_script_does_not_invent_size_or_benefit_claims():
+    """규칙 대본의 첫 특징에 '이게 생각보다 커요' 를 붙이던 템플릿(모든 상품에 크기 주장)을 제거했다."""
+    from shortsmaker.studio.director import feature_lines
+    lines = feature_lines(["컬러 LED 링", "송풍구 클립 거치", "USB-C 충전"])
+    joined = " ".join(t for t, _ in lines)
+    assert "생각보다" not in joined and "커요" not in joined and "좋아요" not in joined
+    assert lines[0][0] == "컬러 LED 링이 있어요" and lines[2][0].startswith("그리고 USB-C 충전")
+    from shortsmaker.studio.storyboard.scene_director import claim_reliability
+    assert claim_reliability("컬러 LED 링, 이게 생각보다 커요", ["특징: 컬러 LED 링"])[0] == "B"     # 문장 일부만 사실이면 A 가 아니다
+    assert claim_reliability("컬러 LED 링이 있어요", ["특징: 컬러 LED 링"])[0] == "A"

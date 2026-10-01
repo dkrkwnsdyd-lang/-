@@ -277,13 +277,22 @@ def hook_candidates(p: ProductInput, story: str) -> list[dict]:
     return out[:3]
 
 
+def josa_end(word: str, end: str) -> str:
+    """'이 있어요'/'도 있어요' 같은 어미가 받침 유무에 맞게 이어지도록 (링 + 이 있어요 -> '링이 있어요', 기능 + 이 있어요 -> '기능이 있어요', 거치대 + 가...)."""
+    ch = word[-1] if word else ""
+    has_final = bool(ch) and "가" <= ch <= "힣" and (ord(ch) - 0xAC00) % 28 != 0
+    if end.startswith("이 "):
+        return (end if has_final else "가 " + end[2:])
+    return end
+
+
 def feature_lines(features: list[str]) -> list[tuple[str, str]]:
     suffixes = ["", "게다가 ", "그리고 "]
-    ends = [", 이게 생각보다 커요", "까지 돼요", ", 이것도 좋아요"]
+    ends = ["이 있어요", "까지 돼요", "도 있어요"]      # 사실만: 특징이 '있다'고만 말한다 (크기/장점 주장 금지)
     out = []
     for i, f in enumerate(features[:4]):
         f = clean_sentence(f)
-        tts = f"{suffixes[min(i, 2)]}{f}{ends[i % 3]}"
+        tts = f"{suffixes[min(i, 2)]}{f}{josa_end(f, ends[i % 3])}"
         # 숫자/첫 단어를 강조
         m = re.search(r"\d[\d.,]*\s*\S*", f)
         key = m.group(0) if m else f.split(" ")[0]

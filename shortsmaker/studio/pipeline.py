@@ -24,6 +24,7 @@ from .editor import edit, edl_summary, time_words
 from .motion import MotionRenderer, caption_font_path
 from . import clips as clips_mod
 from . import enhance as enhance_mod
+from .storyboard import build_storyboard
 from .product import ProductInput, analyze_photo, build_identity, import_from_url
 from .qa import best_take, final_qa, storyboard_qa, vision_review
 from . import vision as vision_mod
@@ -407,6 +408,12 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
         for version in range(1, max_final + 2):
             renderer.captions.last_scale = 1.0
             renderer.captions.cache.clear()
+            with job.step("STORYBOARD_V2"):
+                # Script -> Storyboard(JSON). 지금은 연출 결정을 '기록'만 하고 렌더링은 기존 경로 (Layout/Motion 연결은 다음 단계)
+                sb = build_storyboard(plan, identity, p, result.get("vision"), [c["path"] for c in clip_infos], mode=mode)
+                (out_dir / f"v{version}").mkdir(exist_ok=True)
+                (out_dir / f"v{version}" / "storyboard.json").write_text(sb.to_json(), encoding="utf-8")
+                result["storyboard"] = sb.to_dict()
             with job.step("EDIT"):
                 edl = edit(plan, takes, voice, label=label,
                            zoomable_paths={ph['path'] for ph in identity.photos if zoomable(identity, ph['path'])})
