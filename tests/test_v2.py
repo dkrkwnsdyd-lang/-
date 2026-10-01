@@ -1351,3 +1351,17 @@ def test_render_endpoint_requires_ready_preview(tmp_path):
     from shortsmaker.web.app import create_app
     client = TestClient(create_app({}, tmp_path / "o", tmp_path / "u"))
     assert client.post("/api/v2/jobs/nope/render", json={"edits": {}}).status_code == 400
+
+
+def test_render_after_preview_uses_confirmed_script_and_edits(tmp_path):
+    from shortsmaker.studio.pipeline import run_job
+    base = _preview_base(tmp_path)
+    db = DB(tmp_path / "db.sqlite")
+    pv = run_job({**base, "preview": True}, "FAST", ["youtube"], out_root=tmp_path / "out", db=db, render=(270, 480, 10))
+    sid = pv["storyboard"]["scenes"][1]["scene_id"]
+    r = run_job({**base, "director_data": pv["director_data"], "edits": {"scenes": {sid: {"narration": "확정한 나레이션"}}}},
+                "FAST", ["youtube"], out_root=tmp_path / "out2", db=db, render=(270, 480, 10))
+    assert r["status"] in ("COMPLETE", "QUALITY_FAIL", "NEEDS_REVIEW"), r.get("error")
+    assert Path(r["master"]).exists()
+    assert next(s for s in r["storyboard"]["scenes"] if s["scene_id"] == sid)["narration"] == "확정한 나레이션"
+    assert [s["scene_id"] for s in r["storyboard"]["scenes"]] == [s["scene_id"] for s in pv["storyboard"]["scenes"]]
