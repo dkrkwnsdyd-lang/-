@@ -142,6 +142,7 @@
     <input id="vid" type="file" accept="video/*" multiple hidden>
     <div id="vlist"></div>
     <p class="note" id="vidHint">💡 직접 찍은 <b>사용 장면 영상</b>(3~10초)을 넣으면 사진 대신 실제 움직임이 쓰여요. 가장 선명한 구간을 자동으로 고르고, <b>원본 소리는 쓰지 않아요</b>. 사진은 꼭 1장 이상 필요해요.</p>
+    <p class="note warn" id="fewHint" style="display:none">⚠ 사진이 3장보다 적어요. 한 장으로는 같은 화면이 반복돼 품질이 낮아져요 (실측: 1장 61점, 2장 67점). <b>정면 · 옆 · 디테일 · 사용 장면</b> 3~4장이면 훨씬 좋아요.</p>
     <p class="note" id="boxHint" style="display:none">💡 사진을 누르면 <b>제품 위치</b>를 표시할 수 있어요. 배경이 복잡한 사진(야외·소품 많음)은 표시해야 확대 컷이 제품에 정확히 맞아요.</p>
 
     <details>
@@ -286,12 +287,13 @@ function drawVideos() {
   });
 }
 $("vidBtn").onclick = () => $("vid").click();
-$("vid").onchange = (e) => { videos.push(...[...e.target.files].filter(f => f.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|mkv|3gp)$/i.test(f.name))); e.target.value = ""; drawVideos(); };
+$("vid").onchange = (e) => { setTimeout(drawThumbs, 0); videos.push(...[...e.target.files].filter(f => f.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|mkv|3gp)$/i.test(f.name))); e.target.value = ""; drawVideos(); };
 
 function drawThumbs() {
   drawFeatureLinks();
   $("thumbs").innerHTML = "";
   $("boxHint").style.display = files.length ? "block" : "none";
+  $("fewHint").style.display = files.length && files.length < 3 && !videos.length ? "block" : "none";
   files.forEach((f, i) => {
     const d = document.createElement("div");
     if (boxes.has(f)) d.className = "boxed";
