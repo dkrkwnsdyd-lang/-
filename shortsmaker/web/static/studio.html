@@ -184,6 +184,9 @@
     <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" id="compact" style="margin-top:3px">
       <span><b>12~15초 짧게 만들기</b><br><span class="note">훅 → 제품 공개 → 사용/기능 → 핵심 혜택 → 짧은 CTA. 같은 사진의 확대 반복으로 시간을 채우지 않아요.</span></span></label>
 
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" id="previewFirst" checked style="margin-top:3px">
+      <span><b>미리보기 먼저 (장면 카드 확인 후 영상 제작)</b><br><span class="note">영상을 만들기 전에 장면별 구성을 보고 문구·순서·이미지·모션을 고칠 수 있어요. 음성/영상 렌더링은 [영상 제작]을 눌렀을 때만 해요.</span></span></label>
+
     <label class="f" for="ref">참고 영상 URL (선택 · 구조만 분석, 복제하지 않음)</label>
     <input id="ref" type="url" placeholder="https://youtube.com/shorts/…">
 
@@ -202,6 +205,15 @@
     <h2>제작 중… <span id="pmode" class="note"></span></h2>
     <div class="steps" id="steps"></div>
     <div id="log"></div>
+  </section>
+
+  <section class="card" id="preview" style="display:none">
+    <h2>장면 미리보기 <span id="pvInfo" class="note"></span></h2>
+    <p class="note">아직 영상은 만들지 않았어요. 고칠 곳이 있으면 고치고 아래 [영상 제작]을 눌러주세요.</p>
+    <div id="pvWarn"></div>
+    <div id="pvCards"></div>
+    <button class="primary" id="pvRender">영상 제작</button>
+    <div id="pvErr" class="note bad"></div>
   </section>
 
   <section id="result">
@@ -358,6 +370,7 @@ $("go").onclick = async () => {
   fd.append("photo_rights", v("rights")); fd.append("reference_url", v("ref"));
   fd.append("mode", document.querySelector("input[name=mode]:checked").value);
   fd.append("compact", $("compact").checked ? "1" : "");
+  fd.append("preview", $("previewFirst").checked ? "1" : "");
   fd.append("platforms", [...document.querySelectorAll(".plats input:checked")].map(i => i.value).join(","));
   $("go").disabled = true;
   try {
@@ -365,7 +378,7 @@ $("go").onclick = async () => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "실패");
     $("progress").style.display = "block";
-    $("result").style.display = "none";
+    $("result").style.display = "none"; $("preview").style.display = "none";
     try { localStorage.setItem("lastJob", data.job_id); } catch (_) {}
     keepAwake(true);
     $("progress").scrollIntoView({ behavior:"smooth", block:"start" });
@@ -388,10 +401,102 @@ async function poll(id) {
   $("go").disabled = false;
   $("progress").style.display = "none";
   keepAwake(false);
+  if (d.status === "PREVIEW_READY") { showPreview(d); return; }
   showResult(d);
   $("result").scrollIntoView({ behavior:"smooth", block:"start" });
   loadHistory();
 }
+
+
+// ---------------------------------------------------------------- Preview Mode
+const LAYOUT_KO = { full_product:"상품 꽉 채움", product_center:"상품 중앙", split_screen:"분할", before_after:"전/후", problem_solution:"문제→해결",
+  feature_callout:"기능 콜아웃", review_quote:"후기", three_benefits:"혜택 3개", comparison:"비교", close_up:"클로즈업", lifestyle:"사용 장면",
+  product_overlay:"상품+글", floating_product:"떠 있는 상품", text_focus:"텍스트 중심", demo:"시연", result:"결과", cta:"CTA" };
+const MOTION_KO = { zoom_in:"줌 인", zoom_out:"줌 아웃", slow_zoom:"느린 줌", pan_left:"왼쪽 팬", pan_right:"오른쪽 팬", parallax:"패럴랙스", depth_zoom:"깊이 줌",
+  mask_reveal:"마스크 공개", object_focus:"대상 포커스", background_blur:"배경 블러", light_sweep:"빛 스윕", floating_product:"떠오름", punch_in:"펀치 인", shake:"흔들림", ken_burns:"켄 번즈" };
+const TRANS_KO = { cut:"컷", whip:"휩", flash:"플래시", soft:"소프트" };
+let pv = null;     // { id, sb, ov, order, edits }
+const esc = (t) => String(t ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+
+function showPreview(d) {
+  const r = d.result, sb = r.storyboard;
+  pv = { id: d.job_id, sb, pvr: r.preview, order: sb.scenes.map(s => s.scene_id), edits: {}, dropped: new Set() };
+  $("preview").style.display = "block";
+  $("pvInfo").textContent = `${sb.scenes.length}장면 · ${sb.total_duration.toFixed(1)}초`;
+  const warns = [...(sb.warnings || []), ...(sb.issues || []).map(i => (i.message || i.rule || i))];
+  $("pvWarn").innerHTML = warns.length ? `<p class="note warn">⚠ ${warns.map(esc).join("<br>⚠ ")}</p>` : "";
+  drawCards();
+  $("preview").scrollIntoView({ behavior:"smooth", block:"start" });
+}
+
+function sel(sid, key, opts, cur, ko) {
+  return `<select data-sid="${sid}" data-k="${key}">` + opts.map(o => `<option value="${o}" ${o === cur ? "selected" : ""}>${esc(ko[o] || o)}</option>`).join("") + `</select>`;
+}
+
+function drawCards() {
+  const by = Object.fromEntries(pv.sb.scenes.map(s => [s.scene_id, s]));
+  const rel = { A:"확인된 정보", B:"AI 해석", C:"확인 필요" };
+  $("pvCards").innerHTML = pv.order.map((sid, i) => {
+    const s = by[sid], e = pv.edits[sid] || {}, o = pv.pvr.options[sid] || { layouts:[], motions:[], transitions:[] };
+    if (pv.dropped.has(sid)) return `<div class="card" style="opacity:.5"><b>${sid}</b> 삭제됨 <button data-undo="${sid}">되돌리기</button></div>`;
+    const lay = e.layout || s.layout, mot = e.motion || s.image_motion, tr = e.transition || s.transition;
+    const locked = s.scene_type === "HOOK" || s.scene_type === "CTA";
+    const photos = pv.pvr.photos.map(p => `<img src="${p.url}" data-sid="${sid}" data-photo="${p.index}" style="width:42px;height:42px;object-fit:cover;border-radius:6px;margin:2px;cursor:pointer;border:2px solid ${e.photo_index === p.index ? "var(--accent)" : "transparent"}">`).join("");
+    return `<div class="card" style="display:flex;gap:10px;margin:10px 0;padding:10px">
+      <img src="${pv.pvr.thumb_urls[sid]}" style="width:96px;height:171px;object-fit:cover;border-radius:8px;flex:none">
+      <div style="flex:1;min-width:0">
+        <div class="note"><b>${i + 1}. ${s.scene_type}</b> · ${s.duration.toFixed(1)}초 · <span class="${s.reliability === "A" ? "" : "warn"}">${rel[s.reliability] || ""}</span></div>
+        <label class="note">나레이션</label><textarea data-sid="${sid}" data-k="narration" rows="2" style="width:100%">${esc(e.narration ?? s.narration)}</textarea>
+        <label class="note">자막</label><input data-sid="${sid}" data-k="caption" style="width:100%" value="${esc(e.caption ?? [s.main_caption, s.sub_caption].filter(Boolean).join(" / ").replace(/\[\[|\]\]/g, ""))}">
+        <div class="note">레이아웃 ${sel(sid, "layout", o.layouts.includes(lay) ? o.layouts : [lay, ...o.layouts], lay, LAYOUT_KO)}
+          모션 ${sel(sid, "motion", o.motions.includes(mot) ? o.motions : [mot, ...o.motions], mot, MOTION_KO)}
+          전환 ${sel(sid, "transition", o.transitions, tr, TRANS_KO)}</div>
+        <div class="note">이미지 교체: ${photos}</div>
+        <div class="note">효과음: ${(s.sound_effect || []).map(x => x.sfx).join(", ") || "없음"} <label><input type="checkbox" data-sid="${sid}" data-sfx ${e.sfx === false ? "checked" : ""}> 끄기</label></div>
+        <div class="actions" style="margin-top:6px">
+          <button data-up="${sid}" ${i <= 1 ? "disabled" : ""}>▲</button><button data-down="${sid}" ${locked || i >= pv.order.length - 2 ? "disabled" : ""}>▼</button>
+          <button data-drop="${sid}" ${locked ? "disabled" : ""}>삭제</button></div>
+      </div></div>`;
+  }).join("");
+}
+
+function setEdit(sid, k, v) { (pv.edits[sid] = pv.edits[sid] || {})[k] = v; }
+$("pvCards").addEventListener("change", (ev) => {
+  const t = ev.target, sid = t.dataset.sid;
+  if (!sid) return;
+  if (t.dataset.sfx !== undefined) { setEdit(sid, "sfx", t.checked ? false : true); return; }
+  if (t.dataset.k) { setEdit(sid, t.dataset.k, t.value); if (t.tagName === "SELECT") { pv.sb.scenes.find(s => s.scene_id === sid); } }
+});
+$("pvCards").addEventListener("click", (ev) => {
+  const t = ev.target.closest("[data-photo],[data-up],[data-down],[data-drop],[data-undo]");
+  if (!t) return;
+  const move = (sid, d) => { const i = pv.order.indexOf(sid), j = i + d; if (j > 0 && j < pv.order.length - 1) { [pv.order[i], pv.order[j]] = [pv.order[j], pv.order[i]]; } };
+  if (t.dataset.photo !== undefined) setEdit(t.dataset.sid, "photo_index", Number(t.dataset.photo));
+  else if (t.dataset.up) move(t.dataset.up, -1);
+  else if (t.dataset.down) move(t.dataset.down, 1);
+  else if (t.dataset.drop) pv.dropped.add(t.dataset.drop);
+  else if (t.dataset.undo) pv.dropped.delete(t.dataset.undo);
+  drawCards();
+});
+
+$("pvRender").onclick = async () => {
+  $("pvErr").textContent = "";
+  const scenes = {};
+  for (const [sid, e] of Object.entries(pv.edits)) scenes[sid] = { ...e };
+  for (const sid of pv.dropped) scenes[sid] = { drop: true };
+  const order = pv.order.filter(x => !pv.dropped.has(x));
+  $("pvRender").disabled = true;
+  try {
+    const res = await fetch(`/api/v2/jobs/${pv.id}/render`, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ edits:{ scenes, order } }) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "실패");
+    $("preview").style.display = "none"; $("progress").style.display = "block";
+    try { localStorage.setItem("lastJob", data.job_id); } catch (_) {}
+    keepAwake(true);
+    poll(data.job_id);
+  } catch (e) { $("pvErr").textContent = e.message; }
+  $("pvRender").disabled = false;
+};
 
 function color(v, th) { return v >= th ? "var(--ok)" : v >= th - 15 ? "var(--warn)" : "var(--bad)"; }
 
@@ -404,6 +509,8 @@ function showResult(d) {
     $("scores").innerHTML = `<p class="bad">${r.error || "오류"}</p>`;
     return;
   }
+  const rej = ((r.edits_report || {}).rejected || []).map(x => `${x.scene_id}: ${x.why}`);
+  $("improve").dataset.rej = rej.join(" | ");
   $("master").src = r.master_url + "#t=0.1"; $("master").preload = "metadata"; $("masterDl").href = r.master_url;
   $("dur").textContent = `${r.plan.story_pattern} · ${(r.qa.video.duration || 0).toFixed(1)}초 · 비용 $${(r.cost || 0).toFixed(3)}`;
   const s = r.qa.scores;
@@ -421,6 +528,7 @@ function showResult(d) {
   $("improve").innerHTML = imp.length ? `<div class="note" style="border:1px solid var(--bad);border-radius:10px;padding:10px 12px;margin:0 0 10px"><b>${r.status === "COMPLETE" ? "참고" : "개선 필요"}</b><ol style="margin:6px 0 0 18px;padding:0">`
     + imp.map(i => `<li><b>${String(i.cause).replace(/</g, "&lt;")}</b>${i.detail ? " — " + String(i.detail).replace(/</g, "&lt;") : ""}${i.action ? `<br><span class="note">→ ${String(i.action).replace(/</g, "&lt;")}</span>` : ""}</li>`).join("")
     + `</ol></div>` : "";
+  if (rej.length) $("improve").innerHTML += `<p class="note warn">⚠ 반영되지 않은 수정: ${esc(rej.join(" · "))}</p>`;
   const th = { visual_quality:80, product_accuracy:90, commercial_feel:80, ai_artifact:85, scene_script_match:85, pacing:80, hook:80, story:80, caption:80, visual_diversity:60, audio:70, cta:80 };
   const bar = (k, label) => s[k] == null ? `<div class="score"><span>${label}</span><div class="track"></div><em>–</em></div>`
     : `<div class="score"><span>${label}</span><div class="track"><div class="fill" style="width:${s[k]}%;background:${color(s[k], th[k])}"></div></div><em>${s[k]}</em></div>`;
@@ -486,7 +594,7 @@ $("platforms").addEventListener("click", async (e) => {
 });
 
 // ---------------- 최근 작업 / 이어보기
-const STATUS_KO = { COMPLETE:"통과", QUALITY_FAIL:"품질 미달", NEEDS_REVIEW:"확인 필요", FAILED:"실패", RUNNING:"만드는 중", PENDING:"대기" };
+const STATUS_KO = { COMPLETE:"통과", QUALITY_FAIL:"품질 미달", NEEDS_REVIEW:"확인 필요", PREVIEW_READY:"미리보기", FAILED:"실패", RUNNING:"만드는 중", PENDING:"대기" };
 async function loadHistory() {
   try {
     const res = await fetch("/api/v2/jobs");
@@ -503,6 +611,7 @@ $("historyList").addEventListener("click", async (e) => {
   const d = await res.json();
   if (["RUNNING", "PENDING"].includes(d.status) || !d.result) { $("progress").style.display = "block"; poll(b.dataset.id); return; }
   $("result").style.display = "none";
+  if (d.status === "PREVIEW_READY") { showPreview(d); return; }
   showResult(d);
   $("result").scrollIntoView({ behavior:"smooth", block:"start" });
 });

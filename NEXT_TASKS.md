@@ -15,7 +15,7 @@
 
 ## 00. STORYBOARD V2 다음 단계 (지시서 순서)
 - 완료: Storyboard Engine, Scene Director, Layout Engine, Motion Director, Storyboard→Renderer 연결, 영상 퀄리티 규칙 검증기, 효과음 9종, 신뢰도 A/B/C
-- NEXT TASK 1: **Preview Mode** — Storyboard JSON 으로 장면 카드(썸네일/길이/대사/자막/소스/레이아웃/모션/전환/SFX) 먼저 보여주고, 순서 변경/대본 수정/이미지 교체/장면 재생성/모션 변경 후 [영상 제작]에서만 MP4 렌더. (`caption_text`, `edit_from_storyboard`, `Storyboard.from_json` 은 이미 편집 경로를 지원)
+- 완료: **Preview Mode** (`storyboard/preview.py`, `POST /api/v2/jobs`(preview=1) → PREVIEW_READY → `POST /api/v2/jobs/{id}/render`). 남은 것: 장면 단위 '재생성'(AI 문구 다시 쓰기)과 레이아웃 변경 시 모션 선택지 즉시 갱신(UI), 미리보기 → 렌더 때 분석 단계 재실행 비용 줄이기(캐시)
 - NEXT TASK 2: **Video Style Variation** — FAST_COMMERCE / PREMIUM / UGC_REVIEW 연출안 3종 (`Storyboard.style`, `MUSIC_BY_STYLE` 자리만 있음)
 - NEXT TASK 3: Visual Source Router 나머지 단계(상품 URL/상세페이지 이미지, 무료 B-roll(Pexels/Pixabay 키 있음·미연결), AI 이미지/영상 — provider 검증 후 부족 장면에만)
 - NEXT TASK 4: `text_animation` 렌더 지원 (현재 word_pop 만 렌더, scale_pop/fade_in/slide_up 은 기록만)

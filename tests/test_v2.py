@@ -1295,3 +1295,59 @@ def test_storyboard_path_is_default_and_legacy_path_still_works(tmp_path):
     legacy = run_job({**base, "legacy_render": True}, "FAST", ["youtube"], out_root=tmp_path / "o2", db=DB(tmp_path / "d2.sqlite"),
                      render=(270, 480, 10))
     assert legacy["status"] in ("COMPLETE", "QUALITY_FAIL", "NEEDS_REVIEW") and all(not s["layout"] for s in legacy["edl"]["shots"])
+
+
+# ------------------------------------------------------------------ Preview Mode
+def _preview_base(tmp_path):
+    photos = make_photos("kitchen_tumbler", tmp_path / "p", 3)
+    P = PRODUCTS["kitchen_tumbler"]
+    return {"name": P["name"], "features": P["features"], "problem": P["problem"], "category_hint": "주방", "photos": photos}
+
+
+def test_preview_makes_cards_without_mp4_or_tts(tmp_path):
+    from shortsmaker.studio.pipeline import run_job
+    r = run_job({**_preview_base(tmp_path), "preview": True}, "FAST", ["youtube"], out_root=tmp_path / "out",
+                db=DB(tmp_path / "db.sqlite"), render=(270, 480, 10))
+    assert r["status"] == "PREVIEW_READY", r.get("error")
+    assert not r.get("master") and not list((tmp_path / "out").rglob("*.mp4"))        # MP4 는 [영상 제작] 전에는 만들지 않는다
+    ids = [s["scene_id"] for s in r["storyboard"]["scenes"]]
+    assert set(r["preview"]["thumbs"]) == set(ids) and all(Path(v).exists() for v in r["preview"]["thumbs"].values())
+    assert set(r["preview"]["options"]) == set(ids) and r["director_data"]
+    assert "demo" not in r["preview"]["options"][ids[0]]["layouts"]                    # 영상 없이 시연 레이아웃은 선택지에 없다
+
+
+def test_preview_edits_are_applied_or_rejected_with_reason(tmp_path):
+    from shortsmaker.studio.pipeline import run_job
+    base = _preview_base(tmp_path)
+    db = DB(tmp_path / "db.sqlite")
+    pv = run_job({**base, "preview": True}, "FAST", ["youtube"], out_root=tmp_path / "out", db=db, render=(270, 480, 10))
+    scenes = pv["storyboard"]["scenes"]
+    mid = scenes[1]["scene_id"]
+    edits = {"scenes": {mid: {"narration": "수정한 나레이션이에요", "caption": "수정한 자막", "layout": "demo", "photo_index": 99},
+                        scenes[0]["scene_id"]: {"drop": True}}}
+    r = run_job({**base, "preview": True, "director_data": pv["director_data"], "edits": edits}, "FAST", ["youtube"],
+                out_root=tmp_path / "out2", db=db, render=(270, 480, 10))
+    rej = {(x["scene_id"], x["why"]) for x in r["edits_report"]["rejected"]}
+    assert any("시연 영상" in w for _, w in rej) and any("사진 번호" in w for _, w in rej) and any("훅/CTA" in w for _, w in rej)
+    sc = next(s for s in r["storyboard"]["scenes"] if s["scene_id"] == mid)
+    assert sc["narration"] == "수정한 나레이션이에요" and "수정한 자막" in sc["main_caption"] + sc["sub_caption"]
+    assert sc["layout"] != "demo"
+    assert [s["scene_id"] for s in r["storyboard"]["scenes"]][0] == scenes[0]["scene_id"]      # 훅은 삭제되지 않음
+
+
+def test_preview_order_rules():
+    from shortsmaker.studio.storyboard.preview import apply_plan_edits
+    from types import SimpleNamespace as NS
+    plan = NS(scenes=[NS(scene_id=f"S{i}", beat=b, tts_line="x", caption="y") for i, b in
+                      enumerate(["hook", "reveal", "detail", "benefit", "cta"], 1)])
+    bad = apply_plan_edits(plan, {"order": ["S2", "S1", "S3", "S4", "S5"]})
+    assert bad["rejected"] and [s.scene_id for s in plan.scenes][0] == "S1"
+    ok = apply_plan_edits(plan, {"order": ["S1", "S3", "S2", "S4", "S5"]})
+    assert ok["applied"] and [s.scene_id for s in plan.scenes] == ["S1", "S3", "S2", "S4", "S5"]
+
+
+def test_render_endpoint_requires_ready_preview(tmp_path):
+    from fastapi.testclient import TestClient
+    from shortsmaker.web.app import create_app
+    client = TestClient(create_app({}, tmp_path / "o", tmp_path / "u"))
+    assert client.post("/api/v2/jobs/nope/render", json={"edits": {}}).status_code == 400

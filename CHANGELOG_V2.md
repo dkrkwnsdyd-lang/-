@@ -1,5 +1,12 @@
 # CHANGELOG_V2
 
+## 2026-10-01 — Preview Mode
+### Added
+- `studio/storyboard/preview.py`: 수정(edits) 반영 — 순서/삭제/나레이션/자막(대본), 레이아웃/모션/전환/이미지 교체/효과음 끔(스토리보드). 훅은 맨 앞·CTA는 맨 뒤 고정, 사용할 수 없는 레이아웃(시연 영상 없는 demo 등)·맞지 않는 모션은 이유와 함께 거부
+- `ProductInput.preview/director_data/edits`, pipeline: preview 면 TTS·렌더 없이 장면 썸네일/선택지만 만들고 `PREVIEW_READY`, 확정 대본(director_data)은 렌더 때 AI 로 다시 쓰지 않음
+- API: `preview=1` 폼 필드, `POST /api/v2/jobs/{id}/render {edits}`; studio.html 장면 카드 UI("미리보기 먼저" 기본 켜짐)
+- 거부된 수정은 결과 화면에 "반영되지 않은 수정"으로 표시
+
 ## 2026-09-28 — V2 1차 (Audit + API V2 + Scene Director V2 + Product Lock + QA + Compliance)
 
 ### Added

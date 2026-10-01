@@ -28,6 +28,10 @@ class V2PublishRequest(BaseModel):
     privacy: str = "public"
 
 
+
+class RenderRequest(BaseModel):
+    edits: dict = {}
+
 def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path) -> None:
     db = DB(Path(output_dir).resolve().parent / "data" / "shorts.db")
     live: dict[str, list[str]] = {}
@@ -49,6 +53,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         affiliate: str = Form("NONE"), photo_rights: str = Form("OWNED"), reference_url: str = Form(""),
         mode: str = Form("PRO"), platforms: str = Form("youtube,instagram,tiktok,threads"),
         boxes: str = Form(""), feature_photos: str = Form(""), my_take: str = Form(""), compact: str = Form(""),
+        preview: str = Form(""),
     ):
         if len(photos) > MAX_PHOTOS:
             raise HTTPException(400, f"사진은 최대 {MAX_PHOTOS}장까지 올릴 수 있어요.")
@@ -113,7 +118,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         mode = mode.upper() if mode.upper() in ("FAST", "PRO") else "PRO"
         pfs = [p for p in platforms.split(",") if p in PLATFORMS] or list(PLATFORMS)
         inputs = {"name": name.strip(), "description": description.strip(), "features": features,
-                  "problem": problem.strip(), "target": target.strip(), "my_take": my_take.strip()[:200], "compact": compact == "1", "price": price.strip(), "url": url.strip(),
+                  "problem": problem.strip(), "target": target.strip(), "my_take": my_take.strip()[:200], "compact": compact == "1", "preview": preview == "1", "price": price.strip(), "url": url.strip(),
                   "photos": saved, "videos": saved_videos, "photo_rights": photo_rights, "reference_url": reference_url.strip(),
                   "affiliate": affiliate, "category_hint": category, "product_boxes": product_boxes,
                   "feature_photos": linked}
@@ -141,12 +146,40 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
             r = json.loads(job["result_json"])
             r["master_url"] = to_url(r.get("master"))
             r["storyboard_url"] = to_url(r.get("storyboard_sheet"))
+            pv = r.get("preview")
+            if pv:                          # Preview: 장면 카드 이미지 주소 (서버 경로는 내보내지 않는다)
+                pv["thumb_urls"] = {k: to_url(v) for k, v in pv.pop("thumbs", {}).items()}
+                pv["photos"] = [{"index": x["index"], "url": to_url(x["file"])} for x in pv.get("photos", [])]
+            r.pop("director_data", None)
             for pf, e in (r.get("exports") or {}).items():
                 e["url"] = to_url(e.get("file"))
             for k in ("trace", "router_trace", "identity", "edl"):
                 r.pop(k, None)
             out["result"] = r
         return out
+
+    @app.post("/api/v2/jobs/{job_id}/render")
+    def render_from_preview(job_id: str, req: RenderRequest):
+        """[영상 제작]: 미리보기에서 확인/수정한 스토리보드로만 MP4 를 만든다 (새 작업으로 실행, 미리보기 작업은 그대로 보존)."""
+        job = db.job(job_id)
+        if not job or job["status"] != "PREVIEW_READY":
+            raise HTTPException(400, "미리보기가 준비된 작업이 아니에요")
+        base = json.loads(job["input_json"] or "{}")
+        res = json.loads(job["result_json"] or "{}")
+        if not res.get("director_data"):
+            raise HTTPException(400, "미리보기 대본 정보를 찾을 수 없어요")
+        new_id = uuid.uuid4().hex[:10]
+        inputs = {**base, "preview": False, "director_data": res["director_data"], "edits": req.edits or None}
+        live[new_id] = []
+
+        def work():
+            from ..studio.pipeline import run_job
+            router = Router(db=db, job_id=new_id)
+            run_job(inputs, job["mode"], None, out_root=Path(output_dir) / "v2", db=db, router=router,
+                    progress_cb=lambda m: live[new_id].append(m), job_id=new_id)
+
+        threading.Thread(target=work, daemon=True).start()
+        return {"job_id": new_id, "from_preview": job_id}
 
     @app.get("/api/v2/jobs")
     def jobs():

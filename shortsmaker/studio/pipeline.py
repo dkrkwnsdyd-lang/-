@@ -24,7 +24,8 @@ from .editor import edit, edl_summary, time_words
 from .motion import MotionRenderer, caption_font_path
 from . import clips as clips_mod
 from . import enhance as enhance_mod
-from .storyboard import build_storyboard
+from .storyboard import build_storyboard, preview as preview_mod
+from .storyboard.engine import layout_context
 from .storyboard_edit import edit_from_storyboard
 from .product import ProductInput, analyze_photo, build_identity, import_from_url
 from .qa import best_take, final_qa, storyboard_qa, vision_review
@@ -156,6 +157,27 @@ def contact_sheet(renderer: MotionRenderer, shots, out: Path) -> Path:
         sheet.paste(t, (8 + (i % cols) * 224, 8 + (i // cols) * 392))
     sheet.save(out, quality=88)
     return out
+
+
+def _preview_result(renderer, sb, edl, identity, ctx, out_dir: Path) -> dict:
+    """장면 카드용 썸네일(장면 중간 프레임)과 사진 목록, 장면별 선택지."""
+    pdir = out_dir / "preview"
+    pdir.mkdir(exist_ok=True)
+    thumbs = {}
+    for i, sh in enumerate(edl["shots"]):
+        fp = pdir / f"{sh.scene_id}.jpg"
+        renderer.frame(sh, sh.duration * 0.6, i).resize((270, 480)).save(fp, quality=85)
+        thumbs[sh.scene_id] = str(fp)
+    photos = []
+    for i, ph in enumerate(identity.photos):
+        fp = pdir / f"photo_{i}.jpg"
+        with Image.open(ph["path"]) as im:
+            im = im.convert("RGB")
+            im.thumbnail((240, 240))
+            im.save(fp, quality=80)
+        photos.append({"index": i, "file": str(fp)})
+    return {"preview": {"thumbs": thumbs, "photos": photos,
+                        "options": {s.scene_id: preview_mod.options_for(s, ctx) for s in sb.scenes}}}
 
 
 def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None, out_root: str | Path = "output/v2",
@@ -310,10 +332,16 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
             p.compact = True
             result.setdefault("warnings", []).append("원본 사진이 2장 이하라 같은 사진을 반복하지 않도록 12~15초로 짧게 만들었어요")
         with job.step("SCRIPT"):
-            data = llm_director(router, p, identity, mode, result.get("vision")) if router.has_real("llm") else rule_director(p, mode)
+            if p.director_data:        # Preview 에서 확인한 대본을 그대로 쓴다 (AI 가 다시 쓰면 확인한 내용이 달라짐)
+                data = dict(p.director_data)
+            else:
+                data = llm_director(router, p, identity, mode, result.get("vision")) if router.has_real("llm") else rule_director(p, mode)
             if "_director" not in data:
                 data["_director"] = "local:rule_director_v1"
             plan = direct_scenes(data, identity, p, mode)
+            plan_edits = preview_mod.apply_plan_edits(plan, p.edits)
+            if p.preview:
+                result["director_data"] = data
             result["plan"] = plan.to_dict()
             result["grounding"] = {"script": data.get("_grounding")}
 
@@ -397,7 +425,7 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
 
         # 6 TTS -----------------------------------------------------------------
         voice = {}
-        if router.has_real("tts"):
+        if router.has_real("tts") and not p.preview:       # 미리보기는 음성 비용/시간을 쓰지 않는다
             with job.step("TTS"):
                 voice = synthesize(router, plan.scenes, out_dir / "tts")
         label = "광고" if p.affiliate != "NONE" else ""
@@ -411,8 +439,13 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
             renderer.captions.cache.clear()
             with job.step("STORYBOARD_V2"):
                 # Script -> Storyboard(JSON). 지금은 연출 결정을 '기록'만 하고 렌더링은 기존 경로 (Layout/Motion 연결은 다음 단계)
-                sb = build_storyboard(plan, identity, p, result.get("vision"), [c["path"] for c in clip_infos], mode=mode,
-                                      cutout_ok={ph["path"] for ph in identity.photos if renderer.cache.cutout(ph["path"]) is not None})
+                cutout_ok = {ph["path"] for ph in identity.photos if renderer.cache.cutout(ph["path"]) is not None}
+                clip_paths = [c["path"] for c in clip_infos]
+                sb = build_storyboard(plan, identity, p, result.get("vision"), clip_paths, mode=mode, cutout_ok=cutout_ok)
+                lctx = layout_context(identity, p, clip_paths, cutout_ok)
+                sb_edits = preview_mod.apply_sb_edits(sb, p.edits, lctx, identity, [f for f in p.features if f])
+                if p.edits:
+                    result["edits_report"] = {k: plan_edits[k] + sb_edits[k] for k in ("applied", "rejected")}
                 (out_dir / f"v{version}").mkdir(exist_ok=True)
                 (out_dir / f"v{version}" / "storyboard.json").write_text(sb.to_json(), encoding="utf-8")
                 result["storyboard"] = sb.to_dict()
@@ -425,6 +458,14 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
             clip_report = clips_mod.assign(edl["shots"], plan.scenes, clip_infos)
             if video_paths:
                 result["clips"] = {"provided": len(video_paths), "usable": len(clip_infos), "used": clip_report}
+            if p.preview:
+                result.update(_preview_result(renderer, sb, edl, identity, lctx, out_dir))
+                renderer.close_clips()
+                result["status"] = "PREVIEW_READY"
+                result["log"] = job.log
+                db.update_job(job_id, "PREVIEW_READY", result)
+                (out_dir / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+                return result
             with job.step("RENDER"):
                 body = [s for s in edl["shots"] if s.scene_id != plan.scenes[-1].scene_id]
                 cta = [s for s in edl["shots"] if s.scene_id == plan.scenes[-1].scene_id]

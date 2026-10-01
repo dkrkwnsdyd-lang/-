@@ -28,6 +28,9 @@ class ProductInput:
     url: str = ""
     photos: list[str] = field(default_factory=list)
     compact: bool = False             # 12~15초 압축 구조
+    preview: bool = False             # True 면 장면 카드(Storyboard)와 썸네일까지만 만들고 MP4 는 만들지 않는다 (Preview Mode)
+    director_data: dict | None = None  # Preview 에서 확정한 대본 (있으면 AI 대본 생성을 다시 하지 않는다)
+    edits: dict | None = None         # Preview 에서 사용자가 수정한 내용 (storyboard/preview.py 참고)
     legacy_render: bool = False       # True 면 Storyboard 대신 기존 편집/렌더 경로 (비교 테스트/안전망)
     review_quotes: list[str] = field(default_factory=list)   # 사용자가 가진 실제 후기 문구 (review_quote 레이아웃, 없으면 사용 안 함)
     before_after: list[str] = field(default_factory=list)    # [전 사진, 후 사진] (before_after 레이아웃)
