@@ -32,6 +32,7 @@ class V2PublishRequest(BaseModel):
 class RenderRequest(BaseModel):
     edits: dict = {}
     force: bool = False            # Quality Gate 미통과여도 사용자가 확인하고 제작
+    generate_ai: bool = False      # True 일 때만 AI 영상 생성(비용 발생 가능). 캐시된 결과는 동의 없이 재사용
 
 
 class StrategyRequest(BaseModel):
@@ -40,6 +41,14 @@ class StrategyRequest(BaseModel):
     id: str | None = None
     style: str | None = None
     auto: bool | None = None
+
+def _budget(v: str) -> float | None:
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return x if 0 < x <= 10000 else None
+
 
 def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path) -> None:
     db = DB(Path(output_dir).resolve().parent / "data" / "shorts.db")
@@ -63,6 +72,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         mode: str = Form("PRO"), platforms: str = Form("youtube,instagram,tiktok,threads"),
         boxes: str = Form(""), feature_photos: str = Form(""), my_take: str = Form(""), compact: str = Form(""),
         preview: str = Form(""), video_style: str = Form("FAST_COMMERCE"), auto_strategy: str = Form("1"),
+        actor_mode: str = Form("AUTO"), cost_mode: str = Form("BALANCED"), monthly_budget: str = Form(""),
     ):
         if len(photos) > MAX_PHOTOS:
             raise HTTPException(400, f"사진은 최대 {MAX_PHOTOS}장까지 올릴 수 있어요.")
@@ -129,7 +139,10 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         inputs = {"name": name.strip(), "description": description.strip(), "features": features,
                   "problem": problem.strip(), "target": target.strip(), "my_take": my_take.strip()[:200], "compact": compact == "1", "preview": preview == "1",
                   "video_style": video_style if video_style in ("FAST_COMMERCE", "STORY_AD", "UGC_REVIEW") else "FAST_COMMERCE",
-                  "strategy_auto": auto_strategy != "0", "price": price.strip(), "url": url.strip(),
+                  "strategy_auto": auto_strategy != "0",
+                  "actor_mode": actor_mode if actor_mode in ("PRODUCT_ONLY", "REAL_UGC", "AI_PRESENTER", "AI_PRODUCT_UGC", "AUTO") else "AUTO",
+                  "cost_mode": cost_mode if cost_mode in ("ECONOMY", "BALANCED", "PREMIUM") else "BALANCED",
+                  "monthly_budget": _budget(monthly_budget), "price": price.strip(), "url": url.strip(),
                   "photos": saved, "videos": saved_videos, "photo_rights": photo_rights, "reference_url": reference_url.strip(),
                   "affiliate": affiliate, "category_hint": category, "product_boxes": product_boxes,
                   "feature_photos": linked}
@@ -171,7 +184,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
             out["result"] = r
         return out
 
-    def _spawn_from(job_id: str, req_edits: dict | None, preview: bool, force: bool = False) -> dict:
+    def _spawn_from(job_id: str, req_edits: dict | None, preview: bool, force: bool = False, generate_ai: bool = False) -> dict:
         """미리보기 작업에서 확정한 대본/전략으로 새 작업을 만든다 (원래 작업은 보존). preview=True 면 Storyboard 만, False 면 MP4 까지."""
         job = db.job(job_id)
         if not job or job["status"] not in ("PREVIEW_READY", "STRATEGY_BLOCKED"):
@@ -186,7 +199,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
             raise HTTPException(409, f"Quality Gate 미통과: {fails}. 수정하거나 '그래도 제작'을 선택하세요.")
         new_id = uuid.uuid4().hex[:10]
         inputs = {**base, "preview": preview, "director_data": res["director_data"], "strategy_state": state,
-                  "edits": req_edits or None, "strategy_force": force, "video_style": (state or {}).get("style", base.get("video_style", "FAST_COMMERCE"))}
+                  "edits": req_edits or None, "strategy_force": force, "generate_ai": bool(generate_ai), "video_style": (state or {}).get("style", base.get("video_style", "FAST_COMMERCE"))}
         live[new_id] = []
 
         def work():
@@ -201,12 +214,18 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
     @app.post("/api/v2/jobs/{job_id}/render")
     def render_from_preview(job_id: str, req: RenderRequest):
         """[영상 제작]: 미리보기에서 확인/수정한 스토리보드로만 MP4 를 만든다."""
-        return _spawn_from(job_id, req.edits, preview=False, force=req.force)
+        return _spawn_from(job_id, req.edits, preview=False, force=req.force, generate_ai=req.generate_ai)
 
     @app.post("/api/v2/jobs/{job_id}/storyboard")
     def storyboard_from_strategy(job_id: str, req: RenderRequest):
         """[Storyboard 만들기]: (전략을 고치고 난 뒤) 확정한 대본으로 Storyboard/미리보기를 다시 만든다. MP4 는 만들지 않는다."""
         return _spawn_from(job_id, req.edits, preview=True)
+
+    @app.post("/api/v2/jobs/{job_id}/ai-scenes")
+    def generate_ai_scenes(job_id: str, req: RenderRequest):
+        """[AI 장면 생성]: 사용자가 비용을 확인하고 눌렀을 때만 AI 영상 API 를 호출해 미리보기를 다시 만든다 (MP4 최종 렌더는 하지 않음).
+        장면 하나만 다시 만들려면 edits.scenes.<id>.ai = {action: regenerate|revert, prompt, provider}. 같은 입력은 캐시를 재사용해 API 를 다시 부르지 않는다."""
+        return _spawn_from(job_id, req.edits, preview=True, generate_ai=True)
 
     @app.post("/api/v2/jobs/{job_id}/strategy")
     def strategy_action(job_id: str, req: StrategyRequest):

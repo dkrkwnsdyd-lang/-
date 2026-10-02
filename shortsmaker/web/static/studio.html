@@ -184,6 +184,19 @@
     <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" id="compact" style="margin-top:3px">
       <span><b>12~15초 짧게 만들기</b><br><span class="note">훅 → 제품 공개 → 사용/기능 → 핵심 혜택 → 짧은 CTA. 같은 사진의 확대 반복으로 시간을 채우지 않아요.</span></span></label>
 
+    <label class="f">출연 방식</label>
+    <div class="seg" id="actorSeg">
+      <label><input type="radio" name="actor" value="AUTO" checked><span>자동 선택<small>실제 영상 → AI 진행자 → AI 제품사용 → 제품만</small></span></label>
+      <label><input type="radio" name="actor" value="PRODUCT_ONLY"><span>제품만<small>사진·자막·음성 (가장 저렴)</small></span></label>
+      <label><input type="radio" name="actor" value="REAL_UGC"><span>실제 사람 영상<small>올린 영상 사용 (AI 비용 없음)</small></span></label>
+      <label><input type="radio" name="actor" value="AI_PRESENTER"><span>AI 아바타<small>Hook/CTA 3~6초</small></span></label>
+      <label><input type="radio" name="actor" value="AI_PRODUCT_UGC"><span>AI 제품사용 UGC<small>상품 일치 검사 필수</small></span></label>
+    </div>
+    <label class="f" for="costMode">AI 비용 모드</label>
+    <select id="costMode"><option value="ECONOMY">ECONOMY — AI 영상 없음</option><option value="BALANCED" selected>BALANCED — AI 영상 최대 약 6초 (20초 기준)</option><option value="PREMIUM">PREMIUM — AI 영상 최대 약 15초</option></select>
+    <input id="monthlyBudget" type="number" min="0" step="1" placeholder="월 AI 예산 USD (선택, 비워두면 제한 없음)" inputmode="decimal">
+    <p class="note">AI 영상은 [AI 장면 생성]을 눌러 비용을 확인한 뒤에만 만들어요. 대본/Storyboard 만으로는 비용이 들지 않아요.</p>
+
     <label class="f" for="vstyle">영상 스타일</label>
     <select id="vstyle"><option value="FAST_COMMERCE">빠른 상품형 (FAST_COMMERCE · 12~18초)</option><option value="STORY_AD">스토리 광고형 (STORY_AD · 15~25초)</option><option value="UGC_REVIEW">사용 후기형 (UGC_REVIEW · 15~20초)</option></select>
     <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" id="autoStrategy" checked style="margin-top:3px">
@@ -216,6 +229,7 @@
     <p class="note">아직 영상은 만들지 않았어요. 고칠 곳이 있으면 고치고 아래 [영상 제작]을 눌러주세요.</p>
     <div id="pvWarn"></div>
     <div id="stratBox"></div>
+    <div id="prodBox"></div>
     <div id="pvCards"></div>
     <button class="primary" id="pvRender">영상 제작</button>
     <div id="pvErr" class="note bad"></div>
@@ -377,6 +391,9 @@ $("go").onclick = async () => {
   fd.append("compact", $("compact").checked ? "1" : "");
   fd.append("preview", $("previewFirst").checked ? "1" : "");
   fd.append("video_style", $("vstyle").value);
+  fd.append("actor_mode", document.querySelector("input[name=actor]:checked").value);
+  fd.append("cost_mode", $("costMode").value);
+  fd.append("monthly_budget", $("monthlyBudget").value || "");
   fd.append("auto_strategy", $("autoStrategy").checked ? "1" : "0");
   fd.append("platforms", [...document.querySelectorAll(".plats input:checked")].map(i => i.value).join(","));
   $("go").disabled = true;
@@ -507,6 +524,64 @@ $("stratBox").addEventListener("change", (ev) => {
   else if (t.id === "stratStyle") stratCall({ action:"regenerate", stage:"hook", style:t.value });
 });
 
+
+// ---------------------------------------------------------------- 출연 방식 / AI 장면
+const BADGE = { "": ["ORIGINAL", "#4b5563"], PRODUCT_IMAGE: ["ORIGINAL", "#4b5563"], PRODUCT_VIDEO: ["REAL VIDEO", "#15803d"], REAL_UGC: ["REAL VIDEO", "#15803d"],
+  AI_PRESENTER: ["AI PRESENTER", "#7c3aed"], AI_PRODUCT_UGC: ["AI UGC", "#c2410c"], BROLL: ["B-ROLL", "#0369a1"], TEXT_ONLY: ["TEXT", "#4b5563"] };
+const AI_STATUS_KO = { PLANNED:"생성 예정(아직 호출 안 함)", GENERATED:"생성됨", CACHED:"캐시 재사용(무료)", FAILED:"생성 실패 → 원본 대체", PROVIDER_UNAVAILABLE:"사용 가능한 provider 없음 → 원본 대체",
+  REVERTED:"원본으로 되돌림", NOT_GENERATED:"생성 전 → 원본 사용", REGEN_LIMIT:"재생성 상한 → 원본", PRODUCT_MISMATCH:"상품 외형 불일치 → 원본 대체", FIDELITY_UNVERIFIED:"상품 일치 확인 불가 → 원본 대체" };
+function badgeOf(sc) {
+  const a = sc.ai || {};
+  if (a.kind && a.status === "PLANNED") return [(BADGE[a.kind] || ["AI"])[0] + " (예정)", "#9ca3af"];
+  const b = BADGE[sc.source_type] || BADGE[""];
+  return [b[0] + (a.mock ? " · MOCK" : ""), b[1]];
+}
+function drawProduction() {
+  const pr = (pv && pv.sb && pv.sb.production) || null;
+  if (!pr || !pr.actor_mode) { $("prodBox").innerHTML = ""; return; }
+  const est = pr.estimate, notes = (pr.notes || []).concat(pr.budget && pr.budget.note ? [pr.budget.note] : []);
+  const ai = (pr.ai_scenes || []).length, real = (pr.real_scenes || []).length;
+  let h = `<div class="card" style="margin:10px 0;padding:12px"><b>출연 방식</b> <span class="note">${esc(pr.actor_mode)} → ${esc(pr.effective_actor)} · 비용 모드 ${esc(pr.cost_mode)}</span>
+    <p class="note">실제 영상 장면 ${real}개 · AI 장면 ${ai}개 (AI 영상 상한 ${pr.ai_seconds_cap}초)</p>`;
+  if (est && est.clips) {
+    h += `<div class="note" style="border:1px solid var(--line);border-radius:10px;padding:8px 10px"><b>AI 생성 전 비용 확인</b><br>
+      클립 ${est.clips}개 (${Object.entries(est.by_kind).map(([k, v]) => k + " " + v).join(", ")}) · 예상 AI 영상 ${est.ai_seconds}초<br>
+      예상 AI 요청 ${est.requests}회 (캐시 ${est.cached}개 제외) · 최대 재생성 ${est.max_regenerations}회<br>
+      예상 비용: <b>${esc(est.cost_text)}</b>${est.note ? `<br><span class="warn">⚠ ${esc(est.note)}</span>` : ""}</div>
+      <button class="primary" id="aiGen" ${est.requests === 0 ? "disabled" : ""}>AI 장면 생성 (비용이 발생할 수 있어요)</button>`;
+  }
+  h += notes.length ? `<p class="note">${notes.map(esc).join("<br>")}</p>` : "";
+  $("prodBox").innerHTML = h + `<div id="aiBusy" class="note"></div></div>`;
+}
+document.addEventListener("click", async (ev) => {
+  if (ev.target.id !== "aiGen" || !pv) return;
+  const est = pv.sb.production.estimate;
+  if (!confirm(`AI 영상 ${est.requests}회를 요청합니다.\n예상 비용: ${est.cost_text}\n최대 재생성 ${est.max_regenerations}회.\n계속할까요?`)) return;
+  $("aiBusy").textContent = "AI 장면 생성 요청 중…";
+  const res = await fetch(`/api/v2/jobs/${pv.id}/ai-scenes`, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ edits:collectEdits() }) });
+  const d = await res.json();
+  if (!res.ok) { $("aiBusy").textContent = "⚠ " + (d.detail || "실패"); return; }
+  $("preview").style.display = "none"; $("progress").style.display = "block"; keepAwake(true); poll(d.job_id);
+});
+function aiControls(sid, sc) {
+  const a = sc.ai || {};
+  if (!a.kind) return "";
+  const st = AI_STATUS_KO[a.status] || a.status;
+  const provs = ((pv.pvr && pv.pvr.providers) || []).map(p => `<option value="${esc(p.name)}" ${a.provider_pref === p.name ? "selected" : ""}>${esc(p.name)}${p.available ? "" : " (사용 불가)"}</option>`).join("");
+  return `<div class="note" style="border:1px dashed var(--line);border-radius:8px;padding:6px 8px;margin-top:6px">
+    <b>${esc(a.kind)}</b> · ${esc(st)}${a.fallback_reason ? " — " + esc(a.fallback_reason) : ""}${a.fidelity ? ` · 상품 일치: ${esc(a.fidelity)}` : ""}
+    <textarea data-sid="${sid}" data-aiprompt rows="2" style="width:100%" placeholder="프롬프트 수정">${esc((pv.edits[sid] && pv.edits[sid].ai && pv.edits[sid].ai.prompt) || a.prompt || "")}</textarea>
+    <select data-sid="${sid}" data-aiprov><option value="">Provider 자동</option>${provs}</select>
+    <button data-airegen="${sid}">재생성</button> <button data-airevert="${sid}">원본 장면으로</button></div>`;
+}
+function setAi(sid, patch) { const e = (pv.edits[sid] = pv.edits[sid] || {}); e.ai = { ...(e.ai || {}), ...patch }; }
+function collectEdits() {
+  const scenes = {};
+  for (const [sid, e] of Object.entries(pv.edits)) scenes[sid] = { ...e };
+  for (const sid of pv.dropped) scenes[sid] = { drop: true };
+  return { scenes, order: pv.order.filter(x => !pv.dropped.has(x)) };
+}
+
 // ---------------------------------------------------------------- Preview Mode
 const LAYOUT_KO = { full_product:"상품 꽉 채움", product_center:"상품 중앙", split_screen:"분할", before_after:"전/후", problem_solution:"문제→해결",
   feature_callout:"기능 콜아웃", review_quote:"후기", three_benefits:"혜택 3개", comparison:"비교", close_up:"클로즈업", lifestyle:"사용 장면",
@@ -538,6 +613,7 @@ function showPreview(d) {
   const warns = [...(sb.warnings || []), ...(sb.issues || []).map(i => (i.message || i.rule || i))];
   $("pvWarn").innerHTML = warns.length ? `<p class="note warn">⚠ ${warns.map(esc).join("<br>⚠ ")}</p>` : "";
   strat = r.strategy || null; stratJob = d.job_id; stratStale = false; drawStrategy();
+  drawProduction();
   drawCards();
   $("preview").scrollIntoView({ behavior:"smooth", block:"start" });
 }
@@ -558,7 +634,7 @@ function drawCards() {
     return `<div class="card" style="display:flex;gap:10px;margin:10px 0;padding:10px">
       <img src="${pv.pvr.thumb_urls[sid]}" style="width:96px;height:171px;object-fit:cover;border-radius:8px;flex:none">
       <div style="flex:1;min-width:0">
-        <div class="note"><b>${i + 1}. ${s.scene_type}</b> · ${s.duration.toFixed(1)}초 · <span class="${s.reliability === "A" ? "" : "warn"}">${rel[s.reliability] || ""}</span></div>
+        <div class="note"><span style="background:${badgeOf(s)[1]};color:#fff;border-radius:6px;padding:1px 6px;font-size:11px;font-weight:700">${badgeOf(s)[0]}</span> <b>${i + 1}. ${s.scene_type}</b> · ${s.duration.toFixed(1)}초 · <span class="${s.reliability === "A" ? "" : "warn"}">${rel[s.reliability] || ""}</span></div>
         <label class="note">나레이션</label><textarea data-sid="${sid}" data-k="narration" rows="2" style="width:100%">${esc(e.narration ?? s.narration)}</textarea>
         <label class="note">자막</label><input data-sid="${sid}" data-k="caption" style="width:100%" value="${esc(e.caption ?? [s.main_caption, s.sub_caption].filter(Boolean).join(" / ").replace(/\[\[|\]\]/g, ""))}">
         <div class="note">레이아웃 ${sel(sid, "layout", o.layouts.includes(lay) ? o.layouts : [lay, ...o.layouts], lay, LAYOUT_KO)}
@@ -566,6 +642,7 @@ function drawCards() {
           전환 ${sel(sid, "transition", o.transitions, tr, TRANS_KO)}</div>
         <div class="note">이미지 교체: ${photos}</div>
         <div class="note">효과음: ${(s.sound_effect || []).map(x => x.sfx).join(", ") || "없음"} <label><input type="checkbox" data-sid="${sid}" data-sfx ${e.sfx === false ? "checked" : ""}> 끄기</label></div>
+        ${aiControls(sid, s)}
         <div class="actions" style="margin-top:6px">
           <button data-up="${sid}" ${i <= 1 ? "disabled" : ""}>▲</button><button data-down="${sid}" ${locked || i >= pv.order.length - 2 ? "disabled" : ""}>▼</button>
           <button data-drop="${sid}" ${locked ? "disabled" : ""}>삭제</button></div>
@@ -577,10 +654,14 @@ function setEdit(sid, k, v) { (pv.edits[sid] = pv.edits[sid] || {})[k] = v; }
 $("pvCards").addEventListener("change", (ev) => {
   const t = ev.target, sid = t.dataset.sid;
   if (!sid) return;
+  if (t.dataset.aiprompt !== undefined) { setAi(sid, { prompt: t.value }); return; }
+  if (t.dataset.aiprov !== undefined) { setAi(sid, { provider: t.value }); return; }
   if (t.dataset.sfx !== undefined) { setEdit(sid, "sfx", t.checked ? false : true); return; }
   if (t.dataset.k) { setEdit(sid, t.dataset.k, t.value); if (t.tagName === "SELECT") { pv.sb.scenes.find(s => s.scene_id === sid); } }
 });
 $("pvCards").addEventListener("click", (ev) => {
+  const ai = ev.target.closest("[data-airegen],[data-airevert]");
+  if (ai) { const sid = ai.dataset.airegen || ai.dataset.airevert; setAi(sid, { action: ai.dataset.airegen ? "regenerate" : "revert" }); ai.textContent = "선택됨 ✓ — [AI 장면 생성]에서 반영"; return; }
   const t = ev.target.closest("[data-photo],[data-up],[data-down],[data-drop],[data-undo]");
   if (!t) return;
   const move = (sid, d) => { const i = pv.order.indexOf(sid), j = i + d; if (j > 0 && j < pv.order.length - 1) { [pv.order[i], pv.order[j]] = [pv.order[j], pv.order[i]]; } };
@@ -594,10 +675,7 @@ $("pvCards").addEventListener("click", (ev) => {
 
 $("pvRender").onclick = async () => {
   $("pvErr").textContent = "";
-  const scenes = {};
-  for (const [sid, e] of Object.entries(pv.edits)) scenes[sid] = { ...e };
-  for (const sid of pv.dropped) scenes[sid] = { drop: true };
-  const order = pv.order.filter(x => !pv.dropped.has(x));
+  const { scenes, order } = collectEdits();
   $("pvRender").disabled = true;
   try {
     const res = await fetch(`/api/v2/jobs/${pv.id}/render`, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ edits:{ scenes, order } }) });

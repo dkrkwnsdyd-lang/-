@@ -138,6 +138,7 @@ def assign(shots: list, scenes: list, infos: list[dict]) -> list[dict]:
         cands = [s for s in shots if s.layout in ("demo", "lifestyle")]
     else:
         cands = [s for s in shots if beat_of.get(s.scene_id) in BEAT_PRIORITY]
+    cands = [s for s in cands if Path(str(s.source)).suffix.lower() not in VIDEO_EXTS]          # 이미 영상(REAL_UGC/AI)이 배치된 컷은 건드리지 않는다
     cands.sort(key=lambda s: (BEAT_PRIORITY.get(beat_of.get(s.scene_id), 9), -s.duration))
     used: dict[int, list[tuple[float, float]]] = {i["index"]: [] for i in infos}
     report = []

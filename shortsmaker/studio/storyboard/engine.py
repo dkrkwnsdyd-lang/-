@@ -58,7 +58,7 @@ def layout_context(identity, product, clip_paths, cutout_ok=None) -> layout_engi
 
 
 def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str] | None = None, style: str = "STANDARD",
-                     mode: str = "PRO", cutout_ok=None) -> Storyboard:
+                     mode: str = "PRO", cutout_ok=None, post_layout=None) -> Storyboard:
     facts = grounding.allowed_facts(product, vision)
     warnings: list[str] = []
     director = SceneDirector(identity, product, facts, clip_paths)
@@ -71,6 +71,7 @@ def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str]
     styles.apply_tempo(scenes, style, floor=12.6 if getattr(product, "compact", False) else 0.0)
     styles.apply_transitions(scenes, style)
     layout_engine.select_layouts(scenes, layout_context(identity, product, clip_paths, cutout_ok))
+    production = post_layout(scenes) if post_layout else {}      # 출연 방식(REAL_UGC/AI) 계획: 레이아웃 뒤, 모션 선택 앞
     for s in scenes:      # 영상 소스는 시연/사용 장면 레이아웃에서만 재생할 수 있다. 다른 레이아웃이 뽑히면 사진으로 되돌린다 (이미지로 못 여는 파일을 렌더러에 넘기지 않음)
         vs = s.visual_source
         if vs.get("kind") == "user_video" and s.layout not in ("demo", "lifestyle"):
@@ -92,5 +93,5 @@ def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str]
                     duration_class=cls, scene_range=rng,
                     music={"mood": MUSIC_BY_STYLE.get(style, MUSIC_BY_STYLE["STANDARD"]), "profile": styles.profile(style)["music"],
                            "cues": [{"scene_id": s.scene_id, "cue": s.music_cue} for s in scenes]},
-                    facts=[{"text": f, "reliability": "A"} for f in facts], warnings=warnings, issues=issues)
+                    facts=[{"text": f, "reliability": "A"} for f in facts], warnings=warnings, issues=issues, production=production or {})
     return sb

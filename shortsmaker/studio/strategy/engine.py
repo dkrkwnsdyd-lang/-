@@ -67,6 +67,7 @@ def run_strategy(router, ctx: Ctx, state: dict | None = None, start: str = "sell
     st = copy.deepcopy(state) if state else {}
     st.setdefault("version", STATE_VERSION)
     st["style"], st["style_ko"], st["auto"] = ctx.style, STYLE_KO[ctx.style], auto
+    st["ugc_kind"] = ""      # UGC_REVIEW 이름이 '실제 구매 후기'로 오해되지 않도록 내부 구분 (script 단계에서 채움)
     st["picks"] = {**(st.get("picks") or {}), **(picks or {})}
     si = STAGES.index(start)
     need = {"selling_point": "primary_selling_point", "angle": "selected_angle", "hook": "selected_hook", "script": "script",
@@ -101,6 +102,7 @@ def run_strategy(router, ctx: Ctx, state: dict | None = None, start: str = "sell
         say("전략 4/7 판매 대본")
         r = script.run(router, ctx, st["primary_selling_point"], st["selected_angle"], st["selected_hook"], pk)
         st["script"] = r
+        st["ugc_kind"] = r.get("ugc_kind", "")
         bases["script"] = r["basis"]
     if si <= 4:
         say("전략 5/7 댓글 유도 장치")

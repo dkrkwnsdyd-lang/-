@@ -25,6 +25,9 @@ DIRECT_COMMENT = re.compile(r"댓글|여러분.{0,8}(?:생각|의견)|생각은\
 SCARCITY = re.compile(r"한정|마감|품절|재고|오늘만|서두르|곧 종료|쿠폰|할인|특가|세일|기간|마지막")
 SOCIAL = re.compile(r"후기|리뷰|평점|별점|구매자|만족도|베스트|많이 (?:사|써|팔)|난리|인기|입소문|재구매")
 PERFORMANCE = re.compile(r"방수|내구|튼튼|오래 (?:가|간|쓰|돼)|하루 종일|배터리 (?:오래|걱정)|\d+\s*시간|강력|확실히|완벽|최고|최상")
+EXPERIENCE = re.compile(
+    r"(?:제가|저는|저도|내가|나는|직접|우리 집|저희)[^.?!]{0,12}(?:써|썼|쓰|사용|사봤|샀|구매|먹어|입어|해봤|해보니)"
+    r"|써\s?봤|써\s?보니|써\s?본|사용해\s?봤|사용해\s?보니|사\s?봤|샀는데|구매해서|구매했|일주일|한\s?달\s?(?:째|동안)|매일 쓰|재구매|추천드려요|강추")
 FILLER = re.compile(r"(?<![가-힣])(?:정말|진짜|완전|엄청|너무|굉장히|아주|되게|매우)\s*")
 PRAISE = re.compile(r"최고|완벽|끝판왕|역대급|미쳤|대박|인생")
 
@@ -187,6 +190,8 @@ def line_issues(text: str, ctx: Ctx, allow_comment_words: bool = False) -> list[
         out.append({"code": "cliche", "detail": CLICHE.search(t).group(0), "severity": "block"})
     if not allow_comment_words and DIRECT_COMMENT.search(t):
         out.append({"code": "direct_comment", "detail": DIRECT_COMMENT.search(t).group(0), "severity": "block"})
+    if not getattr(ctx.p, "my_take", "") and EXPERIENCE.search(t):       # 사용자가 직접 써본 느낌을 주지 않았다면 사용 경험/구매 후기처럼 말하지 않는다
+        out.append({"code": "fake_experience", "detail": EXPERIENCE.search(t).group(0), "severity": "block"})
     ft = ctx.facts_text
     for rx, code, label in ((SCARCITY, "scarcity_unverified", "확인되지 않은 희소성/할인"),
                             (SOCIAL, "social_unverified", "확인되지 않은 후기/인기")):

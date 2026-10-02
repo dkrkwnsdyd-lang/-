@@ -36,6 +36,10 @@ class ProductInput:
     strategy_auto: bool = True        # AUTO 최적화: 전략 자동 선택 + Conversion Audit 자동 수정
     strategy_state: dict | None = None  # Preview 에서 확정한 전략 단계 결과 (재사용)
     strategy_force: bool = False      # Quality Gate 미통과여도 사용자가 확인하고 제작
+    actor_mode: str = "AUTO"          # PRODUCT_ONLY | REAL_UGC | AI_PRESENTER | AI_PRODUCT_UGC | AUTO (presenter/modes.py)
+    cost_mode: str = "BALANCED"       # ECONOMY | BALANCED | PREMIUM (AI 영상 길이 상한)
+    monthly_budget: float | None = None  # 월 AI 예산(USD). 넘으면 비용 모드를 내린다. 결제는 하지 않는다
+    generate_ai: bool = False         # True 일 때만 AI 영상 생성 API 를 호출한다 (비용 동의). 캐시된 결과는 동의 없이 재사용
     legacy_render: bool = False       # True 면 Storyboard 대신 기존 편집/렌더 경로 (비교 테스트/안전망)
     review_quotes: list[str] = field(default_factory=list)   # 사용자가 가진 실제 후기 문구 (review_quote 레이아웃, 없으면 사용 안 함)
     before_after: list[str] = field(default_factory=list)    # [전 사진, 후 사진] (before_after 레이아웃)

@@ -42,7 +42,8 @@ def edit_from_storyboard(sb: Storyboard, voice: dict | None = None, label: str =
         shots.append(Shot(
             scene_id=ss.scene_id, shot="hero_push", source=src, duration=round(dur, 3), caption_words=words,
             transition_in="cut" if si == 0 else ss.transition, layout=ss.layout, motion=ss.image_motion,
-            source2=ss.secondary_source, data={**ss.layout_data, "intensity": prof["motion"]["intensity"]}, emph_at=emph_at, label=label))
+            source2=ss.secondary_source, data={**ss.layout_data, "intensity": prof["motion"]["intensity"]}, emph_at=emph_at, label=label,
+            clip_start=float(ss.visual_source.get("clip_start", 0.0) or 0.0), clip_aspect=float(ss.visual_source.get("clip_aspect", 1.0) or 1.0)))
         if vo:
             voice_cues.append((timeline + 0.05, vo_path))
         for ev in ss.sound_effect:

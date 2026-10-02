@@ -57,6 +57,8 @@ class StoryScene:
     claims: list = field(default_factory=list)              # [{"text","reliability","note"}]
     decisions: dict = field(default_factory=dict)           # {"layout": 이유, "motion": 이유, ...} 감사용
     scene_role: str = ""                                    # Strategy Engine: HOOK|PROBLEM|SOLUTION|PROOF|CTA
+    source_type: str = ""                                   # PRODUCT_IMAGE|PRODUCT_VIDEO|REAL_UGC|AI_PRESENTER|AI_PRODUCT_UGC|BROLL|TEXT_ONLY (빈 값=PRODUCT_IMAGE)
+    ai: dict = field(default_factory=dict)                  # AI 장면 정보 {kind, status, provider, model, prompt, seconds, cost, retry_count, fidelity, cache_key, mock, fallback_path}
     product_visibility: str = ""                            # NONE|HINT|PARTIAL|FULL
 
     def to_dict(self) -> dict:
@@ -75,6 +77,7 @@ class Storyboard:
     facts: list = field(default_factory=list)              # [{"text","reliability"}]
     warnings: list = field(default_factory=list)
     issues: list = field(default_factory=list)             # 품질 규칙 위반 (validate)
+    production: dict = field(default_factory=dict)         # 출연 방식/비용 모드/AI 장면 계획과 예상 비용 (presenter.plan)
     version: int = SCHEMA_VERSION
 
     def to_dict(self) -> dict:

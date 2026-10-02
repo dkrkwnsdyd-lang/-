@@ -113,6 +113,20 @@ def apply_sb_edits(sb: Storyboard, edits: dict | None, ctx, identity, features: 
             changed = True
         if e.get("sfx") is False:
             sfx_off.add(sid)
+        a = e.get("ai")
+        if isinstance(a, dict) and sc.ai:                  # AI 장면 하나만 제어 (전체를 다시 만들지 않는다): 원본으로/재생성/프롬프트/Provider
+            if a.get("action") == "revert":
+                sc.ai["action"] = "revert"
+                rep["applied"].append({"scene_id": sid, "what": "AI 장면을 원본으로"})
+            if a.get("action") == "regenerate":
+                sc.ai["force"] = True
+                rep["applied"].append({"scene_id": sid, "what": "AI 장면 재생성 요청"})
+            if a.get("prompt"):
+                sc.ai["prompt_override"] = " ".join(str(a["prompt"]).split())[:800]
+                rep["applied"].append({"scene_id": sid, "what": "AI 프롬프트 수정"})
+            if a.get("provider"):
+                sc.ai["provider_pref"] = str(a["provider"])[:30]
+                rep["applied"].append({"scene_id": sid, "what": f"Provider {a['provider']}"})
     if changed:
         sb.scenes[0].transition = "cut"
         from .styles import profile

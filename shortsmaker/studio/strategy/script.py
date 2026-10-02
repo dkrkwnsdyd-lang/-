@@ -22,7 +22,7 @@ STRUCTURE = {
 STYLE_GUIDE = {
     "FAST_COMMERCE": "빠른 컷, 강한 Hook, 실제 상품 중심. 문제 장면은 생략 가능. 설명 최소, 12~18초.",
     "STORY_AD": "상황→문제→감정→전환→상품 Reveal→해결. 이야기의 결말처럼 이어지는 짧은 광고. 15~25초.",
-    "UGC_REVIEW": "자연스러운 사용 경험형 구어체. 1인칭 경험담은 '직접 써본 느낌(사용자 작성)'이 있을 때만. 없으면 말투만 편하게 하고 경험을 지어내지 않는다. 15~20초.",
+    "UGC_REVIEW": "자연스러운 구어체 소개형. 1인칭 사용 경험/후기 표현은 '직접 써본 느낌(사용자 작성)'이나 실제 후기 문구가 입력에 있을 때만. 없으면 말투만 편하게 하고 경험을 지어내지 않는다(실제로는 UGC_PRESENTATION/UGC_DEMO). 15~20초.",
 }
 
 SYSTEM = (
@@ -89,10 +89,10 @@ def rule_beats(ctx: Ctx, primary: dict | None, hook: dict | None) -> list[dict]:
         elif beat == "reveal":
             shown = bool(prob) and (any(b["beat"] == "problem" for b in out) or jaccard(out[0]["tts_line"], prob) > 0.4)
             if shown:
-                out.append({"beat": "reveal", "tts_line": "그럴 땐 이 제품이에요" if not ugc else f"그래서 제가 본 게 이 {short}예요",
+                out.append({"beat": "reveal", "tts_line": "그럴 땐 이 제품이에요" if not ugc else (f"그래서 제가 본 게 이 {short}예요" if getattr(p, "my_take", "") or p.review_quotes else f"그래서 눈에 띈 게 이 {short}예요"),
                             "caption": f"그럴 땐 [[{short}]]", "feature": ""})
             else:
-                out.append({"beat": "reveal", "tts_line": f"바로 이 {short}예요" if not ugc else f"제가 본 건 이 {short}예요", "caption": f"바로 이 [[{short}]]", "feature": ""})
+                out.append({"beat": "reveal", "tts_line": f"바로 이 {short}예요" if not ugc else (f"제가 본 건 이 {short}예요" if getattr(p, "my_take", "") or p.review_quotes else f"눈에 띈 건 이 {short}예요"), "caption": f"바로 이 [[{short}]]", "feature": ""})
         elif beat == "demo" and lines:
             out.append({"beat": "demo", "tts_line": lines[0][0], "caption": lines[0][1], "feature": feats[0] if feats else ""})
         elif beat == "detail":
@@ -200,6 +200,8 @@ def run(router, ctx: Ctx, primary: dict | None, angle: dict | None, hook: dict |
         beats = rule_beats(ctx, primary, hook)
     scenes = _finish(ctx, beats)
     total = round(sum(s["duration"] for s in scenes), 2)
-    return {"basis": basis, "style": ctx.style, "style_ko": STYLE_KO[ctx.style], "structure": structure_for(ctx),
+    evidence = bool(getattr(ctx.p, "my_take", "") or ctx.p.review_quotes)
+    ugc_kind = ("UGC_REVIEW_VERIFIED" if evidence else ("UGC_DEMO" if ctx.has_clip else "UGC_PRESENTATION")) if ctx.style == "UGC_REVIEW" else ""
+    return {"basis": basis, "style": ctx.style, "ugc_kind": ugc_kind, "style_ko": STYLE_KO[ctx.style], "structure": structure_for(ctx),
             "target_seconds": list(ctx.seconds), "estimated_seconds": total, "scenes": scenes,
             "replaced_lines": [{"scene_id": s["scene_id"], "why": b.get("replaced")} for s, b in zip(scenes, beats) if b.get("replaced")]}

@@ -113,12 +113,14 @@ def test_control_center_never_calls_paid_video(tmp_path):
 # ------------------------------------------------------------------ db
 def test_migration_up_down(tmp_path):
     db = DB(tmp_path / "x.db")
-    assert db.applied() == ["0001_v2_init"]
+    assert db.applied() == ["0001_v2_init", "0002_ai_generations"]
     db.create_job("j1", "PRO", "p", {})
+    assert db.rollback() == "0002_ai_generations"            # 가장 최근 것만 되돌린다 (기존 데이터는 그대로)
+    assert db.applied() == ["0001_v2_init"] and db.job("j1")
     assert db.rollback() == "0001_v2_init"
     assert db.applied() == []
     db.migrate()
-    assert db.applied() == ["0001_v2_init"]
+    assert db.applied() == ["0001_v2_init", "0002_ai_generations"]
 
 
 # ------------------------------------------------------------------ director
@@ -1767,3 +1769,256 @@ def test_pipeline_uses_library_track_when_index_exists_and_builtin_otherwise(tmp
     assert r1["music"]["source"] == "library" and r1["music"]["file"] == "t.wav" and Path(r1["master"]).exists()
     r2 = run_job({**base, "auto_bgm": False}, "FAST", ["youtube"], out_root=tmp_path / "o2", db=DB(tmp_path / "d2.sqlite"), render=(270, 480, 10))
     assert "music" not in r2 or r2["music"]["source"] != "library"
+
+
+# ------------------------------------------------------------------ 하이브리드 출연 방식 (REAL_UGC / AI_PRESENTER / AI_PRODUCT_UGC / 비용 제어)
+class _Offline(Router):
+    """외부 LLM/Vision 없이 결정적으로 (규칙 기반 전략, Vision 없음)."""
+    def has_real(self, task):
+        return False
+
+
+def _counting_provider(kind_ok=True, fail=False, name="fakegen"):
+    from shortsmaker.studio.presenter.providers import MockVideoProvider, ProviderUnavailable, VideoGenerationProvider
+
+    class P(VideoGenerationProvider):
+        verified, mock, capabilities, price_per_second = True, False, ("talking_head", "product_hold"), None
+        calls = 0
+
+        def configured(self):
+            return True
+
+        def generate(self, req, out):
+            P.calls += 1
+            if fail:
+                raise RuntimeError("provider down")
+            res = MockVideoProvider().generate(req, out)
+            res.mock, res.provider, res.model = False, self.name, "m1"
+            return res
+    P.name, P.model = name, "m1"
+    return P
+
+
+class _FakeVision:
+    def __init__(self, verdict):
+        self.verdict, self.n = verdict, 0
+
+    def has_real(self, task):
+        return task == "vision"
+
+    def run(self, task, method, **kw):
+        from types import SimpleNamespace as NS
+        self.n += 1
+        return NS(provider="fake", model="v", value=self.verdict)
+
+
+def _ai_job(tmp_path, actor, cost, tag, providers, consent=True, videos=None, preview=True, extra=None, router=None):
+    from shortsmaker.studio.pipeline import run_job
+    base = _preview_base(tmp_path)
+    inp = {**base, "actor_mode": actor, "cost_mode": cost, "generate_ai": consent, "preview": preview, "video_style": "STORY_AD", **(extra or {})}
+    if videos:
+        inp["videos"] = videos
+    db = DB(tmp_path / f"{tag}.db")
+    return run_job(inp, "FAST", ["youtube"], out_root=tmp_path / tag, db=db, render=(270, 480, 10), ai_providers=providers,
+                   router=router or _Offline(db=db, job_id=tag)), db
+
+
+def test_real_ugc_upload_to_storyboard_preview_and_mp4(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    v = _make_video(tmp_path / "use.mp4", 360, 640, 8)
+    pv, _ = _ai_job(tmp_path, "REAL_UGC", "ECONOMY", "t1", [], videos=[v])
+    assert pv["status"] == "PREVIEW_READY", pv.get("error")
+    real = [s for s in pv["storyboard"]["scenes"] if s["source_type"] == "REAL_UGC"]
+    assert real and real[0]["visual_source"]["kind"] == "user_video" and real[0]["layout"] in ("demo", "lifestyle")
+    assert real[0]["visual_source"]["clip_start"] >= 0 and pv["storyboard"]["production"]["real_scenes"]
+    assert pv["storyboard"]["production"]["effective_actor"].startswith("REAL_UGC") and not pv["storyboard"]["production"]["ai_scenes"]
+    assert all(Path(x).exists() for x in pv["preview"]["thumbs"].values())
+    r, _ = _ai_job(tmp_path, "REAL_UGC", "ECONOMY", "t1b", [], videos=[v], preview=False)
+    assert r["status"] in ("COMPLETE", "QUALITY_FAIL", "NEEDS_REVIEW"), r.get("error")
+    assert Path(r["master"]).exists() and r["clips"]["used"] and r["ai_generation"] if r.get("ai_generation") else Path(r["master"]).exists()
+
+
+def test_product_only_ignores_uploaded_video_and_ai_modes_do_not_use_real_clips(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    v = _make_video(tmp_path / "use.mp4", 360, 640, 6)
+    for actor in ("PRODUCT_ONLY", "AI_PRESENTER"):
+        r, _ = _ai_job(tmp_path, actor, "BALANCED", f"po_{actor}", [], consent=False, videos=[v])
+        assert not [s for s in r["storyboard"]["scenes"] if s["source_type"] == "REAL_UGC"], actor
+        assert all(s["visual_source"].get("kind") != "user_video" for s in r["storyboard"]["scenes"]), actor
+
+
+def test_ai_provider_failure_falls_back_and_mp4_still_renders(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    P = _counting_provider(fail=True, name="failgen")
+    r, db = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "t2", [P()], preview=False)
+    assert r["status"] in ("COMPLETE", "QUALITY_FAIL", "NEEDS_REVIEW"), r.get("error")
+    assert Path(r["master"]).exists()
+    ai = [s for s in r["storyboard"]["scenes"] if s["ai"]]
+    assert ai and all(s["source_type"] == "PRODUCT_IMAGE" and s["ai"]["status"] == "FAILED" for s in ai)
+    assert 1 <= P.calls <= 2                                            # 무한 재시도 없음 (provider 하나, 시도 상한)
+    rows = db.query("SELECT generation_status, retry_count FROM ai_generations WHERE job_id=?", (r["job_id"],))
+    assert rows and {x["generation_status"] for x in rows} <= {"FAILED", "PROVIDER_UNAVAILABLE"}
+
+
+def test_no_available_provider_falls_back_without_calls(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from shortsmaker.studio.presenter.providers import default_providers
+    r, db = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "t2b", default_providers())          # Higgsfield/Seedance/Kling 은 미검증 → 호출하지 않음
+    ai = [s for s in r["storyboard"]["scenes"] if s["ai"]]
+    assert ai and all(s["ai"]["status"] == "PROVIDER_UNAVAILABLE" and s["source_type"] == "PRODUCT_IMAGE" for s in ai)
+    est = r["storyboard"]["production"].get("estimate")
+    assert not est or est["cost_text"] in ("비용 확인 불가", "$0 (캐시/Mock)")
+
+
+def test_product_mismatch_clip_is_excluded_and_replaced_by_original(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    P = _counting_provider(name="okgen")
+    mismatch = _FakeVision({"same_product": False, "fidelity": 40, "shape_changed": True, "color_changed": True, "product_visible": True, "notes": "다른 제품"})
+    r, db = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "t3", [P()], router=type("R", (_Offline,), {"has_real": lambda s, t: t == "vision",
+                                                                                                    "run": lambda s, t, m, **k: mismatch.run(t, m, **k)})(db=DB(tmp_path / "t3r.db"), job_id="t3"))
+    ai = [s for s in r["storyboard"]["scenes"] if s["ai"]]
+    assert ai and all(s["ai"]["fidelity"] == "PRODUCT_MISMATCH" and s["source_type"] == "PRODUCT_IMAGE" and s["visual_source"]["kind"] == "user_photo" for s in ai), ai
+    assert P.calls == 1                                                  # 불일치라고 다른 provider 로 자동 재시도하지 않는다
+    rows = db.query("SELECT product_fidelity_status FROM ai_generations WHERE generation_status='GENERATED'")
+    assert rows and rows[0]["product_fidelity_status"] == "PRODUCT_MISMATCH"
+
+
+def test_unverifiable_product_scene_is_not_used_but_pass_is(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from shortsmaker.studio.presenter import fidelity
+    photo = make_photos("kitchen_tumbler", tmp_path / "p", 1)[0]
+    clip = tmp_path / "c.mp4"
+    from shortsmaker.studio.presenter.providers import GenRequest, MockVideoProvider
+    MockVideoProvider().generate(GenRequest("AI_PRODUCT_UGC", "x", 2.0, photo), clip)
+    assert fidelity.check(_Offline(db=DB(tmp_path / "f.db")), photo, str(clip), tmp_path / "w")["status"] == "UNVERIFIED"      # 비교 수단 없음 → 쓰지 않음
+    assert fidelity.check(None, photo, str(clip), tmp_path / "w", applicable=False)["status"] == "NOT_APPLICABLE"
+    ok = _FakeVision({"same_product": True, "fidelity": 95, "product_visible": True})
+    assert fidelity.check(ok, photo, str(clip), tmp_path / "w")["status"] == "PASS"
+    low = _FakeVision({"same_product": True, "fidelity": 70, "product_visible": True})
+    assert fidelity.check(low, photo, str(clip), tmp_path / "w")["status"] == "PRODUCT_MISMATCH"
+
+
+def test_ai_presenter_never_claims_personal_use_without_evidence(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from shortsmaker.studio.presenter.safety import experience_issues, presenter_problems, safe_line
+    from shortsmaker.studio.strategy import make_ctx
+    from shortsmaker.studio.strategy.common import line_issues
+    ctx = make_ctx(_sp())
+    for bad in ("제가 사용해봤습니다", "제가 일주일 써봤는데 정말 좋더라고요", "써보니 편해요", "직접 사서 써봤어요"):
+        assert experience_issues(bad) and presenter_problems(bad, ctx), bad
+        assert any(i["code"] == "fake_experience" for i in line_issues(bad, ctx)), bad            # 전략 엔진 전체에서도 금지
+    assert not presenter_problems("이 텀블러에서 눈에 띄는 부분은 원터치 뚜껑이에요", ctx)
+    assert "fake_experience" not in {i["code"] for i in line_issues("직접 써본 느낌이에요", make_ctx(_sp(my_take="직접 써본 느낌이에요")))}   # 사용자가 쓴 경험은 허용(전략 대본)
+    tts, cap = safe_line("HOOK", ctx, ["원터치 뚜껑"])
+    assert not experience_issues(tts) and "원터치 뚜껑" in tts
+    # 파이프라인: 진행자 장면의 문구는 설명형, UGC_REVIEW 는 근거 없으면 UGC_PRESENTATION
+    r, _ = _ai_job(tmp_path, "AI_PRESENTER", "BALANCED", "t4", [], consent=False, extra={"video_style": "UGC_REVIEW"})
+    texts = " ".join(s["narration"] for s in r["storyboard"]["scenes"])
+    assert not experience_issues(texts), texts
+    assert r["strategy"]["ugc_kind"] == "UGC_PRESENTATION"
+    r2, _ = _ai_job(tmp_path, "PRODUCT_ONLY", "ECONOMY", "t4b", [], consent=False, extra={"video_style": "UGC_REVIEW", "my_take": "출근길에 열기 편했어요"})
+    assert r2["strategy"]["ugc_kind"] == "UGC_REVIEW_VERIFIED"
+
+
+def test_economy_makes_no_ai_calls_even_when_ai_mode_is_chosen(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    P = _counting_provider(name="econgen")
+    for actor in ("AI_PRESENTER", "AI_PRODUCT_UGC", "AUTO"):
+        r, db = _ai_job(tmp_path, actor, "ECONOMY", f"t5_{actor}", [P()], consent=True)
+        assert not [s for s in r["storyboard"]["scenes"] if s["ai"]], actor
+        assert r["storyboard"]["production"]["ai_seconds_cap"] == 0
+    assert P.calls == 0
+    assert db.query("SELECT COUNT(*) AS n FROM ai_generations")[0]["n"] == 0
+
+
+def test_balanced_and_premium_limit_ai_video_length(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from shortsmaker.studio.presenter.cost import ai_seconds_cap
+    assert ai_seconds_cap("ECONOMY", 20) == 0 and ai_seconds_cap("BALANCED", 20) == 6 and ai_seconds_cap("PREMIUM", 20) == 15
+    P = _counting_provider(name="capgen")
+    rb, _ = _ai_job(tmp_path, "AUTO", "BALANCED", "t6b", [P()], consent=False)
+    assert rb["storyboard"]["production"]["ai_seconds"] <= rb["storyboard"]["production"]["ai_seconds_cap"] + 1e-6
+    rp, _ = _ai_job(tmp_path, "AUTO", "PREMIUM", "t6p", [P()], consent=False)
+    assert rp["storyboard"]["production"]["ai_seconds"] <= rp["storyboard"]["production"]["ai_seconds_cap"] + 1e-6
+    assert rp["storyboard"]["production"]["ai_seconds_cap"] > rb["storyboard"]["production"]["ai_seconds_cap"]
+    assert len(rb["storyboard"]["production"]["ai_scenes"]) <= 2 and P.calls == 0               # 동의 전에는 호출 없음
+
+
+def test_ai_generation_requires_consent_and_cache_prevents_repeat_calls(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    ok = _FakeVision({"same_product": True, "fidelity": 95, "product_visible": True})
+    rt = lambda tag: type("R", (_Offline,), {"has_real": lambda s, t: t == "vision", "run": lambda s, t, m, **k: ok.run(t, m, **k)})(db=DB(tmp_path / f"{tag}r.db"), job_id=tag)
+    P = _counting_provider(name="cachegen")
+    r0, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "c0", [P()], consent=False, router=rt("c0"))
+    est = r0["storyboard"]["production"]["estimate"]
+    assert P.calls == 0 and est["requests"] >= 1 and est["cost_text"] == "비용 확인 불가" and est["max_regenerations"] == 2 and est["cost_usd"] is None
+    assert any(s["ai"]["status"] == "PLANNED" for s in r0["storyboard"]["scenes"] if s["ai"])
+    r1, db = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "c1", [P()], consent=True, router=rt("c1"))
+    first = P.calls
+    assert first >= 1 and any(s["source_type"] == "AI_PRODUCT_UGC" and s["visual_source"]["kind"] == "ai_video" for s in r1["storyboard"]["scenes"]), r1["storyboard"]["scenes"]
+    r2, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "c2", [P()], consent=True, router=rt("c2"))
+    assert P.calls == first                                                                  # 같은 입력 → 캐시 재사용, API 재호출 없음
+    assert r2["ai_generation"]["cached"] >= 1 and r2["ai_generation"]["api_calls"] == 0
+    # 동의 없이도 캐시는 재사용(무료)
+    r3, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "c3", [P()], consent=False, router=rt("c3"))
+    assert P.calls == first and r3["ai_generation"]["cached"] >= 1
+    # 한 장면만 재생성: 캐시를 건너뛰고 호출하되 상한(2회)을 넘으면 원본으로
+    sid = next(s["scene_id"] for s in r1["storyboard"]["scenes"] if s["ai"])
+    counts = []
+    for i in range(4):
+        rr, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", f"cr{i}", [P()], consent=True, router=rt(f"cr{i}"),
+                        extra={"edits": {"scenes": {sid: {"ai": {"action": "regenerate"}}}}})
+        counts.append(P.calls)
+    assert counts[0] == first + 1 and counts[-1] <= first + 3                               # 상한 이후에는 더 호출하지 않음
+    assert db.query("SELECT COUNT(*) AS n FROM ai_generations WHERE generation_status='GENERATED'")[0]["n"] >= 2
+
+
+def test_revert_scene_to_original_and_prompt_edit(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    P = _counting_provider(name="editgen")
+    pv, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "e0", [P()], consent=False)
+    sid = next(s["scene_id"] for s in pv["storyboard"]["scenes"] if s["ai"])
+    r, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "e1", [P()], consent=True, extra={"edits": {"scenes": {sid: {"ai": {"action": "revert"}}}}})
+    sc = next(s for s in r["storyboard"]["scenes"] if s["scene_id"] == sid)
+    assert sc["source_type"] == "PRODUCT_IMAGE" and sc["ai"]["status"] == "REVERTED" and P.calls == 0
+    r2, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "e2", [P()], consent=False, extra={"edits": {"scenes": {sid: {"ai": {"prompt": "수정된 프롬프트", "provider": "x"}}}}})
+    assert next(s for s in r2["storyboard"]["scenes"] if s["scene_id"] == sid)["ai"]["prompt"].startswith("수정된")
+
+
+def test_monthly_budget_downgrades_cost_mode_without_any_payment(tmp_path):
+    from shortsmaker.studio.presenter.cost import apply_budget
+    db = DB(tmp_path / "b.db")
+    assert apply_budget("PREMIUM", 10, db)[0] == "PREMIUM"                                   # 지출 기록 없음
+    db.execute("INSERT INTO ai_generations (job_id, scene_id, generation_cost, generation_status, created_at) VALUES ('j','S1', 7.5, 'GENERATED', datetime('now'))")
+    from datetime import datetime, timezone
+    db.execute("UPDATE ai_generations SET created_at=?", (datetime.now(timezone.utc).isoformat(timespec="seconds"),))
+    assert apply_budget("PREMIUM", 10, db, projected=5.0)[0] == "ECONOMY" or apply_budget("PREMIUM", 10, db, projected=5.0)[0] == "BALANCED"
+    mode, info = apply_budget("BALANCED", 7, db)
+    assert mode == "ECONOMY" and info["downgraded_from"] == "BALANCED"
+    mode2, info2 = apply_budget("BALANCED", 10, db)                                          # 예상 비용을 모르면 사전 검증 불가 표시
+    assert mode2 == "BALANCED" and "검증할 수 없" in info2["note"]
+
+
+def test_provider_router_ranks_by_capability_and_skips_unverified():
+    from shortsmaker.studio.presenter.providers import KlingProvider, MockVideoProvider, SeedanceProvider, default_providers, rank
+    assert rank(default_providers(), "AI_PRESENTER", "BALANCED") == []                        # 검증된 provider 가 없으면 아무도 고르지 않는다
+    class V(KlingProvider):
+        verified = True
+        def configured(self): return True
+    class S(SeedanceProvider):
+        verified = True
+        def configured(self): return True
+    assert rank([S(), V()], "AI_PRESENTER", "BALANCED")[0].name == "kling"                    # talking_head 가능한 쪽
+    assert [p.name for p in rank([MockVideoProvider()], "AI_PRODUCT_UGC", "PREMIUM")] == ["mock"]
+
+
+def test_auto_mode_priority_real_clip_first_then_presenter_then_ugc_then_product_only(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    v = _make_video(tmp_path / "use.mp4", 360, 640, 8)
+    P = _counting_provider(name="autogen")
+    with_clip, _ = _ai_job(tmp_path, "AUTO", "BALANCED", "a1", [P()], consent=False, videos=[v])
+    assert with_clip["storyboard"]["production"]["real_scenes"] and not with_clip["storyboard"]["production"]["ai_scenes"]          # 1순위: 실제 영상
+    story, _ = _ai_job(tmp_path, "AUTO", "BALANCED", "a2", [P()], consent=False, extra={"video_style": "STORY_AD"})
+    assert any(a["kind"] == "AI_PRESENTER" for a in story["storyboard"]["production"]["ai_scenes"])                                   # 2순위
+    plain, _ = _ai_job(tmp_path, "AUTO", "ECONOMY", "a3", [P()], consent=False)
+    assert plain["storyboard"]["production"]["effective_actor"] == "PRODUCT_ONLY" and P.calls == 0                                    # 4순위

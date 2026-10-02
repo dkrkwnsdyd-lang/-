@@ -28,6 +28,9 @@ from .storyboard import build_storyboard, preview as preview_mod
 from .storyboard.engine import layout_context
 from .storyboard_edit import edit_from_storyboard
 from . import strategy as strategy_mod
+from . import presenter as presenter_mod
+from .presenter import cost as cost_mod, generate as gen_mod
+from .presenter.providers import default_providers
 from .product import ProductInput, analyze_photo, build_identity, import_from_url
 from .qa import best_take, final_qa, storyboard_qa, vision_review
 from . import vision as vision_mod
@@ -211,7 +214,7 @@ def _preview_result(renderer, sb, edl, identity, ctx, out_dir: Path) -> dict:
 
 def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None, out_root: str | Path = "output/v2",
             db: DB | None = None, router: Router | None = None, progress_cb=None, job_id: str | None = None,
-            render: tuple[int, int, int] = (1080, 1920, 30)) -> dict:
+            render: tuple[int, int, int] = (1080, 1920, 30), ai_providers: list | None = None) -> dict:
     mode = mode.upper()
     platforms = platforms or ["youtube", "instagram", "tiktok", "threads"]
     db = db or DB()
@@ -481,8 +484,17 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
             with job.step("STORYBOARD_V2"):
                 # Script -> Storyboard(JSON). 지금은 연출 결정을 '기록'만 하고 렌더링은 기존 경로 (Layout/Motion 연결은 다음 단계)
                 cutout_ok = {ph["path"] for ph in identity.photos if renderer.cache.cutout(ph["path"]) is not None}
-                clip_paths = [c["path"] for c in clip_infos]
-                sb = build_storyboard(plan, identity, p, result.get("vision"), clip_paths, style=p.video_style, mode=mode, cutout_ok=cutout_ok)
+                # 출연 방식/비용 모드: 업로드 영상은 REAL_UGC/AUTO 에서만 쓴다. 월 예산을 넘으면 비용 모드를 내린다 (결제는 하지 않음)
+                actor_mode = p.actor_mode if p.actor_mode in presenter_mod.ACTOR_MODES else "AUTO"
+                cost_mode, budget_info = cost_mod.apply_budget(p.cost_mode if p.cost_mode in cost_mod.COST_MODES else "BALANCED", p.monthly_budget, db)
+                use_infos = clip_infos if presenter_mod.uses_real_clips(actor_mode) else []
+                clip_paths = [c["path"] for c in use_infos]
+                ref_photo = identity.photos[0]["path"] if identity.photos else None
+                sb = build_storyboard(plan, identity, p, result.get("vision"), clip_paths, style=p.video_style, mode=mode, cutout_ok=cutout_ok,
+                                      post_layout=lambda scs: presenter_mod.plan_production(
+                                          scs, ctx=sctx, actor_mode=actor_mode, cost_mode=cost_mode, style=p.video_style, infos=use_infos, router=router,
+                                          work_dir=out_dir / "real", reference_image=ref_photo))
+                sb.production["budget"] = budget_info
                 lctx = layout_context(identity, p, clip_paths, cutout_ok)
                 sb_edits = preview_mod.apply_sb_edits(sb, p.edits, lctx, identity, [f for f in p.features if f])
                 if result.get("strategy"):
@@ -491,6 +503,19 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                     strategy_mod.save_state(out_dir, result["strategy"])
                 if p.edits:
                     result["edits_report"] = {k: plan_edits[k] + sb_edits[k] for k in ("applied", "rejected")}
+                # AI 장면: 캐시는 동의 없이 재사용, 새 생성(비용)은 generate_ai 동의가 있을 때만. 실패/불일치는 원본으로 대체
+                provs = ai_providers if ai_providers is not None else default_providers()
+                if any(sc.ai for sc in sb.scenes):
+                    (out_dir / "ai").mkdir(exist_ok=True)
+                    gen = gen_mod.run_generation(sb.scenes, ctx=sctx, db=db, job_id=job_id, providers=provs, vision_router=router,
+                                                 cost_mode=sb.production.get("cost_mode", "BALANCED"), actor_mode=actor_mode,
+                                                 consent=bool(p.generate_ai), work_dir=out_dir / "ai")
+                    result["ai_generation"] = gen
+                    if not p.preview:
+                        gen_mod.finalize_fallbacks(sb.scenes)
+                    sb.production["estimate"] = gen_mod.estimate_for(sb.scenes, provs, sb.production.get("cost_mode", "BALANCED"))
+                    sb.total_duration = round(sum(sc.duration for sc in sb.scenes), 2)
+                sb.production["ai_summary"] = gen_mod.summarize(sb.scenes)
                 (out_dir / f"v{version}").mkdir(exist_ok=True)
                 (out_dir / f"v{version}" / "storyboard.json").write_text(sb.to_json(), encoding="utf-8")
                 result["storyboard"] = sb.to_dict()
@@ -500,11 +525,13 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                                zoomable_paths={ph['path'] for ph in identity.photos if zoomable(identity, ph['path'])})
                 else:      # Storyboard(JSON) -> EDL -> Renderer. AI 와 Renderer 는 Storyboard 로만 연결된다
                     edl = edit_from_storyboard(sb, voice, label=label)
-            clip_report = clips_mod.assign(edl["shots"], plan.scenes, clip_infos)
+            clip_report = clips_mod.assign(edl["shots"], plan.scenes, use_infos) if not p.legacy_render else clips_mod.assign(edl["shots"], plan.scenes, clip_infos)
             if video_paths:
-                result["clips"] = {"provided": len(video_paths), "usable": len(clip_infos), "used": clip_report}
+                result["clips"] = {"provided": len(video_paths), "usable": len(clip_infos), "used": (sb.production.get("real_scenes") or []) + clip_report}
             if p.preview:
                 result.update(_preview_result(renderer, sb, edl, identity, lctx, out_dir))
+                result["preview"]["providers"] = [{"name": pv.name, "available": pv.available(), "verified": pv.verified, "mock": pv.mock,
+                                                   "configured": pv.configured(), "capabilities": list(pv.capabilities)} for pv in provs]
                 renderer.close_clips()
                 result["status"] = "PREVIEW_READY"
                 result["log"] = job.log
