@@ -1812,13 +1812,13 @@ class _FakeVision:
         return NS(provider="fake", model="v", value=self.verdict)
 
 
-def _ai_job(tmp_path, actor, cost, tag, providers, consent=True, videos=None, preview=True, extra=None, router=None):
+def _ai_job(tmp_path, actor, cost, tag, providers, consent=True, videos=None, preview=True, extra=None, router=None, db_tag=None):
     from shortsmaker.studio.pipeline import run_job
     base = _preview_base(tmp_path)
     inp = {**base, "actor_mode": actor, "cost_mode": cost, "generate_ai": consent, "preview": preview, "video_style": "STORY_AD", **(extra or {})}
     if videos:
         inp["videos"] = videos
-    db = DB(tmp_path / f"{tag}.db")
+    db = DB(tmp_path / f"{db_tag or tag}.db")
     return run_job(inp, "FAST", ["youtube"], out_root=tmp_path / tag, db=db, render=(270, 480, 10), ai_providers=providers,
                    router=router or _Offline(db=db, job_id=tag)), db
 
@@ -1949,27 +1949,27 @@ def test_ai_generation_requires_consent_and_cache_prevents_repeat_calls(tmp_path
     ok = _FakeVision({"same_product": True, "fidelity": 95, "product_visible": True})
     rt = lambda tag: type("R", (_Offline,), {"has_real": lambda s, t: t == "vision", "run": lambda s, t, m, **k: ok.run(t, m, **k)})(db=DB(tmp_path / f"{tag}r.db"), job_id=tag)
     P = _counting_provider(name="cachegen")
-    r0, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "c0", [P()], consent=False, router=rt("c0"))
+    r0, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "c0", [P()], consent=False, router=rt("c0"), db_tag="shared")
     est = r0["storyboard"]["production"]["estimate"]
     assert P.calls == 0 and est["requests"] >= 1 and est["cost_text"] == "비용 확인 불가" and est["max_regenerations"] == 2 and est["cost_usd"] is None
     assert any(s["ai"]["status"] == "PLANNED" for s in r0["storyboard"]["scenes"] if s["ai"])
-    r1, db = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "c1", [P()], consent=True, router=rt("c1"))
+    r1, db = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "c1", [P()], consent=True, router=rt("c1"), db_tag="shared")
     first = P.calls
     assert first >= 1 and any(s["source_type"] == "AI_PRODUCT_UGC" and s["visual_source"]["kind"] == "ai_video" for s in r1["storyboard"]["scenes"]), r1["storyboard"]["scenes"]
-    r2, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "c2", [P()], consent=True, router=rt("c2"))
+    r2, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "c2", [P()], consent=True, router=rt("c2"), db_tag="shared")
     assert P.calls == first                                                                  # 같은 입력 → 캐시 재사용, API 재호출 없음
     assert r2["ai_generation"]["cached"] >= 1 and r2["ai_generation"]["api_calls"] == 0
     # 동의 없이도 캐시는 재사용(무료)
-    r3, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "c3", [P()], consent=False, router=rt("c3"))
+    r3, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", "c3", [P()], consent=False, router=rt("c3"), db_tag="shared")
     assert P.calls == first and r3["ai_generation"]["cached"] >= 1
     # 한 장면만 재생성: 캐시를 건너뛰고 호출하되 상한(2회)을 넘으면 원본으로
     sid = next(s["scene_id"] for s in r1["storyboard"]["scenes"] if s["ai"])
     counts = []
     for i in range(4):
-        rr, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", f"cr{i}", [P()], consent=True, router=rt(f"cr{i}"),
+        rr, _ = _ai_job(tmp_path, "AI_PRODUCT_UGC", "BALANCED", f"cr{i}", [P()], consent=True, router=rt(f"cr{i}"), db_tag="shared",
                         extra={"edits": {"scenes": {sid: {"ai": {"action": "regenerate"}}}}})
         counts.append(P.calls)
-    assert counts[0] == first + 1 and counts[-1] <= first + 3                               # 상한 이후에는 더 호출하지 않음
+    assert counts[0] == first + 1 and counts[-1] == first + 2                                # 재생성은 최대 2회, 이후에는 더 호출하지 않음 (같은 DB 기록 기준)
     assert db.query("SELECT COUNT(*) AS n FROM ai_generations WHERE generation_status='GENERATED'")[0]["n"] >= 2
 
 
