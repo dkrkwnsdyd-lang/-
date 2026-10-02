@@ -131,7 +131,7 @@ def to_director_data(ctx: Ctx, state: dict) -> dict:
     return {"angles": legacy, "best_angle": legacy[0]["angle"],
             "story_pattern": STORY_PATTERN[ctx.style] if (p.problem or ctx.style != "STORY_AD") else "DISCOVERY",
             "hook_candidates": [{"type": f"strategy_{h['type'].lower()}", "text": h["text"], "caption": h["caption"]} for h in hooks_],
-            "beats": [{"beat": s["beat"], "tts_line": s["tts_line"], "caption": s["caption"], "feature": s.get("feature") or None}
+            "beats": [{"beat": s["beat"], "story_role": s.get("story_role") or "", "tts_line": s["tts_line"], "caption": s["caption"], "feature": s.get("feature") or None}
                       for s in fs["scenes"]],
             "tension": (state.get("primary_selling_point") or {}).get("text", ""), "payoff": (state.get("selected_angle") or {}).get("premise", ""),
             "_director": f"strategy_engine:{'/'.join(sorted(set(state.get('basis', {}).values())))}",

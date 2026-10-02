@@ -35,12 +35,25 @@ class RenderRequest(BaseModel):
     generate_ai: bool = False      # True 일 때만 AI 영상 생성(비용 발생 가능). 캐시된 결과는 동의 없이 재사용
 
 
+class MixRequest(BaseModel):
+    ids: list[str]
+    picks: dict | None = None
+
+
 class StrategyRequest(BaseModel):
     action: str = "regenerate"     # regenerate | pick | revise
     stage: str = "audit"
     id: str | None = None
     style: str | None = None
     auto: bool | None = None
+
+def _picks(v: str) -> dict | None:
+    try:
+        d = json.loads(v) if v.strip() else None
+    except ValueError:
+        return None
+    return {k: str(x) for k, x in d.items() if k in ("hook", "story", "tempo", "cta")} if isinstance(d, dict) else None
+
 
 def _budget(v: str) -> float | None:
     try:
@@ -73,6 +86,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         boxes: str = Form(""), feature_photos: str = Form(""), my_take: str = Form(""), compact: str = Form(""),
         preview: str = Form(""), video_style: str = Form("FAST_COMMERCE"), auto_strategy: str = Form("1"),
         actor_mode: str = Form("AUTO"), cost_mode: str = Form("BALANCED"), monthly_budget: str = Form(""),
+        reference_patterns: str = Form(""), reference_picks: str = Form(""),
     ):
         if len(photos) > MAX_PHOTOS:
             raise HTTPException(400, f"사진은 최대 {MAX_PHOTOS}장까지 올릴 수 있어요.")
@@ -142,7 +156,9 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
                   "strategy_auto": auto_strategy != "0",
                   "actor_mode": actor_mode if actor_mode in ("PRODUCT_ONLY", "REAL_UGC", "AI_PRESENTER", "AI_PRODUCT_UGC", "AUTO") else "AUTO",
                   "cost_mode": cost_mode if cost_mode in ("ECONOMY", "BALANCED", "PREMIUM") else "BALANCED",
-                  "monthly_budget": _budget(monthly_budget), "price": price.strip(), "url": url.strip(),
+                  "monthly_budget": _budget(monthly_budget),
+                  "reference_patterns": [x for x in (i.strip() for i in reference_patterns.split(",")) if x.startswith("rp_")][:5],
+                  "reference_picks": _picks(reference_picks), "price": price.strip(), "url": url.strip(),
                   "photos": saved, "videos": saved_videos, "photo_rights": photo_rights, "reference_url": reference_url.strip(),
                   "affiliate": affiliate, "category_hint": category, "product_boxes": product_boxes,
                   "feature_photos": linked}
@@ -220,6 +236,69 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
     def storyboard_from_strategy(job_id: str, req: RenderRequest):
         """[Storyboard 만들기]: (전략을 고치고 난 뒤) 확정한 대본으로 Storyboard/미리보기를 다시 만든다. MP4 는 만들지 않는다."""
         return _spawn_from(job_id, req.edits, preview=True)
+
+    # ------------------------------------------------------------ REFERENCE LAB
+    @app.post("/api/v2/reference/analyze")
+    def reference_analyze(file: UploadFile | None = File(default=None), url: str = Form(""), notes: str = Form(""), platform: str = Form(""),
+                          rights: str = Form("NONE"), category: str = Form("")):
+        """참고 영상의 연출 패턴 분석. 영상은 다운로드하지 않는다: YouTube URL(Gemini), 업로드 영상(로컬+Vision), 구조 메모만 분석. 원본은 분석 후 삭제(권한 선언 시에만 보관)."""
+        from ..studio.reference_engine import analyzer, library, patterns
+        if not (file and file.filename) and not url.strip() and not notes.strip():
+            raise HTTPException(400, "URL, 영상 파일, 또는 영상 구조 메모가 필요해요")
+        path = ""
+        keep = rights in ("OWNED", "LICENSED")
+        if file and file.filename:
+            suffix = Path(file.filename).suffix.lower()
+            if suffix not in VIDEO_EXTS:
+                raise HTTPException(400, f"지원하지 않는 영상 형식: {file.filename}")
+            ref_dir = Path(upload_dir) / "reference"
+            ref_dir.mkdir(parents=True, exist_ok=True)
+            dst = ref_dir / f"{uuid.uuid4().hex[:8]}{suffix}"
+            with open(dst, "wb") as out:
+                shutil.copyfileobj(file.file, out)
+            if dst.stat().st_size > MAX_VIDEO_BYTES:
+                dst.unlink(missing_ok=True)
+                raise HTTPException(400, f"영상은 {MAX_VIDEO_BYTES // 1024 // 1024}MB 이하여야 해요")
+            path = str(dst)
+        try:
+            raw = analyzer.analyze(Router(db=db, job_id="reference_lab"), url=url.strip(), file=path, notes=notes, platform=platform)
+        finally:
+            if path and not keep:
+                Path(path).unlink(missing_ok=True)       # 권한이 확인되지 않은 영상은 분석 후 바로 삭제 (보관/재편집하지 않음)
+        built = patterns.build(raw, category.strip())
+        rid = library.save_draft(db, built, rights if keep else "NONE")
+        return {"id": rid, "platform": built["platform"], "status": built["status"], "pattern": built["pattern"], "scores": built["scores"],
+                "confidence": built["confidence"], "library_tags": built["library_tags"], "method": built["method"], "note": built["note"],
+                "copy_guard": bool(built["fingerprint"]), "saved": False}
+
+    @app.get("/api/v2/reference/patterns")
+    def reference_patterns_list(tag: str = "", platform: str = "", all: int = 0):
+        from ..studio.reference_engine import library
+        return {"patterns": library.list_patterns(db, saved_only=not all, tag=tag or None, platform=platform or None)}
+
+    @app.post("/api/v2/reference/patterns/{pid}/save")
+    def reference_pattern_save(pid: str):
+        from ..studio.reference_engine import library
+        if not library.mark_saved(db, pid):
+            raise HTTPException(404, "패턴 없음")
+        return {"saved": True}
+
+    @app.delete("/api/v2/reference/patterns/{pid}")
+    def reference_pattern_delete(pid: str):
+        from ..studio.reference_engine import library
+        if not library.delete(db, pid):
+            raise HTTPException(404, "패턴 없음")
+        return {"deleted": True}
+
+    @app.post("/api/v2/reference/mix")
+    def reference_mix(req: MixRequest):
+        """여러 Reference 의 장점 패턴을 영역별로 조합 (영상/대본을 합치지 않고 패턴 값만)."""
+        from ..studio.reference_engine import library, mix as ref_mix
+        recs = library.get_many(db, req.ids[:5])
+        if not recs:
+            raise HTTPException(404, "선택한 패턴이 없어요")
+        m = ref_mix.mix(recs, None, req.picks)
+        return {"aspects": m["aspects"], "values": m["values"], "sources": m["sources"]}
 
     @app.post("/api/v2/jobs/{job_id}/ai-scenes")
     def generate_ai_scenes(job_id: str, req: RenderRequest):

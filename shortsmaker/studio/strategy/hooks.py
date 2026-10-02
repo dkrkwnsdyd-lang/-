@@ -92,6 +92,8 @@ def _normalize(ctx: Ctx, raw: list[dict], primary: dict | None, basis: str) -> t
 
 def run(router, ctx: Ctx, primary: dict | None, angle: dict | None, analysis: dict | None, picks: dict | None = None) -> dict:
     payload = {**ctx.brief(), "primary_selling_point": primary, "selected_angle": angle, "product_analysis": analysis}
+    if getattr(ctx, "pattern", None):          # 참고 영상의 Hook 구조(유형/길이)만. 문장은 전달하지 않는다
+        payload["reference_hook_structure"] = {"type": ctx.pattern["hook"].get("type"), "pattern": ctx.pattern["hook"].get("pattern"), "max_seconds": ctx.pattern["hook"].get("duration")}
     hooks, rejected, basis = [], [], "rule"
     feedback = ""
     for attempt in range(3):                                   # 검증에서 걸러져 9개가 안 되면 최대 2회 보충 생성 (걸러진 표현을 알려주고)
@@ -124,7 +126,8 @@ def run(router, ctx: Ctx, primary: dict | None, angle: dict | None, analysis: di
         rejected += rej2
         basis = "rule"
     pick = (picks or {}).get("hook")
-    pref = STYLE_PREF.get(ctx.style)
+    pat = getattr(ctx, "pattern", None)
+    pref = ((pat or {}).get("hook") or {}).get("type") or STYLE_PREF.get(ctx.style)      # 참고 패턴의 Hook 유형이 있으면 그 유형 우선
     for h in hooks:      # 영상 스타일마다 어울리는 Hook 유형이 다르다 (같은 상품 3스타일이 같은 Hook 이 되지 않도록)
         h["style_fit"] = h["total"] + (8 if h["type"] == pref else 0)
     best = next((h for h in hooks if h["id"] == pick), None) or max(hooks, key=lambda h: h["style_fit"], default=None)

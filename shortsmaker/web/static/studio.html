@@ -218,6 +218,23 @@
     <div id="err" class="note bad"></div>
   </section>
 
+  <section class="card" id="refLab">
+    <details>
+      <summary><b>REFERENCE LAB</b> <span class="note">참고 영상의 연출 공식만 분석해서 내 상품 영상에 적용 (복제/짜깁기 아님)</span></summary>
+      <p class="note">영상을 가져오거나 재편집하지 않아요. YouTube 링크(Gemini 분석), 올린 영상 파일(분석 후 삭제), 또는 영상 구조를 글로 적은 메모를 분석해서 후크·템포·스토리 구조 같은 <b>패턴</b>만 저장해요. Instagram/샤오홍슈 링크는 영상을 직접 볼 수 없어서 파일을 올리거나 메모를 적어 주세요. 참고 영상의 가격·후기·성능 같은 내용은 가져오지 않아요.</p>
+      <input id="refUrl" type="url" placeholder="YouTube Shorts / Instagram Reels / 샤오홍슈 링크 (선택)">
+      <input id="refFile" type="file" accept="video/*">
+      <textarea id="refNotes" rows="3" placeholder="영상 구조 메모 (선택): 어떻게 시작하고, 문제→감정→제품 등장이 언제, 자막/컷 느낌 등. 원문 대사를 옮겨 적지 않아도 돼요"></textarea>
+      <label style="display:flex;gap:8px;align-items:flex-start;margin-top:6px"><input type="checkbox" id="refRights" style="margin-top:3px">
+        <span class="note">내가 직접 만들었거나 사용 허락을 받은 영상이에요 (체크해야 Licensed Remix 대상으로 보관돼요. 체크하지 않으면 분석 후 파일을 삭제해요)</span></label>
+      <button class="primary" id="refGo">패턴 분석</button>
+      <div id="refBusy" class="note"></div>
+      <div id="refResult"></div>
+      <div id="refLib"></div>
+      <div id="refSel" class="note"></div>
+    </details>
+  </section>
+
   <section class="card" id="progress">
     <h2>제작 중… <span id="pmode" class="note"></span></h2>
     <div class="steps" id="steps"></div>
@@ -391,6 +408,7 @@ $("go").onclick = async () => {
   fd.append("compact", $("compact").checked ? "1" : "");
   fd.append("preview", $("previewFirst").checked ? "1" : "");
   fd.append("video_style", $("vstyle").value);
+  fd.append("reference_patterns", selectedRefs.join(","));
   fd.append("actor_mode", document.querySelector("input[name=actor]:checked").value);
   fd.append("cost_mode", $("costMode").value);
   fd.append("monthly_budget", $("monthlyBudget").value || "");
@@ -524,6 +542,92 @@ $("stratBox").addEventListener("change", (ev) => {
   else if (t.id === "stratStyle") stratCall({ action:"regenerate", stage:"hook", style:t.value });
 });
 
+
+
+// ---------------------------------------------------------------- REFERENCE LAB
+const R_HOOK = { problem_first:"문제 먼저", question:"질문형", curiosity_gap:"궁금증 유발", empathy:"공감형", shock_visual:"시각 충격", demo_first:"시연 먼저", number_list:"숫자/목록", direct_address:"직접 호명", pov:"POV", other:"기타" };
+const R_STAGE = { hook:"Hook", situation:"상황", problem:"문제", emotion:"감정", turning_point:"전환", product_reveal:"제품 공개", demo:"시연", benefit:"혜택", proof:"증거", cta:"CTA" };
+const R_STYLE = { fast_commerce:"빠른 상품형", story:"스토리", ugc:"UGC", lifestyle:"라이프스타일", demo:"시연", comparison:"비교", before_after:"전/후", unboxing:"언박싱" };
+const R_PLAT = { youtube_shorts:"YouTube Shorts", instagram_reels:"Instagram Reels", xiaohongshu:"샤오홍슈", tiktok:"TikTok", upload:"업로드", other:"기타" };
+const R_SCORE = { hook_strength:"Hook", story_strength:"Story", editing_quality:"편집", visual_quality:"비주얼", shortform_fit:"숏폼 적합", sales_connection:"판매 연결", product_fit:"상품 적합" };
+let selectedRefs = [], lastRef = null;
+function patBlock(r) {
+  const p = r.pattern || {}, sc = r.scores || {};
+  const st = (p.story_stages || []).map(x => R_STAGE[x] || x).join(" → ") || "-";
+  const row = (k, v) => `<div class="note"><b>${k}</b> ${v == null || v === "" ? "-" : esc(v)}</div>`;
+  return `<div class="card" style="margin:8px 0;padding:10px">
+    ${row("SOURCE", (R_PLAT[r.platform] || r.platform) + " · " + (r.status === "VERIFIED" ? "분석됨" : r.status === "PARTIAL" ? "부분 분석" : "분석 불가") + " · 신뢰도 " + Math.round((r.confidence || 0) * 100) + "%")}
+    ${row("STYLE", (R_STYLE[p.content_style] || p.content_style) + ((r.library_tags || []).length ? "  [" + r.library_tags.join(", ") + "]" : ""))}
+    ${row("HOOK", (R_HOOK[p.hook_pattern] || p.hook_pattern) + (p.hook_duration ? ` · ${p.hook_duration}초` : ""))}
+    ${row("STORY", st + (p.emotion_curve ? ` (감정: ${p.emotion_curve})` : ""))}
+    ${row("SCENE TEMPO", p.average_scene_duration ? `평균 ${p.average_scene_duration}초 · ${p.scene_count || "?"}장면 · ${p.video_duration || "?"}초` : "-")}
+    ${row("PRODUCT REVEAL", p.product_reveal_time != null ? p.product_reveal_time + "초" : "-")}
+    ${row("CAPTION", [p.caption_pattern, p.caption_density, p.caption_position].filter(Boolean).join(" / "))}
+    ${row("MOTION", [...(p.camera_motion || []), ...(p.image_motion || [])].join(", ") + ((p.transition_pattern || []).length ? " · 전환 " + p.transition_pattern.join(", ") : ""))}
+    ${row("CTA", p.cta_pattern)}
+    ${row("REFERENCE SCORE", Object.entries(sc).filter(([k, v]) => v != null).map(([k, v]) => `${R_SCORE[k] || k} ${v}`).join(" · ") || "-")}
+    ${r.note ? `<p class="note warn">⚠ ${esc(r.note)}</p>` : ""}
+  </div>`;
+}
+function styleFromPattern(p) {
+  const pre = (p.story_stages || []).filter(x => ["situation", "problem", "emotion"].includes(x)).length;
+  return pre >= 2 || p.content_style === "story" ? "STORY_AD" : (["ugc", "lifestyle"].includes(p.content_style) ? "UGC_REVIEW" : "FAST_COMMERCE");
+}
+async function loadRefLib() {
+  const res = await fetch("/api/v2/reference/patterns");
+  if (!res.ok) return;
+  const d = await res.json();
+  $("refLib").innerHTML = d.patterns.length ? `<b>패턴 라이브러리</b>` + d.patterns.map(r => `<label style="display:flex;gap:8px;align-items:flex-start;margin:6px 0;font-size:14px">
+    <input type="checkbox" data-refpick="${r.id}" ${selectedRefs.includes(r.id) ? "checked" : ""}>
+    <span>${esc(R_PLAT[r.platform] || r.platform)} · ${esc((r.library_tags || []).join(", ") || "-")} · 템포 ${r.pattern.average_scene_duration ?? "?"}s · 공개 ${r.pattern.product_reveal_time ?? "?"}s · 신뢰도 ${Math.round((r.confidence || 0) * 100)}%
+    <button data-refdel="${r.id}" style="padding:2px 8px;min-height:28px">삭제</button></span></label>`).join("") : `<p class="note">저장된 패턴이 없어요</p>`;
+  drawRefSel();
+}
+function drawRefSel() {
+  $("refSel").innerHTML = selectedRefs.length ? `영상 제작에 적용할 패턴 ${selectedRefs.length}개 선택됨 <button id="refClear" style="padding:2px 8px;min-height:28px">해제</button>` : "";
+}
+$("refGo").onclick = async () => {
+  const fd = new FormData();
+  const f = $("refFile").files[0];
+  if (f) fd.append("file", f);
+  fd.append("url", $("refUrl").value); fd.append("notes", $("refNotes").value);
+  fd.append("rights", $("refRights").checked ? "OWNED" : "NONE");
+  $("refGo").disabled = true; $("refBusy").textContent = "분석 중… (영상 링크/파일은 최대 1~2분 걸릴 수 있어요)";
+  try {
+    const res = await fetch("/api/v2/reference/analyze", { method:"POST", body:fd });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || "실패");
+    lastRef = d;
+    $("refResult").innerHTML = patBlock(d) + (d.status === "UNVERIFIED" ? "" : `<div class="actions"><button data-refsave="${d.id}">이 패턴 저장</button><button data-refmix="1">다른 Reference와 조합</button><button class="primary" data-refuse="${d.id}">이 패턴으로 영상 제작</button></div>`);
+    $("refBusy").textContent = "";
+  } catch (e) { $("refBusy").textContent = "⚠ " + e.message; }
+  $("refGo").disabled = false;
+};
+$("refLab").addEventListener("click", async (ev) => {
+  const t = ev.target;
+  if (t.dataset.refsave) { await fetch(`/api/v2/reference/patterns/${t.dataset.refsave}/save`, { method:"POST" }); t.textContent = "저장됨 ✓"; loadRefLib(); }
+  else if (t.dataset.refdel) { await fetch(`/api/v2/reference/patterns/${t.dataset.refdel}`, { method:"DELETE" }); selectedRefs = selectedRefs.filter(x => x !== t.dataset.refdel); loadRefLib(); }
+  else if (t.dataset.refuse) {
+    selectedRefs = [t.dataset.refuse]; await fetch(`/api/v2/reference/patterns/${t.dataset.refuse}/save`, { method:"POST" });
+    $("vstyle").value = styleFromPattern(lastRef.pattern); loadRefLib();
+    window.scrollTo({ top: 0, behavior: "smooth" }); $("err").textContent = "";
+    alert("이 패턴을 적용할 상품 사진/정보를 위에 입력하고 [쇼츠 제작]을 누르세요. 영상 스타일은 패턴에 맞게 바뀌었어요.");
+  }
+  else if (t.dataset.refmix) { $("refBusy").textContent = "아래 라이브러리에서 조합할 패턴을 2~3개 체크하세요 (장점 영역은 자동 선택돼요)."; }
+  else if (t.id === "refClear") { selectedRefs = []; loadRefLib(); }
+});
+$("refLab").addEventListener("change", async (ev) => {
+  const id = ev.target.dataset.refpick;
+  if (!id) return;
+  selectedRefs = ev.target.checked ? [...new Set([...selectedRefs, id])].slice(0, 3) : selectedRefs.filter(x => x !== id);
+  drawRefSel();
+  if (selectedRefs.length >= 2) {
+    const res = await fetch("/api/v2/reference/mix", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ ids:selectedRefs }) });
+    const d = await res.json();
+    if (res.ok) $("refSel").innerHTML += `<br>조합: ` + Object.entries(d.aspects).map(([k, v]) => `${k}=${v.from ? esc(R_PLAT[v.platform] || v.platform) : "기본"}`).join(" · ");
+  }
+});
+loadRefLib();
 
 // ---------------------------------------------------------------- 출연 방식 / AI 장면
 const BADGE = { "": ["ORIGINAL", "#4b5563"], PRODUCT_IMAGE: ["ORIGINAL", "#4b5563"], PRODUCT_VIDEO: ["REAL VIDEO", "#15803d"], REAL_UGC: ["REAL VIDEO", "#15803d"],

@@ -28,6 +28,7 @@ PERFORMANCE = re.compile(r"방수|내구|튼튼|오래 (?:가|간|쓰|돼)|하�
 EXPERIENCE = re.compile(
     r"(?:제가|저는|저도|내가|나는|직접|우리 집|저희)[^.?!]{0,12}(?:써|썼|쓰|사용|사봤|샀|구매|먹어|입어|해봤|해보니)"
     r"|써\s?봤|써\s?보니|써\s?본|사용해\s?봤|사용해\s?보니|사\s?봤|샀는데|구매해서|구매했|일주일|한\s?달\s?(?:째|동안)|매일 쓰|재구매|추천드려요|강추")
+OVERSEAS_TONE = re.compile(r"!{2,}|놓치지\s*마세요|필수템|신세계|갓성비|미친\s*(?:듯|가성비)|지금\s*당장\s*(?:사|구매)|빨리\s*(?:사|구매)|혁명|인생\s*(?:아이템|템)")
 FILLER = re.compile(r"(?<![가-힣])(?:정말|진짜|완전|엄청|너무|굉장히|아주|되게|매우)\s*")
 PRAISE = re.compile(r"최고|완벽|끝판왕|역대급|미쳤|대박|인생")
 
@@ -69,6 +70,7 @@ class Ctx:
     n_photos: int = 1
     has_clip: bool = False
     reference: dict | None = None            # 추상 패턴만 (reference.FIELDS)
+    pattern: dict | None = None              # REFERENCE_VIDEO_ENGINE 가이드 (구조/템포/복제 방지 해시)
     vision: dict | None = None
 
     @property
@@ -99,12 +101,12 @@ class Ctx:
 
 
 def make_ctx(p: ProductInput, style: str = "FAST_COMMERCE", mode: str = "PRO", identity=None, vision=None,
-             reference: dict | None = None, has_clip: bool = False) -> Ctx:
+             reference: dict | None = None, has_clip: bool = False, pattern: dict | None = None) -> Ctx:
     facts = allowed_facts(p, vision) + [f"후기(사용자 입력): {q}" for q in (p.review_quotes or [])]
     return Ctx(p=p, facts=facts, style=style if style in STYLES else "FAST_COMMERCE", mode=mode,
                colors=list(getattr(identity, "color_reference", []) or []) if identity else [],
                n_photos=len(getattr(identity, "photos", []) or p.photos) if identity else len(p.photos),
-               has_clip=has_clip, reference=reference, vision=vision)
+               has_clip=has_clip, reference=reference, vision=vision, pattern=pattern)
 
 
 SAFETY_RULES = (
@@ -192,6 +194,14 @@ def line_issues(text: str, ctx: Ctx, allow_comment_words: bool = False) -> list[
         out.append({"code": "direct_comment", "detail": DIRECT_COMMENT.search(t).group(0), "severity": "block"})
     if not getattr(ctx.p, "my_take", "") and EXPERIENCE.search(t):       # 사용자가 직접 써본 느낌을 주지 않았다면 사용 경험/구매 후기처럼 말하지 않는다
         out.append({"code": "fake_experience", "detail": EXPERIENCE.search(t).group(0), "severity": "block"})
+    if OVERSEAS_TONE.search(t):                                          # 번역투/해외 광고식 과장 (한국 사용자에게 어색한 표현)
+        out.append({"code": "overseas_tone", "detail": OVERSEAS_TONE.search(t).group(0), "severity": "block"})
+    pat = getattr(ctx, "pattern", None)
+    if pat and pat.get("fingerprint"):                                   # 참고 영상의 말/자막과 겹치면 복제 위험
+        from ..reference_engine.fingerprint import COPY_THRESHOLD, overlap
+        ov = overlap(t, pat["fingerprint"])
+        if ov >= COPY_THRESHOLD:
+            out.append({"code": "reference_copy", "detail": f"참고 영상 문구와 {int(ov * 100)}% 겹침", "severity": "block"})
     ft = ctx.facts_text
     for rx, code, label in ((SCARCITY, "scarcity_unverified", "확인되지 않은 희소성/할인"),
                             (SOCIAL, "social_unverified", "확인되지 않은 후기/인기")):

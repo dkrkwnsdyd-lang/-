@@ -147,7 +147,7 @@ def apply(script: dict, comment: dict) -> dict:
     new = {"scene_id": "", "beat": "benefit", "scene_role": "PROOF", "purpose": "대답하고 싶어지는 지점", "time": [0, 0],
            "duration": 1.8, "narration": strip_marks(sel["text"]), "tts_line": sel["text"], "caption": sel["caption"], "feature": "",
            "visual_source": "user_photo", "visual_prompt": "제품 실제 모습 유지", "product_visibility": "FULL", "proof_source": "",
-           "kind": "comment_trigger", "reliability": "B"}
+           "kind": "comment_trigger", "story_role": "comment", "reliability": "B"}
     scenes.insert(idx + 1, new)
     return renumber({**script, "scenes": scenes})
 

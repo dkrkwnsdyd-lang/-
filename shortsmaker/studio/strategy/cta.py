@@ -114,6 +114,14 @@ def run(router, ctx: Ctx, primary: dict | None, script: dict, picks: dict | None
     ok.sort(key=lambda c: -c["total"])
     for i, c in enumerate(ok):
         c["id"] = f"CTA{i + 1}"
+    want = ((getattr(ctx, "pattern", None) or {}).get("cta") or {}).get("strategy")        # 참고 패턴의 CTA 방식(soft_recommendation→DIRECT 등)
+    if want:
+        for c in ok:
+            if c["strategy"] == want:
+                c["total"] = round(c["total"] + 6, 1)
+        ok.sort(key=lambda c: -c["total"])
+        for i, c in enumerate(ok):
+            c["id"] = f"CTA{i + 1}"
     chosen = next((c for c in ok if c["id"] == (picks or {}).get("cta")), None) or (ok[0] if ok else None)
     n = len(script["scenes"])
     return {"basis": basis, "style": ctx.style, "eligibility": {k: {"allowed": v[0], "why": v[1]} for k, v in el.items()},

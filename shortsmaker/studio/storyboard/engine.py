@@ -58,7 +58,7 @@ def layout_context(identity, product, clip_paths, cutout_ok=None) -> layout_engi
 
 
 def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str] | None = None, style: str = "STANDARD",
-                     mode: str = "PRO", cutout_ok=None, post_layout=None) -> Storyboard:
+                     mode: str = "PRO", cutout_ok=None, post_layout=None, pattern_guide: dict | None = None) -> Storyboard:
     facts = grounding.allowed_facts(product, vision)
     warnings: list[str] = []
     director = SceneDirector(identity, product, facts, clip_paths)
@@ -70,6 +70,10 @@ def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str]
         s.transition = "cut" if i == 0 else s.transition
     styles.apply_tempo(scenes, style, floor=12.6 if getattr(product, "compact", False) else 0.0)
     styles.apply_transitions(scenes, style)
+    pattern_applied = {}
+    if pattern_guide:                                  # REFERENCE 패턴: 템포/Hook 길이/전환을 패턴에 맞춘다 (구조만, 내용 복사 없음)
+        from ..reference_engine.apply import shape_scenes
+        pattern_applied = shape_scenes(scenes, pattern_guide)
     layout_engine.select_layouts(scenes, layout_context(identity, product, clip_paths, cutout_ok))
     production = post_layout(scenes) if post_layout else {}      # 출연 방식(REAL_UGC/AI) 계획: 레이아웃 뒤, 모션 선택 앞
     for s in scenes:      # 영상 소스는 시연/사용 장면 레이아웃에서만 재생할 수 있다. 다른 레이아웃이 뽑히면 사진으로 되돌린다 (이미지로 못 여는 파일을 렌더러에 넘기지 않음)
@@ -77,9 +81,12 @@ def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str]
         if vs.get("kind") == "user_video" and s.layout not in ("demo", "lifestyle"):
             vs.update({"kind": "user_photo", "path": vs.get("fallback_path") or next((ph["path"] for ph in identity.photos), None),
                        "reason": vs.get("reason", "") + " (이 레이아웃은 영상을 재생하지 않아 사진 사용)"})
-    motion_director.select_motions(scenes, [f for f in product.features if f], styles.profile(style)["motion"]["bias"])
+    bias = dict(styles.profile(style)["motion"]["bias"])
+    for k, w in (((pattern_guide or {}).get("motion") or {}).get("bias") or {}).items():
+        bias[k] = bias.get(k, 0.0) + w                    # 참고 패턴의 카메라/모션 선호를 스타일 선호에 더한다
+    motion_director.select_motions(scenes, [f for f in product.features if f], bias)
     issues = validator.validate(scenes, [f for f in product.features if f])      # 품질 규칙 검사 + 안전한 자동 수정
-    sfx_director.direct_sfx(scenes, **{"ratio": styles.profile(style)["sfx"]["ratio"], "heavy": styles.profile(style)["sfx"]["heavy"]})       # 효과음은 layout/motion 이 정해진 뒤 (콜아웃 click, pan swipe 등)
+    sfx_director.direct_sfx(scenes, **{"ratio": ((pattern_guide or {}).get("sfx") or {}).get("ratio") or styles.profile(style)["sfx"]["ratio"], "heavy": styles.profile(style)["sfx"]["heavy"]})       # 효과음은 layout/motion 이 정해진 뒤 (콜아웃 click, pan swipe 등)
     distinct = {s.visual_source.get("path") for s in scenes if s.visual_source.get("path")}
     if len(scenes) > 2 * len(distinct) + 1:
         warnings.append(f"서로 다른 원본 {len(distinct)}개로 장면 {len(scenes)}개를 만들면 같은 화면이 반복돼요")
@@ -94,4 +101,9 @@ def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str]
                     music={"mood": MUSIC_BY_STYLE.get(style, MUSIC_BY_STYLE["STANDARD"]), "profile": styles.profile(style)["music"],
                            "cues": [{"scene_id": s.scene_id, "cue": s.music_cue} for s in scenes]},
                     facts=[{"text": f, "reliability": "A"} for f in facts], warnings=warnings, issues=issues, production=production or {})
+    if pattern_guide:
+        from ..reference_engine.apply import report
+        sb.production = {**(sb.production or {}), "caption_zone": (pattern_guide.get("caption") or {}).get("zone")}
+        sb.production["reference"] = {"applied": pattern_applied, "sources": pattern_guide.get("sources"), "aspects": pattern_guide.get("aspects"),
+                                      "style_suggestion": pattern_guide.get("style_suggestion"), "warnings": pattern_guide.get("warnings"), **report(sb, pattern_guide)}
     return sb

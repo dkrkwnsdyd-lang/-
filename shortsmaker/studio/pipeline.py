@@ -364,8 +364,18 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
             p.compact = True
             result.setdefault("warnings", []).append("원본 사진이 2장 이하라 같은 사진을 반복하지 않도록 12~15초로 짧게 만들었어요")
         with job.step("SCRIPT"):
+            pattern_guide = None
+            if p.reference_patterns:      # REFERENCE_VIDEO_ENGINE: 라이브러리 패턴(들)을 섞어 현재 상품용 연출 가이드로 (내용 복사 없음, 구조만)
+                from .reference_engine import build_guide, library as ref_lib, mix as ref_mix
+                recs = ref_lib.get_many(db, p.reference_patterns)
+                if recs:
+                    ctx0 = strategy_mod.make_ctx(p, p.video_style, mode, identity, result.get("vision"), has_clip=bool(video_paths))
+                    pattern_guide = build_guide(ref_mix.mix(recs, ctx0, p.reference_picks), ctx0)
+                    result["reference_guide"] = {k: v for k, v in pattern_guide.items() if k != "fingerprint"}
+                else:
+                    result.setdefault("warnings", []).append("선택한 Reference 패턴을 찾을 수 없어 기본 구성으로 만들었어요")
             sctx = strategy_mod.make_ctx(p, p.video_style, mode, identity, result.get("vision"), has_clip=bool(video_paths),
-                                         reference=result.get("reference"))
+                                         reference=result.get("reference"), pattern=pattern_guide)
             if p.director_data:        # Preview 에서 확인한 대본을 그대로 쓴다 (AI 가 다시 쓰면 확인한 내용이 달라짐)
                 data = dict(p.director_data)
                 if p.strategy_state:
@@ -490,11 +500,13 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 use_infos = clip_infos if presenter_mod.uses_real_clips(actor_mode) else []
                 clip_paths = [c["path"] for c in use_infos]
                 ref_photo = identity.photos[0]["path"] if identity.photos else None
-                sb = build_storyboard(plan, identity, p, result.get("vision"), clip_paths, style=p.video_style, mode=mode, cutout_ok=cutout_ok,
+                sb = build_storyboard(plan, identity, p, result.get("vision"), clip_paths, style=p.video_style, mode=mode, cutout_ok=cutout_ok, pattern_guide=pattern_guide,
                                       post_layout=lambda scs: presenter_mod.plan_production(
                                           scs, ctx=sctx, actor_mode=actor_mode, cost_mode=cost_mode, style=p.video_style, infos=use_infos, router=router,
                                           work_dir=out_dir / "real", reference_image=ref_photo))
                 sb.production["budget"] = budget_info
+                if sb.production.get("reference"):
+                    result["reference_application"] = sb.production["reference"]
                 lctx = layout_context(identity, p, clip_paths, cutout_ok)
                 sb_edits = preview_mod.apply_sb_edits(sb, p.edits, lctx, identity, [f for f in p.features if f])
                 if result.get("strategy"):

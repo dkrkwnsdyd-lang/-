@@ -113,14 +113,15 @@ def test_control_center_never_calls_paid_video(tmp_path):
 # ------------------------------------------------------------------ db
 def test_migration_up_down(tmp_path):
     db = DB(tmp_path / "x.db")
-    assert db.applied() == ["0001_v2_init", "0002_ai_generations"]
+    assert db.applied() == ["0001_v2_init", "0002_ai_generations", "0003_reference_patterns"]
     db.create_job("j1", "PRO", "p", {})
-    assert db.rollback() == "0002_ai_generations"            # 가장 최근 것만 되돌린다 (기존 데이터는 그대로)
+    assert db.rollback() == "0003_reference_patterns"            # 가장 최근 것만 되돌린다 (기존 데이터는 그대로)
+    assert db.rollback() == "0002_ai_generations"
     assert db.applied() == ["0001_v2_init"] and db.job("j1")
     assert db.rollback() == "0001_v2_init"
     assert db.applied() == []
     db.migrate()
-    assert db.applied() == ["0001_v2_init", "0002_ai_generations"]
+    assert db.applied() == ["0001_v2_init", "0002_ai_generations", "0003_reference_patterns"]
 
 
 # ------------------------------------------------------------------ director
@@ -2022,3 +2023,249 @@ def test_auto_mode_priority_real_clip_first_then_presenter_then_ugc_then_product
     assert any(a["kind"] == "AI_PRESENTER" for a in story["storyboard"]["production"]["ai_scenes"])                                   # 2순위
     plain, _ = _ai_job(tmp_path, "AUTO", "ECONOMY", "a3", [P()], consent=False)
     assert plain["storyboard"]["production"]["effective_actor"] == "PRODUCT_ONLY" and P.calls == 0                                    # 4순위
+
+
+# ------------------------------------------------------------------ REFERENCE_VIDEO_ENGINE
+def _ref_built(key, category=""):
+    from reference_fixtures import analysis
+    from shortsmaker.studio.reference_engine import patterns
+    return patterns.build(analysis(key), category)
+
+
+def _ref_db(tmp_path, keys, saved=True):
+    from shortsmaker.studio.reference_engine import library
+    db = DB(tmp_path / "ref.db")
+    ids = {}
+    for k in keys:
+        ids[k] = library.save_draft(db, _ref_built(k))
+        if saved:
+            library.mark_saved(db, ids[k])
+    return db, ids
+
+
+def test_pattern_contains_only_abstract_values_and_no_original_text():
+    import json
+    b = _ref_built("xhs1_story")
+    blob = json.dumps(b["pattern"], ensure_ascii=False) + json.dumps(b["scores"])
+    assert "가상의 중국어" not in blob and "_transcript" not in b["pattern"]                      # 원문은 패턴에 없다
+    assert b["fingerprint"] and all(len(h) == 10 for h in b["fingerprint"])                      # 해시만 남는다
+    assert b["pattern"]["story_stages"][0] == "hook" and b["pattern"]["product_reveal_time"] == 9.5
+    assert "LATE_PRODUCT_REVEAL" in b["library_tags"] and "EMOTIONAL_STORY" in b["library_tags"] and "PROBLEM_STORY" in b["library_tags"]
+    assert "FAST_REVEAL" in _ref_built("yt1_problem_fast")["library_tags"]
+    assert "BEFORE_AFTER" in _ref_built("ig3_before_after")["library_tags"] and "COMPARISON" in _ref_built("yt3_number_compare")["library_tags"]
+    assert "UGC_DISCOVERY" in _ref_built("ig1_ugc_fast")["library_tags"] and "LIFESTYLE" in _ref_built("ig2_lifestyle")["library_tags"]
+
+
+def test_pattern_sanitizes_unknown_values_and_data_claims():
+    from shortsmaker.studio.reference_engine import patterns
+    raw = {"platform": "other", "source_ref": "x", "status": "PARTIAL", "method": "t", "data": {
+        "hook_pattern": "만든 값", "story_stages": ["hook", "weird", "problem"], "caption_pattern": "short_center", "product_reveal_time": "9999",
+        "story_roles": {"situation": "평점 4.9에 10만개 판매", "problem": "작은 불편"}, "selling_structure": "30% 할인 강조",
+        "scores": {"hook_strength": 250, "story_strength": "x"}}, "local": {}}
+    b = patterns.build(raw)
+    p = b["pattern"]
+    assert p["hook_pattern"] is None and p["story_stages"] == ["hook", "problem"] and p["product_reveal_time"] == 600.0
+    assert p["story_roles"]["situation"] == "" and p["story_roles"]["problem"] == "작은 불편" and p["selling_structure"] == ""       # 수치/할인/평점/판매량은 버린다
+    assert b["scores"]["hook_strength"] == 100.0 and b["scores"]["story_strength"] is None
+
+
+def test_copy_prevention_blocks_text_overlapping_reference_but_not_new_text():
+    from reference_fixtures import REFS
+    from shortsmaker.studio.reference_engine import fingerprint
+    from shortsmaker.studio.strategy import make_ctx
+    from shortsmaker.studio.strategy.common import line_issues
+    fp = fingerprint.make([REFS["yt1_problem_fast"][1]["_transcript"]])
+    assert fingerprint.overlap("이 가상의 테스트 문장은 실제 영상이 아닙니다 절대 복사하면 안 되는 문장", fp) > 0.9
+    assert fingerprint.overlap("원터치 뚜껑이 있어요", fp) < 0.1 and fingerprint.overlap("짧음", fp) == 0.0
+    ctx = make_ctx(_sp(), pattern={"fingerprint": fp, "story": {}, "hook": {}})
+    assert any(i["code"] == "reference_copy" for i in line_issues("가상의 테스트 문장은 실제 영상이 아닙니다 절대 복사하면 안 되는 문장", ctx))
+    assert not any(i["code"] == "reference_copy" for i in line_issues("원터치 뚜껑이 있어요", ctx))
+
+
+def test_overseas_tone_is_blocked():
+    from shortsmaker.studio.strategy import make_ctx
+    from shortsmaker.studio.strategy.common import line_issues
+    ctx = make_ctx(_sp())
+    for t in ("이거 놓치지 마세요!!", "신세계를 경험하세요", "필수템이에요", "지금 당장 사세요"):
+        assert any(i["code"] in ("overseas_tone", "cliche") for i in line_issues(t, ctx)), t
+    assert not line_issues("원터치 뚜껑이 있어요", ctx)
+
+
+def test_library_save_list_delete_and_draft_visibility(tmp_path):
+    from shortsmaker.studio.reference_engine import library
+    db, ids = _ref_db(tmp_path, ["yt1_problem_fast", "xhs1_story"], saved=False)
+    assert library.list_patterns(db) == []                                                    # 초안은 라이브러리에 안 보임
+    library.mark_saved(db, ids["xhs1_story"])
+    lst = library.list_patterns(db)
+    assert [r["id"] for r in lst] == [ids["xhs1_story"]] and "fingerprint" not in lst[0]
+    assert library.list_patterns(db, tag="LATE_PRODUCT_REVEAL")[0]["platform"] == "xiaohongshu"
+    assert library.get(db, ids["xhs1_story"])["fingerprint"]
+    assert library.delete(db, ids["xhs1_story"]) and library.get(db, ids["xhs1_story"]) is None
+
+
+def test_pattern_mix_auto_takes_hook_from_youtube_story_from_xhs_tempo_from_reels(tmp_path):
+    from shortsmaker.studio.reference_engine import library, mix as ref_mix
+    from shortsmaker.studio.strategy import make_ctx
+    db, ids = _ref_db(tmp_path, ["yt1_problem_fast", "xhs1_story", "ig1_ugc_fast"])
+    recs = library.get_many(db, list(ids.values()))
+    m = ref_mix.mix(recs, make_ctx(_sp()))
+    a = m["aspects"]
+    assert a["hook"]["platform"] == "youtube_shorts" and a["story"]["platform"] == "xiaohongshu" and a["tempo"]["platform"] == "instagram_reels"
+    assert m["values"]["hook_pattern"] == "problem_first" and "turning_point" in m["values"]["story_stages"] and m["values"]["average_scene_duration"] == 1.4
+    assert len(m["sources"]) == 3 and m["fingerprint"]                                       # 원본이 아니라 패턴 값만 조합
+    manual = ref_mix.mix(recs, None, {"hook": ids["ig1_ugc_fast"]})
+    assert manual["aspects"]["hook"]["from"] == ids["ig1_ugc_fast"] and manual["aspects"]["hook"]["reason"] == "사용자가 선택"
+
+
+def test_guide_drops_story_stages_without_product_facts_and_keeps_structure(tmp_path):
+    from shortsmaker.studio.reference_engine import library, mix as ref_mix
+    from shortsmaker.studio.reference_engine.apply import build_guide
+    from shortsmaker.studio.strategy import make_ctx
+    db, ids = _ref_db(tmp_path, ["xhs1_story"])
+    recs = library.get_many(db, list(ids.values()))
+    with_problem = build_guide(ref_mix.mix(recs, make_ctx(_sp())), make_ctx(_sp()))
+    roles = [x["role"] for x in with_problem["story"]["beat_plan"]]
+    assert roles[0] == "hook" and roles[-1] == "cta" and "situation" in roles and "turning" in roles and "pain_emotion" in roles
+    assert [x["beat"] for x in with_problem["story"]["beat_plan"]].index("reveal") > [x["beat"] for x in with_problem["story"]["beat_plan"]].index("problem")
+    assert with_problem["style_suggestion"] == "STORY_AD" and with_problem["tempo"]["avg"] == 2.4
+    no_problem = build_guide(ref_mix.mix(recs, make_ctx(_sp(problem=""))), make_ctx(_sp(problem="")))
+    assert not [x for x in no_problem["story"]["beat_plan"] if x["beat"] == "problem"]       # 근거가 없으면 상황/문제를 지어내지 않는다
+    assert no_problem["warnings"] and "뺐어요" in no_problem["warnings"][0]
+    assert len(with_problem["story"]["beat_plan"]) <= 8
+
+
+def test_strategy_follows_reference_story_structure_with_new_product_text(tmp_path):
+    from reference_fixtures import REFS
+    from shortsmaker.studio.reference_engine import fingerprint, library, mix as ref_mix
+    from shortsmaker.studio.reference_engine.apply import build_guide
+    from shortsmaker.studio.strategy import make_ctx, run_strategy
+    db, ids = _ref_db(tmp_path, ["xhs1_story"])
+    recs = library.get_many(db, list(ids.values()))
+    ctx0 = make_ctx(_sp(), style="STORY_AD")
+    guide = build_guide(ref_mix.mix(recs, ctx0), ctx0)
+    st = run_strategy(None, make_ctx(_sp(), style="STORY_AD", pattern=guide))
+    scenes = st["final_script"]["scenes"]
+    roles = [s["story_role"] for s in scenes]
+    assert "situation" in roles and "turning" in roles and roles.index("situation") < roles.index("turning")
+    text = " ".join(s["narration"] for s in scenes)
+    assert fingerprint.overlap(text, recs[0]["fingerprint"]) < 0.1                           # 참고 영상 문장과 겹치지 않음
+    assert "원터치" in text or "컵홀더" in text                                              # 현재 상품 정보만 사용
+    assert st["conversion_audit"]["gate"]["passed"], st["conversion_audit"]["gate"]
+
+
+def test_storyboard_applies_reference_tempo_hook_length_transitions_and_motion(tmp_path):
+    from shortsmaker.studio.director import direct_scenes, rule_director
+    from shortsmaker.studio.product import ProductInput, analyze_photo, build_identity
+    from shortsmaker.studio.reference_engine import library, mix as ref_mix
+    from shortsmaker.studio.reference_engine.apply import build_guide
+    from shortsmaker.studio.storyboard import build_storyboard
+    from shortsmaker.studio.strategy import make_ctx
+    photos = make_photos("kitchen_tumbler", tmp_path / "p", 3)
+    P = PRODUCTS["kitchen_tumbler"]
+    p = ProductInput(name=P["name"], features=P["features"], problem=P["problem"], photos=photos)
+    ident = build_identity(p, [analyze_photo(x) for x in photos], "t1")
+    plan = direct_scenes(rule_director(p, "PRO"), ident, p, "PRO")
+    db, ids = _ref_db(tmp_path, ["ig1_ugc_fast"])
+    ctx = make_ctx(p)
+    guide = build_guide(ref_mix.mix(library.get_many(db, list(ids.values())), ctx), ctx)
+    base = build_storyboard(plan, ident, p, None, [], style="FAST_COMMERCE", mode="PRO")
+    plan2 = direct_scenes(rule_director(p, "PRO"), ident, p, "PRO")
+    ref = build_storyboard(plan2, ident, p, None, [], style="FAST_COMMERCE", mode="PRO", pattern_guide=guide)
+    avg = lambda sb: sb.total_duration / len(sb.scenes)
+    assert avg(ref) < avg(base) and abs(avg(ref) - 1.4) < 0.5                                 # 참고 패턴(평균 1.4초)의 템포에 가까워진다
+    assert ref.scenes[0].duration <= 1.2 + 1e-6
+    assert ref.production["reference"]["applied"]["tempo_scale"] < 1 and ref.production["reference"]["sources"]
+    assert any(s.transition == "whip" for s in ref.scenes[1:])                                # 패턴의 whip 전환
+    assert "handheld" in guide["motion"]["patterns"] or "punch_in" in guide["motion"]["patterns"]
+
+
+def test_analyzer_platform_rules_and_unavailable_sources(tmp_path):
+    from shortsmaker.studio.reference_engine import analyzer
+    off = _Offline(db=DB(tmp_path / "a.db"))
+    ig = analyzer.analyze(off, url="https://www.instagram.com/reel/ABC123/")
+    assert ig["platform"] == "instagram_reels" and ig["status"] == "UNVERIFIED" and "올리거나" in ig["note"]            # 다운로드 안 함 → 올바른 입력 방법 안내
+    xhs = analyzer.analyze(off, url="https://www.xiaohongshu.com/explore/66aabbcc")
+    assert xhs["platform"] == "xiaohongshu" and xhs["status"] == "UNVERIFIED"
+    search = analyzer.analyze(off, url="https://www.youtube.com/results?search_query=텀블러")
+    assert search["status"] == "UNVERIFIED" and "개별 영상" in search["note"]
+    yt = analyzer.analyze(off, url="https://www.youtube.com/shorts/abcdefghijk")
+    assert yt["status"] == "UNVERIFIED" and "Gemini" in yt["note"]
+    assert analyzer.analyze(off)["status"] == "UNVERIFIED"
+
+
+def test_analyzer_upload_uses_local_metrics_and_vision_then_deletes_nothing_it_does_not_own(tmp_path):
+    from shortsmaker.studio.reference_engine import analyzer, patterns
+    from reference_fixtures import REFS
+    v = _make_video(tmp_path / "ref.mp4", 360, 640, 6)
+    local_only = analyzer.analyze(_Offline(db=DB(tmp_path / "b.db")), file=v)
+    assert local_only["status"] == "PARTIAL" and local_only["local"]["duration"] > 4 and "Vision" in local_only["note"]
+    b0 = patterns.build(local_only)
+    assert b0["pattern"]["video_duration"] and b0["pattern"]["hook_pattern"] is None and b0["confidence"] < 0.5          # 측정값만 채우고 나머지는 비움
+    fake = _FakeVision({k: v2 for k, v2 in REFS["ig1_ugc_fast"][1].items()})
+    router = type("R", (_Offline,), {"has_real": lambda s, t: t == "vision", "run": lambda s, t, m, **k: fake.run(t, m, **k)})(db=DB(tmp_path / "b2.db"))
+    full = analyzer.analyze(router, file=v)
+    assert full["status"] == "VERIFIED" and full["method"].endswith("frames+local") and Path(v).exists()
+    assert patterns.build(full)["pattern"]["hook_pattern"] == "pov"
+
+
+def test_notes_analysis_goes_through_llm_and_marks_partial(tmp_path):
+    from shortsmaker.studio.reference_engine import analyzer
+    from reference_fixtures import REFS
+    fake = _FakeVision(dict(REFS["xhs2_emotional"][1]))
+    router = type("R", (_Offline,), {"has_real": lambda s, t: t == "llm", "run": lambda s, t, m, **k: fake.run(t, m, **k)})(db=DB(tmp_path / "n.db"))
+    r = analyzer.analyze(router, notes="아침에 시작해서 불편이 생기고 중간에 제품이 나오는 영상", url="https://www.xiaohongshu.com/explore/66aabbcc")
+    assert r["status"] == "PARTIAL" and r["platform"] == "xiaohongshu" and "메모" in r["note"]
+
+
+def test_licensed_remix_requires_user_attested_rights_and_never_external_urls():
+    import pytest
+    from shortsmaker.studio.reference_engine.remix import RemixNotAllowed, RemixSource, can_remix, plan
+    assert not can_remix(RemixSource("https://youtu.be/x", "OWNED", True, origin="url"))[0]
+    assert not can_remix(RemixSource("a.mp4", "NONE", True))[0] and not can_remix(RemixSource("a.mp4", "OWNED", False))[0]
+    assert plan([RemixSource("a.mp4", "OWNED", True)], ["trim", "bogus"])["operations"] == ["trim"]
+    with pytest.raises(RemixNotAllowed):
+        plan([RemixSource("a.mp4", "OWNED", True), RemixSource("b.mp4", "NONE", True)])
+
+
+def test_pipeline_applies_reference_pattern_to_preview_and_renders_mp4(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from shortsmaker.studio.pipeline import run_job
+    db, ids = _ref_db(tmp_path, ["xhs1_story"])
+    base = _preview_base(tmp_path)
+    inp = {**base, "reference_patterns": [ids["xhs1_story"]], "video_style": "STORY_AD", "actor_mode": "PRODUCT_ONLY", "cost_mode": "ECONOMY"}
+    pv = run_job({**inp, "preview": True}, "PRO", ["youtube"], out_root=tmp_path / "o1", db=db, render=(270, 480, 10), router=_Offline(db=db, job_id="r1"))
+    assert pv["status"] == "PREVIEW_READY", pv.get("error")
+    ra = pv["reference_application"]
+    assert ra["sources"] and ra["scene_count"] == len(pv["storyboard"]["scenes"]) and ra["target_avg"] == 2.4
+    roles = [s["story_role"] for s in pv["storyboard"]["scenes"]]
+    assert "situation" in roles and "turning" in roles
+    assert all(Path(x).exists() for x in pv["preview"]["thumbs"].values())
+    plain = run_job({**base, "preview": True, "video_style": "STORY_AD", "actor_mode": "PRODUCT_ONLY", "cost_mode": "ECONOMY"}, "PRO", ["youtube"],
+                    out_root=tmp_path / "o2", db=db, render=(270, 480, 10), router=_Offline(db=db, job_id="r2"))
+    assert "reference_application" not in plain                                              # 패턴을 안 고르면 기존 동작 그대로
+    r = run_job(inp, "FAST", ["youtube"], out_root=tmp_path / "o3", db=db, render=(270, 480, 10), router=_Offline(db=db, job_id="r3"))
+    assert r["status"] in ("COMPLETE", "QUALITY_FAIL", "NEEDS_REVIEW"), r.get("error")
+    assert Path(r["master"]).exists()
+    assert not [x for x in r["strategy"]["final_script"]["scenes"] if "가상의" in x["narration"]]
+
+
+def test_reference_api_list_save_delete_mix(tmp_path):
+    from fastapi.testclient import TestClient
+    from shortsmaker.studio.reference_engine import library
+    from shortsmaker.web.app import create_app
+    c = TestClient(create_app({}, tmp_path / "o", tmp_path / "u"))
+    from shortsmaker.db import DB as _DB
+    dbp = (tmp_path / "data" / "shorts.db")
+    db = _DB(dbp)
+    a = library.save_draft(db, _ref_built("yt1_problem_fast"))
+    b = library.save_draft(db, _ref_built("xhs1_story"))
+    assert c.get("/api/v2/reference/patterns").json()["patterns"] == []
+    assert c.post(f"/api/v2/reference/patterns/{a}/save").json()["saved"]
+    c.post(f"/api/v2/reference/patterns/{b}/save")
+    lst = c.get("/api/v2/reference/patterns").json()["patterns"]
+    assert {r["id"] for r in lst} == {a, b} and all("fingerprint" not in r for r in lst)
+    mix = c.post("/api/v2/reference/mix", json={"ids": [a, b]}).json()
+    assert mix["aspects"]["hook"]["platform"] == "youtube_shorts" and mix["aspects"]["story"]["platform"] == "xiaohongshu"
+    assert c.post("/api/v2/reference/mix", json={"ids": ["nope"]}).status_code == 404
+    assert c.post("/api/v2/reference/analyze", data={}).status_code == 400
+    assert c.delete(f"/api/v2/reference/patterns/{a}").json()["deleted"] and c.delete(f"/api/v2/reference/patterns/{a}").status_code == 404

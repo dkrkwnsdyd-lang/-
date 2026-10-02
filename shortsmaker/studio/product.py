@@ -36,6 +36,8 @@ class ProductInput:
     strategy_auto: bool = True        # AUTO 최적화: 전략 자동 선택 + Conversion Audit 자동 수정
     strategy_state: dict | None = None  # Preview 에서 확정한 전략 단계 결과 (재사용)
     strategy_force: bool = False      # Quality Gate 미통과여도 사용자가 확인하고 제작
+    reference_patterns: list[str] = field(default_factory=list)   # Pattern Library id (REFERENCE_VIDEO_ENGINE): 구조만 적용, 내용 복사 없음
+    reference_picks: dict | None = None                           # 영역별 수동 선택 {"hook": id, "story": id, "tempo": id, "cta": id} (없으면 AUTO MIX)
     actor_mode: str = "AUTO"          # PRODUCT_ONLY | REAL_UGC | AI_PRESENTER | AI_PRODUCT_UGC | AUTO (presenter/modes.py)
     cost_mode: str = "BALANCED"       # ECONOMY | BALANCED | PREMIUM (AI 영상 길이 상한)
     monthly_budget: float | None = None  # 월 AI 예산(USD). 넘으면 비용 모드를 내린다. 결제는 하지 않는다

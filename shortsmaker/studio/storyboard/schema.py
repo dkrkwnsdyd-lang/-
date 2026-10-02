@@ -57,6 +57,7 @@ class StoryScene:
     claims: list = field(default_factory=list)              # [{"text","reliability","note"}]
     decisions: dict = field(default_factory=dict)           # {"layout": 이유, "motion": 이유, ...} 감사용
     scene_role: str = ""                                    # Strategy Engine: HOOK|PROBLEM|SOLUTION|PROOF|CTA
+    story_role: str = ""                                    # Reference 패턴의 스토리 역할 (situation/pain/pain_emotion/turning/reveal/demo/result/proof)
     source_type: str = ""                                   # PRODUCT_IMAGE|PRODUCT_VIDEO|REAL_UGC|AI_PRESENTER|AI_PRODUCT_UGC|BROLL|TEXT_ONLY (빈 값=PRODUCT_IMAGE)
     ai: dict = field(default_factory=dict)                  # AI 장면 정보 {kind, status, provider, model, prompt, seconds, cost, retry_count, fidelity, cache_key, mock, fallback_path}
     product_visibility: str = ""                            # NONE|HINT|PARTIAL|FULL

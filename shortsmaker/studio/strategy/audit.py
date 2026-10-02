@@ -61,7 +61,10 @@ def measure(ctx: Ctx, state: dict, script: dict) -> dict:
     real_proof = bool(proof and any(k in (proof.get("proof_source") or "") for k in ("review_quote", "my_take")))
     order_ok = (sc[0]["beat"] == "hook" and sc[-1]["beat"] == "cta" and (reveal is None or all(
         sc.index(s) > sc.index(reveal) for s in sc if s["beat"] in ("demo", "detail"))))
-    return {"seconds": total, "reveal_at": reveal_at, "cps": round(cps, 2), "coverage": round(cov, 2), "repeats": repeats,
+    rt = ((getattr(ctx, "pattern", None) or {}).get("reveal_target"))                   # Reference 패턴이 늦은 공개(스토리형)면 그 타이밍까지 허용
+    reveal_limit = max(5.0, float(rt) + 1.5) if rt else 5.0
+    problem_limit = 4.0 if not rt or rt < 6 else 7.0
+    return {"seconds": total, "reveal_at": reveal_at, "reveal_limit": reveal_limit, "problem_limit": problem_limit, "cps": round(cps, 2), "coverage": round(cov, 2), "repeats": repeats,
             "claims_c": claims_c, "style_bad": style_bad, "hook_blocks": len(hook_blocks),
             "hook_is_selected": narr.startswith(strip_marks(hook_sel.get("text", "\0"))), "problem_secs": round(problem_secs, 2), "solution_feature_scenes": len(solution),
             "hook_seconds": speak_seconds(sc[0]["narration"]), "real_proof": real_proof, "has_proof_scene": proof is not None,
@@ -86,7 +89,7 @@ def det_scores(ctx: Ctx, m: dict, state: dict) -> dict:
     if not m["has_proof_scene"]:
         trust = min(trust, 40)
     cta = m["cta_total"] if m["cta_total"] is not None else 40
-    retention = 100 - 14 * len(m["repeats"]) - (18 if (m["reveal_at"] or 0) > 5.0 else 0) - (12 if m["problem_secs"] > 4 else 0) \
+    retention = 100 - 14 * len(m["repeats"]) - (18 if (m["reveal_at"] or 0) > m["reveal_limit"] else 0) - (12 if m["problem_secs"] > m["problem_limit"] else 0) \
         - (15 if m["avg_scene"] > 3.4 else 0) - (10 if m["avg_scene"] < 1.3 else 0) - (20 if not m["order_ok"] else 0) \
         - 5 * max(0, m["solution_feature_scenes"] - 2) + 5
     density = 100 - 16 * abs(m["cps"] - 5.2) - 8 * max(0, m["solution_feature_scenes"] - 2) - 4 * m["filler"]
@@ -107,7 +110,7 @@ def timeline(ctx: Ctx, script: dict, m: dict, scores: dict) -> list[dict]:
                 risk, why, thought, fix, code = r, w, THOUGHT.get(t, t), f, c
         if s["beat"] == "hook" and (m["hook_seconds"] > 3.5 or scores["hook_strength"] < 60):
             bump("HIGH", f"Hook 이 {m['hook_seconds']}초 / 점수 {scores['hook_strength']}", "hook_long", "Hook 을 더 짧고 구체적으로", "hook_weak")
-        if s["beat"] == "reveal" and (m["reveal_at"] or 0) > 5.0:
+        if s["beat"] == "reveal" and (m["reveal_at"] or 0) > m["reveal_limit"]:
             bump("HIGH", f"제품 공개가 {m['reveal_at']}초에 등장", "late_reveal", "공개 전 장면을 줄이기", "late_reveal")
         if any(s["scene_id"] == b and jaccard(s["narration"], sc[[x["scene_id"] for x in sc].index(a)]["narration"]) >= 0.6 for a, b, _ in m["repeats"]):
             bump("HIGH", "앞 장면과 거의 같은 말", "repeat", "중복 장면 삭제", "repeat")
@@ -144,7 +147,7 @@ def issues_from(ctx: Ctx, m: dict, scores: dict, tl: list[dict]) -> list[dict]:
     if scores["selling_point_clarity"] < GATE_MIN["selling_point_clarity"]:
         add("P1", "selling_diluted", f"핵심 구매 이유 전달 {scores['selling_point_clarity']}점",
             "핵심 구매 이유가 대본에 충분히 드러나지 않거나 기능이 분산됨", "핵심 기능 장면을 앞으로, 곁가지 기능 제거", "'그래서 뭐가 좋은데'를 한 번에 이해", None, "ensure_primary")
-    if (m["reveal_at"] or 0) > 5.0:
+    if (m["reveal_at"] or 0) > m["reveal_limit"]:
         add("P1", "late_reveal", f"제품 공개가 {m['reveal_at']}초", "공개 전 장면이 김", "문제 장면 축소/삭제", "관심 유지", None, "shorten_intro")
     if m["repeats"]:
         a, b, s = m["repeats"][0]
@@ -160,7 +163,7 @@ def issues_from(ctx: Ctx, m: dict, scores: dict, tl: list[dict]) -> list[dict]:
         add("P2", "enumeration", f"기능 설명 장면 {m['solution_feature_scenes']}개", "한 영상에서 여러 장점을 설명", "가장 강한 기능 하나만 남김", "핵심 전달", None, "focus")
     if m["filler"]:
         add("P2", "filler", f"의미 없는 형용사/과한 칭찬 {m['filler']}개", "정말/진짜/최고 같은 말", "삭제", "신뢰 상승", None, "strip_filler")
-    if m["problem_secs"] > 4:
+    if m["problem_secs"] > m["problem_limit"]:
         add("P2", "long_problem", f"문제 장면 {m['problem_secs']}초", "문제 설명이 김", "문장 단축", "이탈 감소", None, "shorten_intro")
     if m["comment_scene"] and m["n_scenes"] >= 7:
         add("P3", "comment_overload", "댓글 장치로 CTA 직전 흐름이 길어짐", "판매 흐름 방해 가능", "댓글 장치 삭제", "흐름 개선", None, "drop_comment")

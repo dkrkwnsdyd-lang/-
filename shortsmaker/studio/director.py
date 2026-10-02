@@ -79,6 +79,7 @@ class Scene:
     takes: int = 1
     ref_locked: bool = False            # 사용자가 특징-사진을 연결한 장면: 사진을 바꾸지 않는다
     status: str = "PLANNED"
+    story_role: str = ""                # Reference 패턴 스토리 역할(situation/pain/turning/...)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -530,6 +531,7 @@ def direct_scenes(plan_data: dict, identity: ProductIdentity, p: ProductInput, m
             continuity_rules=["same product_id " + identity.product_id, "same color", "same logo",
                               "same button position", "same proportions"],
             shot=shot, emphasis=emphasis_of(caption), takes=takes, ref_locked=locked,
+            story_role=b.get("story_role", ""),
             start_frame=f"{identity.name} {'held in frame' if beat != 'problem' else 'not visible'}",
             end_frame={"reveal": "product fully visible, centered", "demo": "feature clearly visible",
                        "cta": "product hero, centered"}.get(beat, "same framing, product unchanged"),

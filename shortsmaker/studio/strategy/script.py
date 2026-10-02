@@ -31,7 +31,9 @@ SYSTEM = (
     "PROOF 는 allowed_facts 의 실제 기능/후기/직접 써본 느낌만 근거로 쓰고, 근거가 없으면 '실제 모습/기능 설명'으로 쓴다(가짜 후기 금지). "
     "problem 은 allowed_facts 에 '해결하는 불편'이 있을 때만 쓴다. 한 영상에서 모든 장점을 말하지 않는다 - primary_selling_point 하나에 집중. "
     "기능 나열, 의미 없는 형용사, 과한 칭찬 금지. cta 는 자리표시로 짧게 써도 된다(별도 단계에서 확정). "
-    'JSON: {"beats":[{"beat","tts_line","caption","feature":"이 장면이 보여주는 입력 특징 문장(없으면 빈 문자열)","visual_prompt":"실제 사진/영상으로 무엇을 보여줄지 한 줄"}]}'
+    "reference_pattern 이 있으면 beat_plan 의 순서/역할(story_role: situation/pain/pain_emotion/turning/reveal/demo/result/proof)을 그대로 따라 beats 를 쓰되, 참고 영상의 문장/내용은 모르는 상태에서 "
+    "현재 상품의 allowed_facts 로만 새 문장을 쓴다. 외국어 직역체, 중국식 광고 표현, 과도한 감탄(!!), '놓치지 마세요/필수템/신세계' 같은 표현 금지. "
+    'JSON: {"beats":[{"beat","story_role","tts_line","caption","feature":"이 장면이 보여주는 입력 특징 문장(없으면 빈 문자열)","visual_prompt":"실제 사진/영상으로 무엇을 보여줄지 한 줄"}]}'
 )
 
 
@@ -43,6 +45,19 @@ def structure_for(ctx: Ctx) -> list[str]:
         if len(st) > 5:
             st = [b for b in st if b != "problem"]
     return st
+
+
+def plan_for(ctx: Ctx) -> list[tuple[str, str]]:
+    """(beat, story_role). Reference 패턴이 있으면 그 스토리 단계(상황/문제/감정/전환 …)를, 없으면 스타일 기본 구조."""
+    pat = getattr(ctx, "pattern", None)
+    if pat and (pat.get("story") or {}).get("beat_plan"):
+        plan = [(x["beat"], x["role"]) for x in pat["story"]["beat_plan"]]
+        if ctx.mode == "FAST" or getattr(ctx.p, "compact", False):          # 짧은 구조에서는 장면 수 한계(5)에 맞춰 감정/상황부터 줄인다
+            for victim in (("problem", "pain_emotion"), ("problem", "situation"), ("benefit", "proof"), ("problem", "pain")):
+                if len(plan) > 5 and victim in plan:
+                    plan.remove(victim)
+        return plan
+    return [(b, b) for b in structure_for(ctx)]
 
 
 def _proof_line(ctx: Ctx) -> tuple[str, str, str]:
@@ -70,10 +85,23 @@ def rule_beats(ctx: Ctx, primary: dict | None, hook: dict | None) -> list[dict]:
         feats = list(p.features)
     ugc = ctx.style == "UGC_REVIEW"
     out = []
-    for beat in structure_for(ctx):
+    for beat, role in plan_for(ctx):
         if beat == "hook":
             out.append({"beat": "hook", "tts_line": (hook or {}).get("text") or f"{short}, 이 부분 보이세요?",
                         "caption": (hook or {}).get("caption") or make_caption(f"{short} 이 부분"), "feature": ""})
+        elif beat == "problem" and role in ("situation", "pain", "pain_emotion"):
+            if not prob:
+                continue
+            tail = tail_phrase(prob)
+            hook_said = bool(hook and jaccard(hook.get("text", ""), prob) > 0.4)
+            if role == "situation":
+                tts = f"{p.target}이라면 한 번쯤 겪는 일이에요" if p.target else f"{prob}… 이런 상황이 있죠"
+                cap = make_caption(f"{p.target} 한 번쯤" if p.target else f"{tail} 이런 상황", p.target or tail)
+            elif role == "pain" and not hook_said:
+                tts, cap = f"{prob}, 은근 불편하죠", make_caption(f"{tail} 불편", tail)
+            else:                                                       # pain_emotion / Hook 이 이미 문제를 말한 경우: 감정 한 줄
+                tts, cap = "그럴 때마다 괜히 신경 쓰이죠", make_caption("그럴 때마다 신경 쓰임", "신경")
+            out.append({"beat": "problem", "tts_line": tts, "caption": cap, "feature": "", "story_role": role})
         elif beat == "problem":
             if not prob:
                 continue
@@ -86,6 +114,8 @@ def rule_beats(ctx: Ctx, primary: dict | None, hook: dict | None) -> list[dict]:
                 tts = f"{prob}… 은근 신경 쓰이죠" if ctx.style == "STORY_AD" else f"{prob}, 이런 거 있죠"
                 cap = make_caption(f"{tail} 신경 쓰임", tail)
             out.append({"beat": "problem", "tts_line": tts, "caption": cap, "feature": ""})
+        elif beat == "reveal" and role == "turning":
+            out.append({"beat": "reveal", "tts_line": "그런데 이런 제품이 있어요", "caption": f"그런데 [[{short}]]", "feature": "", "story_role": role})
         elif beat == "reveal":
             shown = bool(prob) and (any(b["beat"] == "problem" for b in out) or jaccard(out[0]["tts_line"], prob) > 0.4)
             if shown:
@@ -101,7 +131,7 @@ def rule_beats(ctx: Ctx, primary: dict | None, hook: dict | None) -> list[dict]:
             out.append({"beat": "detail", "tts_line": lines[1][0], "caption": lines[1][1], "feature": feats[1] if len(feats) > 1 else ""})
         elif beat == "benefit":
             tts, cap, src = _proof_line(ctx)
-            out.append({"beat": "benefit", "tts_line": tts, "caption": cap, "feature": "", "proof_source": src})
+            out.append({"beat": "benefit", "tts_line": tts, "caption": cap, "feature": "", "proof_source": src, "story_role": role})
         elif beat == "cta":
             out.append({"beat": "cta", "tts_line": "자세한 정보는 링크에서 확인하세요", "caption": "정보는 [[링크]]에서", "feature": ""})
     return out
@@ -127,7 +157,8 @@ def _finish(ctx: Ctx, beats: list[dict]) -> list[dict]:
                     "time": [round(t, 2), round(t + dur, 2)], "duration": dur, "narration": strip_marks(b["tts_line"]),
                     "tts_line": b["tts_line"], "caption": b["caption"], "feature": b.get("feature") or "",
                     "visual_source": src, "visual_prompt": prompt, "product_visibility": VISIBILITY[b["beat"]],
-                    "proof_source": b.get("proof_source", ""), "reliability": grade(b["tts_line"] + " " + b["caption"], ctx)})
+                    "proof_source": b.get("proof_source", ""), "story_role": b.get("story_role") or b["beat"],
+                    "reliability": grade(b["tts_line"] + " " + b["caption"], ctx)})
         t += dur
     return out
 
@@ -137,12 +168,16 @@ def _validate_llm(router, ctx: Ctx, raw: list[dict], primary: dict | None, hook:
     problems = verify(router, ctx, [" ".join(str(b.get("tts_line", "")).split()) for b in raw if b.get("beat") != "hook"])
     if problems is None:
         return None            # 사실 검증을 못 했으면 LLM 글은 쓰지 않는다
-    allowed = set(structure_for(ctx))
-    fallback = {b["beat"]: b for b in rule_beats(ctx, primary, hook)}
+    plan = plan_for(ctx)
+    allowed = {b for b, _ in plan}
+    rb = rule_beats(ctx, primary, hook)
+    fallback = {b["beat"]: b for b in rb}
+    fb_role = {(b["beat"], b.get("story_role") or b["beat"]): b for b in rb}
     beats, seen = [], set()
     for b in raw:
         name = b.get("beat")
-        if name not in allowed or name in seen and name != "detail":
+        brole = b.get("story_role") or name
+        if name not in allowed or (name, brole) in seen and name != "detail":
             continue
         if name == "problem" and not ctx.p.problem.strip():
             continue
@@ -154,7 +189,7 @@ def _validate_llm(router, ctx: Ctx, raw: list[dict], primary: dict | None, hook:
         if unsup:
             issues = issues + [{"code": "unsupported", "detail": str(unsup.get("phrase"))}]
         if issues or too_long or not tts:
-            fb = fallback.get(name)
+            fb = fb_role.get((name, brole)) or fallback.get(name)
             if not fb:
                 continue
             tts, cap = fb["tts_line"], fb["caption"]
@@ -170,8 +205,8 @@ def _validate_llm(router, ctx: Ctx, raw: list[dict], primary: dict | None, hook:
         feat = str(b.get("feature") or "")
         if feat and feat not in ctx.p.features:
             feat = max(ctx.p.features, key=lambda f: jaccard(f, feat), default="") if any(jaccard(f, feat) > 0.3 for f in ctx.p.features) else ""
-        seen.add(name)
-        beats.append({"beat": name, "tts_line": tts, "caption": cap, "feature": feat, "visual_prompt": str(b.get("visual_prompt") or ""),
+        seen.add((name, brole))
+        beats.append({"beat": name, "story_role": brole, "tts_line": tts, "caption": cap, "feature": feat, "visual_prompt": str(b.get("visual_prompt") or ""),
                       "proof_source": fallback.get("benefit", {}).get("proof_source", "") if name == "benefit" else "",
                       "replaced": b.get("_replaced", [])})
     if not beats:
@@ -191,6 +226,10 @@ def _validate_llm(router, ctx: Ctx, raw: list[dict], primary: dict | None, hook:
 def run(router, ctx: Ctx, primary: dict | None, angle: dict | None, hook: dict | None, picks: dict | None = None) -> dict:
     payload = {**ctx.brief(), "primary_selling_point": primary, "selected_angle": angle, "best_hook": hook,
                "style_guide": STYLE_GUIDE[ctx.style], "structure": structure_for(ctx)}
+    pat = getattr(ctx, "pattern", None)
+    if pat:                                                      # Reference 패턴: 구조 힌트만 (참고 영상의 문장/내용은 없음)
+        payload["reference_pattern"] = {"beat_plan": (pat.get("story") or {}).get("beat_plan"), "emotion_curve": (pat.get("story") or {}).get("emotion_curve"),
+                                        "story_roles_abstract": (pat.get("story") or {}).get("roles"), "rules": pat.get("rules")}
     raw = ask(router, SYSTEM, payload, temperature=0.6)
     beats, basis = None, "rule"
     if raw and isinstance(raw.get("beats"), list):

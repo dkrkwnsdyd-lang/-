@@ -110,7 +110,7 @@ class SceneDirector:
             narration=narration, main_caption=main, sub_caption=sub, visual_source=src,
             visual_prompt=src.pop("visual_prompt", ""), camera_motion=cam.get("motion", ""),
             text_animation=TEXT_ANIMATION.get(stype, "word_pop"), transition=transition_for(stype, index),
-            music_cue=MUSIC_CUE.get(stype, ""), emphasis=emph, legacy_beat=sc.beat,
+            music_cue=MUSIC_CUE.get(stype, ""), emphasis=emph, legacy_beat=sc.beat, story_role=getattr(sc, "story_role", ""),
             reliability=rel, claims=claims,
             decisions={"source": src.get("reason", ""), "transition": f"{stype} → {transition_for(stype, index)}",
                        "legacy_shot": sc.shot})
