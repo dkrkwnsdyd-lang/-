@@ -1708,3 +1708,21 @@ def test_music_bed_follows_style_tempo_and_ugc_has_no_kick():
     fast = music_bed(4.0, bpm=124, kick_gain=1.0)
     assert len(low) == len(fast) and low.shape == fast.shape
     assert np.abs(low).max() < np.abs(fast).max()                                            # 킥 없는 베드가 더 부드럽다
+
+
+def test_bgm_scan_measures_bpm_loudness_and_survives_broken_files(tmp_path):
+    import wave
+    import numpy as np
+    from shortsmaker.studio import bgm
+    from shortsmaker.studio.audio import SR, music_bed
+    (tmp_path / "주방").mkdir()
+    y = music_bed(20, bpm=120) * 0.6
+    with wave.open(str(tmp_path / "주방" / "a.wav"), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR); w.writeframes((np.clip(y, -1, 1) * 32767).astype(np.int16).tobytes())
+    (tmp_path / "주방" / "broken.mp3").write_bytes(b"xx")
+    rows = bgm.scan(tmp_path)
+    good = next(r for r in rows if r["file"] == "a.wav")
+    assert abs(good["bpm"] - 120) < 3 and good["category"] == "주방" and good["fit_score"] > 60
+    assert next(r for r in rows if r["file"] == "broken.mp3")["fit_score"] == 0
+    bgm.write_csv(rows, tmp_path / "o.csv")
+    assert "fit_score" in (tmp_path / "o.csv").read_text(encoding="utf-8-sig")
