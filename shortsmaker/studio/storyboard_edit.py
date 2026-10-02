@@ -19,6 +19,8 @@ LEAD_SFX = {"whoosh": -0.06, "swipe": -0.04, "riser": -0.5}                     
 
 
 def edit_from_storyboard(sb: Storyboard, voice: dict | None = None, label: str = "", cta_text: str | None = None) -> dict:
+    from .storyboard.styles import profile
+    prof = profile(sb.style)
     f3 = brain.system("quality_rules")["first_3_seconds"]
     voice = voice or {}
     shots: list[Shot] = []
@@ -30,17 +32,17 @@ def edit_from_storyboard(sb: Storyboard, voice: dict | None = None, label: str =
     for si, ss in enumerate(sb.scenes):
         vo, vo_path = voice.get(ss.scene_id, (None, ""))
         lo = BEAT_DURATION.get(ss.legacy_beat or "hook", (1.5, 2.5))[0]
-        dur = max(lo * 0.8, vo + 0.25) if vo else ss.duration            # Dead air 제거: 대사 길이에 맞춤
+        dur = max(lo * 0.8, vo + prof["tempo"]["pad"]) if vo else ss.duration      # Dead air 제거: 대사 길이 + 스타일 여유
         dur = quantize(dur)
         caption = cta_text if (ss.scene_type == "CTA" and cta_text) else caption_text(ss)
         cap_start = f3["first_caption"][0] + 0.05 if si == 0 else 0.08
-        words = time_words(caption, cap_start, min(dur * 0.55, 1.8), vo * 0.9 if vo else None)
+        words = time_words(caption, cap_start, min(dur * 0.55 * prof["caption"]["span"], 1.8), vo * 0.9 * prof["caption"]["span"] if vo else None)
         emph_at = next((w.start for w in words if w.emphasis), None)
         src = ss.visual_source.get("path") or ""
         shots.append(Shot(
             scene_id=ss.scene_id, shot="hero_push", source=src, duration=round(dur, 3), caption_words=words,
             transition_in="cut" if si == 0 else ss.transition, layout=ss.layout, motion=ss.image_motion,
-            source2=ss.secondary_source, data=dict(ss.layout_data), emph_at=emph_at, label=label))
+            source2=ss.secondary_source, data={**ss.layout_data, "intensity": prof["motion"]["intensity"]}, emph_at=emph_at, label=label))
         if vo:
             voice_cues.append((timeline + 0.05, vo_path))
         for ev in ss.sound_effect:
@@ -70,5 +72,5 @@ def edit_from_storyboard(sb: Storyboard, voice: dict | None = None, label: str =
                    "reveal_at": round(reveal_at, 3) if reveal_at is not None else None,
                    "avg_shot": round(sum(lengths) / len(lengths), 3) if lengths else 0,
                    "max_shot": max(lengths) if lengths else 0, "min_shot": min(lengths) if lengths else 0},
-        "decisions": decisions,
+        "decisions": decisions, "music": {**prof["music"], "style": sb.style},
     }

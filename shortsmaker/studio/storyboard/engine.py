@@ -10,6 +10,7 @@ from . import layouts as layout_engine
 from . import motion_director
 from . import validator
 from . import sfx_director
+from . import styles
 from .scene_director import SceneDirector
 from .schema import Storyboard, duration_class
 
@@ -67,15 +68,17 @@ def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str]
     scenes = fit_scene_count(scenes, rng, warnings)
     for i, s in enumerate(scenes):                     # 장면이 빠졌어도 첫 장면 전환/CTA 전 전환 규칙 유지
         s.transition = "cut" if i == 0 else s.transition
+    styles.apply_tempo(scenes, style)
+    styles.apply_transitions(scenes, style)
     layout_engine.select_layouts(scenes, layout_context(identity, product, clip_paths, cutout_ok))
     for s in scenes:      # 영상 소스는 시연/사용 장면 레이아웃에서만 재생할 수 있다. 다른 레이아웃이 뽑히면 사진으로 되돌린다 (이미지로 못 여는 파일을 렌더러에 넘기지 않음)
         vs = s.visual_source
         if vs.get("kind") == "user_video" and s.layout not in ("demo", "lifestyle"):
             vs.update({"kind": "user_photo", "path": vs.get("fallback_path") or next((ph["path"] for ph in identity.photos), None),
                        "reason": vs.get("reason", "") + " (이 레이아웃은 영상을 재생하지 않아 사진 사용)"})
-    motion_director.select_motions(scenes, [f for f in product.features if f])
+    motion_director.select_motions(scenes, [f for f in product.features if f], styles.profile(style)["motion"]["bias"])
     issues = validator.validate(scenes, [f for f in product.features if f])      # 품질 규칙 검사 + 안전한 자동 수정
-    sfx_director.direct_sfx(scenes)       # 효과음은 layout/motion 이 정해진 뒤 (콜아웃 click, pan swipe 등)
+    sfx_director.direct_sfx(scenes, **{"ratio": styles.profile(style)["sfx"]["ratio"], "heavy": styles.profile(style)["sfx"]["heavy"]})       # 효과음은 layout/motion 이 정해진 뒤 (콜아웃 click, pan swipe 등)
     distinct = {s.visual_source.get("path") for s in scenes if s.visual_source.get("path")}
     if len(scenes) > 2 * len(distinct) + 1:
         warnings.append(f"서로 다른 원본 {len(distinct)}개로 장면 {len(scenes)}개를 만들면 같은 화면이 반복돼요")
@@ -87,7 +90,7 @@ def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str]
             warnings.append(f"{s.scene_id}({s.scene_type}): 사용 장면 소스 없음 - 사진 모션으로 대체 (영상/사용 사진을 넣으면 좋아져요)")
     sb = Storyboard(scenes=scenes, mode=mode, style=style, total_duration=round(sum(s.duration for s in scenes), 2),
                     duration_class=cls, scene_range=rng,
-                    music={"mood": MUSIC_BY_STYLE.get(style, MUSIC_BY_STYLE["STANDARD"]),
+                    music={"mood": MUSIC_BY_STYLE.get(style, MUSIC_BY_STYLE["STANDARD"]), "profile": styles.profile(style)["music"],
                            "cues": [{"scene_id": s.scene_id, "cue": s.music_cue} for s in scenes]},
                     facts=[{"text": f, "reliability": "A"} for f in facts], warnings=warnings, issues=issues)
     return sb

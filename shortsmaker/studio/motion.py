@@ -73,7 +73,7 @@ class Shot:
     source: str
     duration: float
     caption_words: list[CaptionWord] = field(default_factory=list)
-    transition_in: str = "cut"          # cut | whip | flash
+    transition_in: str = "cut"          # cut | whip | flash | soft
     punch_at: list[float] = field(default_factory=list)  # shot 기준 punch zoom 시점
     zoom: tuple[float, float] = (1.0, 1.08)
     pan: tuple[float, float] = (0.0, 0.0)  # 이동 방향 (x, y) -1~1
@@ -531,7 +531,16 @@ class MotionRenderer:
     def cam_for(self, shot: Shot, t: float, p: float):
         """layout 경로의 카메라: Storyboard 의 motion id 를 수식(camera.cam_at)으로 계산 (랜덤 없음)."""
         from . import camera
-        return camera.cam_at(shot.motion, shot, t, p)
+        cam = camera.cam_at(shot.motion, shot, t, p)
+        k = (shot.data or {}).get("intensity", 1.0)       # 영상 스타일별 카메라 움직임 세기
+        if k != 1.0:
+            cam.scale = 1.0 + (cam.scale - 1.0) * k
+            cam.dx, cam.dy = cam.dx * k, cam.dy * k
+            cam.shake = (cam.shake[0] * k, cam.shake[1] * k)
+            cam.bob *= k
+            if cam.bg_scale is not None:
+                cam.bg_scale = 1.0 + (cam.bg_scale - 1.0) * k
+        return cam
 
     def close_clips(self) -> None:
         for rd in self._clips.values():
@@ -674,6 +683,8 @@ class MotionRenderer:
             for i in range(n):
                 acc += np.roll(arr, shift * i // n, axis=1)
             frame = Image.fromarray((acc / n).astype(np.uint8))
+        elif shot.transition_in == "soft" and t < 0.35:      # 부드러운 디졸브(어두운 쪽에서 천천히 밝아짐)
+            frame = Image.blend(frame, Image.new("RGB", frame.size, (0, 0, 0)), 0.65 * (1 - ease_out(t / 0.35)))
         elif shot.transition_in == "flash" and t < 2 / self.fps:
             frame = Image.blend(frame, Image.new("RGB", frame.size, (255, 255, 255)), 0.7)
 

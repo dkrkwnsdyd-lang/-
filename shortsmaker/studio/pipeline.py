@@ -499,7 +499,7 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 cta_mp4 = renderer.render(cta, vdir / "cta_master.mp4")
                 video_only = adapter.concat([body_mp4, cta_mp4], vdir / "master_video.mp4")
                 mix = build_mix(edl["total"], edl["events"], edl["voice"], vdir / "mix.wav",
-                                bgm_path=inputs.get("bgm_path"))
+                                bgm_path=inputs.get("bgm_path"), music_style=edl.get("music"))
                 master = adapter.export_platform(video_only, mix, vdir / "MASTER.mp4", profiles["youtube"])
             with job.step("FINAL_QA"):
                 vision = None

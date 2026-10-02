@@ -1633,3 +1633,78 @@ def test_reference_is_passed_to_strategy_as_abstract_patterns_only():
            "transcript": "고유 대사 그대로", "scene_list": ["고유 장면 배열"], "title": "크리에이터 제목", "status": "PARTIAL"}
     b = make_ctx(_sp(), reference=ref).brief()["reference_patterns_abstract"]
     assert set(b) == {"hook_type", "average_cut_length", "product_reveal_time", "story_pattern"}     # 고유 문장/장면 배열/제목은 전달하지 않는다
+
+
+# ------------------------------------------------------------------ VIDEO STYLE (템포/모션/전환/효과음/음악)
+def _sb_for(tmp_path, style):
+    from shortsmaker.studio.director import direct_scenes, rule_director
+    from shortsmaker.studio.product import ProductInput, analyze_photo, build_identity
+    from shortsmaker.studio.storyboard import build_storyboard
+    photos = make_photos("kitchen_tumbler", tmp_path / "p", 3)
+    P = PRODUCTS["kitchen_tumbler"]
+    p = ProductInput(name=P["name"], features=P["features"], problem=P["problem"], photos=photos)
+    ident = build_identity(p, [analyze_photo(x) for x in photos], "t1")
+    plan = direct_scenes(rule_director(p, "PRO"), ident, p, "PRO")
+    return build_storyboard(plan, ident, p, None, [], style=style, mode="PRO")
+
+
+def test_video_styles_differ_in_tempo_motion_transition_sfx_and_music(tmp_path):
+    sbs = {s: _sb_for(tmp_path, s) for s in ("STANDARD", "FAST_COMMERCE", "STORY_AD", "UGC_REVIEW")}
+    avg = {s: sb.total_duration / len(sb.scenes) for s, sb in sbs.items()}
+    assert avg["FAST_COMMERCE"] < avg["STANDARD"] < avg["STORY_AD"], avg                    # 컷 템포
+    assert sbs["FAST_COMMERCE"].scenes[0].duration <= 1.7 < sbs["STORY_AD"].scenes[0].duration
+    trans = {s: [x.transition for x in sb.scenes] for s, sb in sbs.items()}
+    assert "soft" in trans["STORY_AD"] and "soft" not in trans["FAST_COMMERCE"] and trans["FAST_COMMERCE"][0] == "cut"
+    assert set(trans["UGC_REVIEW"][1:-1]) <= {"cut", "whip"}                                  # 자연스러운 컷 위주
+    motions = {s: [x.image_motion for x in sb.scenes] for s, sb in sbs.items()}
+    assert len({tuple(m) for m in motions.values()}) >= 3                                     # 모션 구성이 서로 다르다
+    assert sum(m in ("punch_in", "zoom_in", "shake") for m in motions["FAST_COMMERCE"]) > sum(m in ("punch_in", "zoom_in", "shake") for m in motions["STORY_AD"])
+    sfx = {s: sum(len(x.sound_effect) for x in sb.scenes) for s, sb in sbs.items()}
+    assert sfx["UGC_REVIEW"] < sfx["FAST_COMMERCE"]
+    assert not any(e["sfx"] in ("impact", "riser", "transition_hit") for x in sbs["STORY_AD"].scenes + sbs["UGC_REVIEW"].scenes for e in x.sound_effect)
+    mus = {s: sb.music["profile"] for s, sb in sbs.items()}
+    assert mus["FAST_COMMERCE"]["bpm"] > mus["UGC_REVIEW"]["bpm"] > mus["STORY_AD"]["bpm"] and mus["UGC_REVIEW"]["kick"] == 0
+    # 같은 입력+같은 스타일 = 같은 결과 (랜덤 없음)
+    again = _sb_for(tmp_path, "FAST_COMMERCE")
+    assert [x.image_motion for x in again.scenes] == motions["FAST_COMMERCE"]
+
+
+def test_style_does_not_break_quality_rules(tmp_path):
+    for st in ("FAST_COMMERCE", "STORY_AD", "UGC_REVIEW"):
+        sb = _sb_for(tmp_path, st)
+        assert not [i for i in sb.issues if i["rule"] in ("motion_repeat", "all_zoom", "layout_repeat", "unverified_claim") and not i.get("fixed")], (st, sb.issues)
+        assert all(a.image_motion != b.image_motion for a, b in zip(sb.scenes, sb.scenes[1:]))
+
+
+def test_edl_carries_style_intensity_music_and_caption_pace(tmp_path):
+    from shortsmaker.studio.storyboard_edit import edit_from_storyboard
+    fast, story = edit_from_storyboard(_sb_for(tmp_path, "FAST_COMMERCE"), {}), edit_from_storyboard(_sb_for(tmp_path, "STORY_AD"), {})
+    assert fast["shots"][0].data["intensity"] > story["shots"][0].data["intensity"]
+    assert fast["music"]["bpm"] > story["music"]["bpm"] and fast["timing"]["avg_shot"] < story["timing"]["avg_shot"]
+    # 음성이 있으면 스타일 여유(pad)가 반영: 같은 음성 길이에서 STORY 컷이 더 길다
+    voice = {s.scene_id: (1.5, "") for s in _sb_for(tmp_path, "STORY_AD").scenes}
+    assert edit_from_storyboard(_sb_for(tmp_path, "STORY_AD"), voice)["total"] > edit_from_storyboard(_sb_for(tmp_path, "FAST_COMMERCE"), voice)["total"]
+
+
+def test_style_camera_intensity_and_soft_transition_render(tmp_path):
+    from shortsmaker.studio.motion import MotionRenderer, Shot
+    r = MotionRenderer(width=108, height=192, fps=10)
+    photo = make_photos("kitchen_tumbler", tmp_path / "p", 1)[0]
+    mk = lambda k, tr: Shot(scene_id="S1", shot="hero_push", source=photo, duration=2.0, caption_words=[], transition_in=tr,
+                            layout="product_center", motion="zoom_in", data={"intensity": k})
+    a, b = r.cam_for(mk(1.0, "cut"), 1.0, 0.5), r.cam_for(mk(0.5, "cut"), 1.0, 0.5)
+    assert abs(b.scale - 1.0) < abs(a.scale - 1.0)
+    import numpy as np
+    soft = np.asarray(r.frame(mk(1.0, "soft"), 0.0, 0)).mean()
+    cut = np.asarray(r.frame(mk(1.0, "cut"), 0.0, 0)).mean()
+    assert soft < cut * 0.8                                                                  # 소프트 전환은 어두운 쪽에서 시작
+    r.close_clips()
+
+
+def test_music_bed_follows_style_tempo_and_ugc_has_no_kick():
+    from shortsmaker.studio.audio import music_bed
+    import numpy as np
+    low = music_bed(4.0, bpm=84, kick_gain=0.0)
+    fast = music_bed(4.0, bpm=124, kick_gain=1.0)
+    assert len(low) == len(fast) and low.shape == fast.shape
+    assert np.abs(low).max() < np.abs(fast).max()                                            # 킥 없는 베드가 더 부드럽다

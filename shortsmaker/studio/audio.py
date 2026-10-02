@@ -63,13 +63,14 @@ def riser(dur: float = 0.7) -> np.ndarray:
     return (tone + noise * np.linspace(0, 1, n)) * np.linspace(0, 1, n) ** 2 * 0.5
 
 
-def music_bed(total: float, seed: int = 0) -> np.ndarray:
+def music_bed(total: float, seed: int = 0, bpm: float = BPM, kick_gain: float = 0.8, pad_gain: float = 0.22) -> np.ndarray:
     """100BPM 로파이 느낌의 부드러운 베드 (킥 + 하이햇 + 패드). 저작권 자유."""
     n = int(total * SR) + SR
     out = np.zeros(n)
     t_all = np.arange(n) / SR
     chords = [(220.0, 261.63, 329.63), (174.61, 220.0, 261.63), (130.81, 164.81, 196.0), (196.0, 246.94, 293.66)]
-    bar = BEAT * 4
+    beat = 60 / bpm
+    bar = beat * 4
     for bi in range(int(total / bar) + 2):
         s = int(bi * bar * SR)
         e = min(n, int((bi + 1) * bar * SR))
@@ -79,15 +80,16 @@ def music_bed(total: float, seed: int = 0) -> np.ndarray:
         ch = chords[(bi + seed) % 4]
         pad = sum(np.sin(2 * np.pi * f * tt) + 0.3 * np.sin(4 * np.pi * f * tt) for f in ch) / 6
         swell = np.clip(tt / 0.4, 0, 1) * np.clip((bar - tt) / 0.3, 0, 1)
-        out[s:e] += pad * swell * 0.22
-    kick = hit(0.3) * 0.8
+        out[s:e] += pad * swell * pad_gain
+    kick = hit(0.3) * kick_gain
     rng = np.random.default_rng(4)
     hat = rng.normal(0, 1, int(0.04 * SR)) * _env(int(0.04 * SR), 0.001, 0.012) * 0.12
-    for k in range(int(total / BEAT) + 2):
-        s = int(k * BEAT * SR)
-        if k % 2 == 0:
+    for k in range(int(total / beat) + 2):
+        s = int(k * beat * SR)
+        if k % 2 == 0 and kick_gain > 0:
             _add(out, kick, s)
-        _add(out, hat, s + int(BEAT / 2 * SR))
+        if kick_gain > 0:
+            _add(out, hat, s + int(beat / 2 * SR))
     return out[: int(total * SR)]
 
 
@@ -163,7 +165,7 @@ SFX = {"whoosh": whoosh, "hit": hit, "pop": pop, "riser": riser, "click": click,
 
 
 def build_mix(total: float, events: list[dict], voice: list[tuple[float, str]], out: Path,
-              music: bool = True, bgm_path: str | None = None, music_gain: float = 0.35) -> Path:
+              music: bool = True, bgm_path: str | None = None, music_gain: float = 0.35, music_style: dict | None = None) -> Path:
     """events: [{"t": 초, "sfx": "whoosh"|..., "gain": 0.6}], voice: [(시작초, 파일)]"""
     n = int(total * SR)
     track = np.zeros(n)
@@ -173,7 +175,9 @@ def build_mix(total: float, events: list[dict], voice: list[tuple[float, str]], 
         reps = int(np.ceil(n / max(len(b), 1)))
         bed = np.tile(b, reps)[:n]
     elif music:
-        bed = music_bed(total)
+        ms = music_style or {}
+        bed = music_bed(total, bpm=ms.get("bpm", BPM), kick_gain=ms.get("kick", 0.8), pad_gain=ms.get("pad", 0.22))
+        music_gain = ms.get("gain", music_gain)
     vo = np.zeros(n)
     for start, path in voice:
         _add(vo, decode_audio(path), int(start * SR))

@@ -103,7 +103,7 @@ def _score(motion: str, scene, features: list[str], prev: str | None, counts: di
     return s, why
 
 
-def select_motions(scenes: list, features: list[str]) -> None:
+def select_motions(scenes: list, features: list[str], bias: dict | None = None) -> None:
     """scenes[i].image_motion / camera_motion / decisions['motion'] 을 채운다."""
     prev: str | None = None
     counts: dict[str, int] = {}
@@ -117,6 +117,10 @@ def select_motions(scenes: list, features: list[str]) -> None:
             if m not in allowed:
                 continue
             s, why = _score(m, sc, features, prev, counts, zr, i)
+            if bias and m in bias:
+                s += bias[m]                               # 영상 스타일 선호 (같은 입력/스타일이면 같은 결과)
+                if abs(bias[m]) >= 2 and bias[m] > 0 and not why:
+                    why = ["영상 스타일에 맞는 카메라"]
             cands.append((s, -MOTIONS.index(m), m, why))
         cands.sort(reverse=True)
         best = cands[0]

@@ -115,7 +115,9 @@ def apply_sb_edits(sb: Storyboard, edits: dict | None, ctx, identity, features: 
             sfx_off.add(sid)
     if changed:
         sb.scenes[0].transition = "cut"
-        sfx_director.direct_sfx(sb.scenes)             # 레이아웃/모션이 바뀌면 효과음 위치도 다시 계산
+        from .styles import profile
+        sp = profile(sb.style)["sfx"]
+        sfx_director.direct_sfx(sb.scenes, ratio=sp["ratio"], heavy=sp["heavy"])             # 레이아웃/모션이 바뀌면 효과음 위치도 다시 계산
     for sid in sfx_off:
         sb.scene(sid).sound_effect = []
         rep["applied"].append({"scene_id": sid, "what": "효과음 끔"})

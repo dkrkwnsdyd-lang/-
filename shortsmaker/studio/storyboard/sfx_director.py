@@ -38,22 +38,28 @@ def _pick(scene, prev) -> list[dict]:
     return out
 
 
-def direct_sfx(scenes: list) -> None:
+def direct_sfx(scenes: list, ratio: float = MAX_SCENE_RATIO, heavy: bool = True) -> None:
     """scenes 에 sound_effect 를 채운다 (전환/강조 지점에만, 연속 강타 금지, 비율 상한)."""
     prev_heavy = False
     for i, s in enumerate(scenes):
-        s.sound_effect = [e for e in _pick(s, scenes[i - 1] if i else None) if e["sfx"] in SFX_CATALOG]
+        s.sound_effect = [e for e in _pick(s, scenes[i - 1] if i else None) if e["sfx"] in SFX_CATALOG and (heavy or e["sfx"] not in HEAVY)]
         heavy_now = any(e["sfx"] in HEAVY for e in s.sound_effect)
         if heavy_now and prev_heavy:                  # 연속 장면에 강한 효과음 금지
             s.sound_effect = [e for e in s.sound_effect if e["sfx"] not in HEAVY]
             heavy_now = False
         prev_heavy = heavy_now
     # 비율 상한: 넘으면 강조(pop) 효과음부터 제거
-    limit = max(1, int(len(scenes) * MAX_SCENE_RATIO))
+    limit = max(1, int(len(scenes) * ratio))
     with_sfx = [s for s in scenes if s.sound_effect]
     for s in with_sfx[::-1]:
         if len(with_sfx) <= limit:
             break
         if all(e["at"] == "emphasis" for e in s.sound_effect):
+            s.sound_effect = []
+            with_sfx = [x for x in scenes if x.sound_effect]
+    for s in with_sfx[::-1]:                          # 비율 상한이 낮은 스타일(UGC 등): 공개/CTA 외 장면의 효과음도 줄인다
+        if len(with_sfx) <= limit:
+            break
+        if s.scene_type not in ("PRODUCT_REVEAL", "CTA"):
             s.sound_effect = []
             with_sfx = [x for x in scenes if x.sound_effect]
