@@ -13,6 +13,16 @@
 - 사용자 사진은 쿠팡 상품 이미지. 게시 전 쿠팡 파트너스 약관(이미지 사용 조건) 확인 또는 판매자 허락/직접 촬영 사진 필요
 - 나중에: Coupang Partners API 로 상품 정보/이미지를 가져오는 정식 경로 연동 검토 (Seller API / Partners / 페이지 import 를 혼동하지 말 것)
 
+## 0000. 하이브리드 출연 방식 다음 단계 (2026-10-02)
+- 구조 구현됨 / 실제 외부 API 호출은 **0건** (Higgsfield/Seedance/Kling 은 자리만, 공식 문서 검증 전 호출 금지)
+- NEXT 1: provider 하나를 공식 문서로 검증(엔드포인트·가격·이미지→영상 파라미터)해서 `presenter/providers.py` 에 어댑터 추가 → 그 전에는 AI 장면이 항상 원본 사진으로 대체됨
+- NEXT 2: AI Presenter 립싱크(대사 음성과 입 모양) 미구현 — 지금은 영상만 만들고 음성은 TTS 로 덮음
+- NEXT 3: Product Fidelity 는 Vision 비교(LLM)에 의존. 로컬 외형 비교(색/엣지) 없음, Vision 이 없으면 UNVERIFIED → AI 장면 미사용
+- NEXT 4: Preview→[AI 장면 생성]은 새 작업으로 처음부터 다시 실행(사진 분석/전략 재사용 안 함). 상태 저장/재사용 필요
+- NEXT 5: 월 예산은 가격을 아는 provider 가 생겨야 의미 있게 동작(지금은 기록된 지출만 비교). 실제 가격 조회 API 없음
+- NEXT 6: 실제 사용 영상의 행동 태그(손에 들기/사용/버튼)는 Vision 있을 때만, 얼굴 노출 구간 제외 규칙은 없음(기존 개인정보 검사만)
+- DO NOT REDO: presenter 패키지(modes/providers/cost/cache/fidelity/generate/real/safety)
+
 ## 000. SHOPPING_SHORTS_STRATEGY_ENGINE 다음 단계 (2026-10-01)
 - 완료: 7단계 전략 엔진(`studio/strategy/`) + Quality Gate + 자동 수정 + 영상 스타일 3종(FAST_COMMERCE/STORY_AD/UGC_REVIEW, 구조·Hook·CTA 가 다름) + 파이프라인/Preview/UI/CLI 연결
 - 남은 문제 (TEST_RESULTS.md 참고)

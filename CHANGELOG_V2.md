@@ -1,5 +1,12 @@
 # CHANGELOG_V2
 
+## 2026-10-02 — 하이브리드 출연 방식 (REAL_UGC / AI_PRESENTER / AI_PRODUCT_UGC)
+- `studio/presenter/`: modes(출연 방식·AUTO 우선순위·계획), real(실제 영상 구간 후보+배치), providers(VideoGenerationProvider 추상화·Router·미검증 stub·Mock), cost(ECONOMY/BALANCED/PREMIUM·월 예산 다운그레이드·생성 전 비용 표시), cache(동일 입력 재사용), fidelity(Product Fidelity QA: PASS/PRODUCT_MISMATCH/UNVERIFIED), generate(동의 후 생성·폴백·재생성 상한), safety(AI 진행자 가짜 사용 경험 금지)
+- Storyboard: `StoryScene.source_type`, `StoryScene.ai`, `Storyboard.production` 추가 (기존 필드 변경 없음). DB: 마이그레이션 `0002_ai_generations`(기존 테이블/데이터 변경 없음)
+- 파이프라인: 비용은 `generate_ai` 동의가 있을 때만(캐시 재사용은 무료), 실패/불일치는 원본 사진으로 대체, 최종 렌더 직전 미생성 AI 장면은 원본 확정
+- API: form `actor_mode/cost_mode/monthly_budget`, `POST /jobs/{id}/ai-scenes`, 장면별 `edits.scenes.<id>.ai={action,prompt,provider}`; UI: 출연 방식/비용 모드, 장면 배지(ORIGINAL/REAL VIDEO/AI PRESENTER/AI UGC), 생성 전 비용 확인, 장면별 재생성/원본으로/프롬프트/Provider
+- 전략: 사용 경험 표현(제가 써봤…)은 `my_take` 가 없으면 전 단계에서 금지, UGC_REVIEW 는 내부적으로 UGC_PRESENTATION/UGC_DEMO/UGC_REVIEW_VERIFIED 로 구분
+
 ## 2026-10-02 — 음악 폴더(BGM 라이브러리)
 - `studio/bgm.py`: 폴더 분석(길이/음량/무음/BPM/적합도), 색인(`data/bgm_index.json`, 변경 없는 곡은 재분석 안 함), `choose`(상품 카테고리→폴더, 적합도 75+, 스타일 BPM 근접, 같은 상품은 같은 곡), `find_library`
 - 파이프라인: 곡을 직접 지정하지 않으면 색인에서 자동 선택(없으면 내장 음악), 결과 `music` 에 이유 기록; `.gitignore` 에 음원 확장자 추가
