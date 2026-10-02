@@ -45,10 +45,10 @@ PROFILES: dict[str, dict] = {
     "UGC_REVIEW": {
         "label": "사용 후기형",
         "tempo": {"scale": 1.0, "min": 1.3, "max": 3.4, "hook_max": 2.2, "pad": 0.3},
-        "motion": {"bias": {"ken_burns": 2.5, "pan_left": 2.0, "pan_right": 2.0, "slow_zoom": 1.0, "shake": 0.5,
-                            "punch_in": -3.0, "mask_reveal": -2.0, "floating_product": -2.0, "parallax": -1.5, "light_sweep": -1.0},
+        "motion": {"bias": {"ken_burns": 3.5, "pan_left": 3.0, "pan_right": 3.0, "slow_zoom": 2.0, "shake": 0.0,
+                            "punch_in": -4.0, "mask_reveal": -4.0, "floating_product": -3.0, "parallax": -2.5, "light_sweep": -3.0, "zoom_in": -1.5},
                    "intensity": 1.0},
-        "transition": {},                                  # 편집 느낌 없이 자연스러운 컷
+        "transition": {"PRODUCT_REVEAL": "cut", "FEATURE": "cut", "DEMO": "cut", "BENEFIT": "cut", "PROBLEM": "cut", "PROOF": "cut", "CTA": "soft"},   # 편집 느낌 없이 자연스러운 컷, 마지막만 부드럽게
         "sfx": {"ratio": 0.3, "heavy": False},
         "music": {"mood": "light acoustic, natural, ~92 BPM", "bpm": 92, "kick": 0.0, "pad": 0.2, "gain": 0.22},
         "caption": {"span": 0.8},

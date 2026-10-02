@@ -1,5 +1,10 @@
 # CHANGELOG_V2
 
+## 2026-10-02 — 영상 스타일별 연출 차이
+- `storyboard/styles.py`: STANDARD/FAST_COMMERCE/STORY_AD/UGC_REVIEW 프로필(장면 길이 배율·Hook 상한·음성 여유, 모션 선호 가감·카메라 세기, 전환, 효과음 비율/강한 효과음 허용, 음악 bpm/킥/패드/음량, 자막 속도)
+- Motion Director `bias`, SFX Director `ratio/heavy`, `soft` 전환 렌더, 음악 베드 템포/킥 파라미터, EDL 에 style/intensity/music 전달
+- 실측(Gemini 전략, 텀블러): FAST 6장면 13.6초 평균 2.3s·휩/플래시·124BPM / STORY 8장면 21.6초 평균 2.7s·소프트 전환·84BPM / UGC 6장면 17.2초 평균 2.9s·컷 위주·킥 없는 92BPM
+
 ## 2026-10-01 — SHOPPING_SHORTS_STRATEGY_ENGINE
 ### Added
 - `studio/strategy/` (독립 모듈): selling.py(구매 이유 후보 6기준 평가→PRIMARY), angles.py(차별화 Angle 7기준→2개 선택), hooks.py(PROBLEM/CURIOSITY/EMPATHY x3→BEST_HOOK), script.py(HOOK→PROBLEM→SOLUTION→PROOF→CTA, 스타일별 구조), comment.py(OPINION_SPLIT/EXPERIENCE_SHARE/CURIOSITY), cta.py(SCARCITY/LOSS_AVERSION/SOCIAL_PROOF/DIRECT), audit.py(Funnel·8지표·이탈 타임라인·P0~P3·삭제 분석·Quality Gate), revise.py(자동 수정: 삭제/교체 우선), engine.py(단계 결과 저장·재사용·`pick`·기존 director 데이터로 변환), common.py(FACT SAFETY)
