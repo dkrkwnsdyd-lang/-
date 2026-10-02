@@ -60,7 +60,7 @@ def profile(style: str | None) -> dict:
     return PROFILES.get(style or "STANDARD", PROFILES["STANDARD"])
 
 
-def apply_tempo(scenes: list, style: str) -> None:
+def apply_tempo(scenes: list, style: str, floor: float = 0.0) -> None:
     """장면 길이를 스타일 템포로 조정 (Hook 은 상한, 나머지는 배율 후 상·하한)."""
     t = profile(style)["tempo"]
     if t["scale"] == 1.0:
@@ -70,6 +70,11 @@ def apply_tempo(scenes: list, style: str) -> None:
         if s.scene_type == "HOOK":
             d = min(d, t["hook_max"])
         s.duration = round(max(t["min"], min(t["max"], d)), 2)
+    total = sum(s.duration for s in scenes)
+    if floor and total < floor:                         # 12~15초 같은 목표 길이 하한은 스타일이 깨지 않는다
+        k = floor / total
+        for s in scenes:
+            s.duration = round(min(t["max"] + 0.9, s.duration * k), 2)     # 하한을 지키기 위해서만 상한을 넘긴다
 
 
 def apply_transitions(scenes: list, style: str) -> None:

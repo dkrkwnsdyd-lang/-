@@ -68,7 +68,7 @@ def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str]
     scenes = fit_scene_count(scenes, rng, warnings)
     for i, s in enumerate(scenes):                     # 장면이 빠졌어도 첫 장면 전환/CTA 전 전환 규칙 유지
         s.transition = "cut" if i == 0 else s.transition
-    styles.apply_tempo(scenes, style)
+    styles.apply_tempo(scenes, style, floor=12.6 if getattr(product, "compact", False) else 0.0)
     styles.apply_transitions(scenes, style)
     layout_engine.select_layouts(scenes, layout_context(identity, product, clip_paths, cutout_ok))
     for s in scenes:      # 영상 소스는 시연/사용 장면 레이아웃에서만 재생할 수 있다. 다른 레이아웃이 뽑히면 사진으로 되돌린다 (이미지로 못 여는 파일을 렌더러에 넘기지 않음)
