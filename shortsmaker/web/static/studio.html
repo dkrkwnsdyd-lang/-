@@ -17,7 +17,10 @@
   @media (prefers-color-scheme: dark) {
     :root { --bg:#0f0f12; --card:#1a1a1f; --text:#f2f2f5; --muted:#a1a1aa; --line:#2c2c33; --bar:#2a2a31; }
   }
+  :root { color-scheme: light dark; }                        /* 브라우저 기본 컨트롤(드롭다운 목록 등)도 다크 모드에 맞춰 그려진다 */
   * { box-sizing:border-box; }
+  select, option, optgroup { background-color:var(--card); color:var(--text); }   /* 다크 모드에서 목록 글자가 안 보이던 문제 */
+  option:checked, option:hover { background-color:color-mix(in srgb, var(--accent) 22%, var(--card)); color:var(--text); }
   body { margin:0; background:var(--bg); color:var(--text);
          font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif; }
   header { max-width:1120px; margin:auto; padding:22px 16px 6px; display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
@@ -45,6 +48,23 @@
   .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   @media (max-width:640px) { .row2 { grid-template-columns:1fr; } }
   .seg { display:flex; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .seg.grid { display:grid; grid-template-columns:1fr 1fr; gap:0; }
+  .seg.grid label { border:1px solid var(--line); margin:-.5px; text-align:left; padding:10px 12px; }
+  .seg.grid label:first-child { grid-column:1 / -1; }
+  .seg.grid small { line-height:1.35; }
+  .adv { margin-top:16px; border:1px solid var(--line); border-radius:14px; padding:2px 14px 12px; }
+  .adv > summary { margin:0; padding:14px 0; font-weight:700; color:var(--text); list-style:none; }
+  .adv > summary::-webkit-details-marker { display:none; }
+  .adv > summary::after { content:"▾"; float:right; color:var(--muted); }
+  .adv[open] > summary::after { content:"▴"; }
+  .adv > summary .note { display:block; font-weight:400; margin-top:2px; }
+  .optrow { display:flex; gap:10px; align-items:flex-start; margin-top:12px; line-height:1.4; }
+  .optrow input[type=checkbox] { margin-top:3px; width:18px; height:18px; flex:none; }
+  input[type=file] { width:100%; padding:10px; border:1px dashed var(--line); border-radius:10px; background:transparent; color:var(--muted); font:inherit; font-size:14px; }
+  input[type=file]::file-selector-button { border:0; border-radius:8px; padding:8px 12px; margin-right:10px; background:var(--line); color:var(--text); font:inherit; cursor:pointer; }
+  input[type=number] { width:100%; padding:10px 11px; border:1px solid var(--line); border-radius:10px; background:transparent; color:var(--text); font:inherit; margin-top:8px; }
+  #history summary { margin:0; padding:2px 0; color:var(--text); font-weight:700; }
+  .card details > summary { margin-top:0; }
   .seg label { flex:1; text-align:center; padding:11px; cursor:pointer; font-weight:600; }
   .seg input { display:none; }
   .seg input:checked + span { color:var(--accent); }
@@ -123,7 +143,7 @@
 </header>
 <main>
   <div id="installBar"><span id="installText">앱처럼 설치해서 쓰세요</span><button id="installBtn" style="display:none">설치</button></div>
-  <section class="card" id="history"><h2>최근 작업</h2><div id="historyList"></div></section>
+  <section class="card" id="history"><details><summary>최근 작업 <span class="note" id="histCount"></span></summary><div id="historyList" style="margin-top:8px"></div></details></section>
   <section class="card" id="form">
     <label class="f" for="url">상품 URL</label>
     <input id="url" type="url" placeholder="https://… (공개 페이지의 상품명/대표 이미지를 읽어옵니다)">
@@ -185,31 +205,33 @@
       <label><input type="radio" name="mode" value="FAST"><span>FAST<small>15~20초 · 1 스토리 · 빠르게</small></span></label>
       <label><input type="radio" name="mode" value="PRO" checked><span>PRO<small>멀티 테이크 · 베스트 선택 · 최종 QA</small></span></label>
     </div>
-    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" id="compact" style="margin-top:3px">
-      <span><b>12~15초 짧게 만들기</b><br><span class="note">훅 → 제품 공개 → 사용/기능 → 핵심 혜택 → 짧은 CTA. 같은 사진의 확대 반복으로 시간을 채우지 않아요.</span></span></label>
-
-    <label class="f">출연 방식</label>
-    <div class="seg" id="actorSeg">
-      <label><input type="radio" name="actor" value="AUTO" checked><span>자동 선택<small>실제 영상 → AI 진행자 → AI 제품사용 → 제품만</small></span></label>
-      <label><input type="radio" name="actor" value="PRODUCT_ONLY"><span>제품만<small>사진·자막·음성 (가장 저렴)</small></span></label>
-      <label><input type="radio" name="actor" value="REAL_UGC"><span>실제 사람 영상<small>올린 영상 사용 (AI 비용 없음)</small></span></label>
-      <label><input type="radio" name="actor" value="AI_PRESENTER"><span>AI 아바타<small>Hook/CTA 3~6초</small></span></label>
-      <label><input type="radio" name="actor" value="AI_PRODUCT_UGC"><span>AI 제품사용 UGC<small>상품 일치 검사 필수</small></span></label>
-    </div>
-    <label class="f" for="costMode">AI 비용 모드</label>
-    <select id="costMode"><option value="ECONOMY">ECONOMY — AI 영상 없음</option><option value="BALANCED" selected>BALANCED — AI 영상 최대 약 6초 (20초 기준)</option><option value="PREMIUM">PREMIUM — AI 영상 최대 약 15초</option></select>
-    <input id="monthlyBudget" type="number" min="0" step="1" placeholder="월 AI 예산 USD (선택, 비워두면 제한 없음)" inputmode="decimal">
-    <p class="note">AI 영상은 [AI 장면 생성]을 눌러 비용을 확인한 뒤에만 만들어요. 대본/Storyboard 만으로는 비용이 들지 않아요.</p>
 
     <label class="f" for="vstyle">영상 스타일</label>
     <select id="vstyle"><option value="FAST_COMMERCE">빠른 상품형 (FAST_COMMERCE · 12~18초)</option><option value="STORY_AD">스토리 광고형 (STORY_AD · 15~25초)</option><option value="UGC_REVIEW">사용 후기형 (UGC_REVIEW · 15~20초)</option></select>
-    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" id="autoStrategy" checked style="margin-top:3px">
-      <span><b>AUTO 최적화</b><br><span class="note">구매 이유 → 차별화 Angle → Hook → 대본 → 댓글 장치 → CTA → 전환 점검 → 자동 수정까지 시스템이 알아서 해요. 끄면 점검만 하고 고치는 건 직접 정해요.</span></span></label>
-    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" id="previewFirst" checked style="margin-top:3px">
-      <span><b>미리보기 먼저 (장면 카드 확인 후 영상 제작)</b><br><span class="note">영상을 만들기 전에 장면별 구성을 보고 문구·순서·이미지·모션을 고칠 수 있어요. 음성/영상 렌더링은 [영상 제작]을 눌렀을 때만 해요.</span></span></label>
+    <details class="adv">
+      <summary>제작 옵션 <span class="note">출연 방식 · AI 비용 · 자동 최적화 · 미리보기 · 참고 영상 (기본값으로도 충분해요)</span></summary>
+      <label class="f">출연 방식</label>
+      <div class="seg grid" id="actorSeg">
+        <label><input type="radio" name="actor" value="AUTO" checked><span>자동 선택<small>실제 영상 → AI 진행자 → AI 제품사용 → 제품만 (비용 최소화)</small></span></label>
+        <label><input type="radio" name="actor" value="PRODUCT_ONLY"><span>제품만<small>사진·자막·음성</small></span></label>
+        <label><input type="radio" name="actor" value="REAL_UGC"><span>실제 사람 영상<small>올린 영상 (AI 비용 없음)</small></span></label>
+        <label><input type="radio" name="actor" value="AI_PRESENTER"><span>AI 아바타<small>Hook/CTA 3~6초</small></span></label>
+        <label><input type="radio" name="actor" value="AI_PRODUCT_UGC"><span>AI 제품사용<small>상품 일치 검사 필수</small></span></label>
+      </div>
+      <label class="f" for="costMode">AI 비용 모드</label>
+      <select id="costMode"><option value="ECONOMY">ECONOMY — AI 영상 없음</option><option value="BALANCED" selected>BALANCED — AI 영상 최대 약 6초</option><option value="PREMIUM">PREMIUM — AI 영상 최대 약 15초</option></select>
+      <input id="monthlyBudget" type="number" min="0" step="1" placeholder="월 AI 예산 USD (선택)" inputmode="decimal">
+      <p class="note">AI 영상은 [AI 장면 생성]을 눌러 비용을 확인한 뒤에만 만들어요. 대본/Storyboard 만으로는 비용이 들지 않아요.</p>
 
-    <label class="f" for="ref">참고 영상 URL (선택 · 구조만 분석, 복제하지 않음)</label>
-    <input id="ref" type="url" placeholder="https://youtube.com/shorts/…">
+      <label class="optrow"><input type="checkbox" id="autoStrategy" checked>
+        <span><b>AUTO 최적화</b><br><span class="note">구매 이유 → Angle → Hook → 대본 → 댓글 장치 → CTA → 점검 → 자동 수정까지 알아서 해요. 끄면 점검만 하고 고치는 건 직접 정해요.</span></span></label>
+      <label class="optrow"><input type="checkbox" id="previewFirst" checked>
+        <span><b>미리보기 먼저</b><br><span class="note">영상을 만들기 전에 장면 카드로 문구·순서·이미지·모션을 확인하고 고쳐요. 렌더링은 [영상 제작]을 눌렀을 때만 해요.</span></span></label>
+      <label class="optrow"><input type="checkbox" id="compact">
+        <span><b>12~15초 짧게 만들기</b><br><span class="note">훅 → 제품 공개 → 사용/기능 → 혜택 → 짧은 CTA. 같은 사진의 확대 반복으로 시간을 채우지 않아요.</span></span></label>
+      <label class="f" for="ref">참고 영상 URL (선택 · 구조만 분석, 복제하지 않음)</label>
+      <input id="ref" type="url" placeholder="https://youtube.com/shorts/…">
+    </details>
 
     <label class="f">게시할 플랫폼</label>
     <div class="plats">
@@ -229,7 +251,7 @@
       <input id="refUrl" type="url" placeholder="YouTube Shorts / Instagram Reels / 샤오홍슈 링크 (선택)">
       <input id="refFile" type="file" accept="video/*">
       <textarea id="refNotes" rows="3" placeholder="영상 구조 메모 (선택): 어떻게 시작하고, 문제→감정→제품 등장이 언제, 자막/컷 느낌 등. 원문 대사를 옮겨 적지 않아도 돼요"></textarea>
-      <label style="display:flex;gap:8px;align-items:flex-start;margin-top:6px"><input type="checkbox" id="refRights" style="margin-top:3px">
+      <label class="optrow"><input type="checkbox" id="refRights">
         <span class="note">내가 직접 만들었거나 사용 허락을 받은 영상이에요 (체크해야 Licensed Remix 대상으로 보관돼요. 체크하지 않으면 분석 후 파일을 삭제해요)</span></label>
       <button class="primary" id="refGo">패턴 분석</button>
       <div id="refBusy" class="note"></div>
@@ -935,6 +957,7 @@ async function loadHistory() {
     if (!res.ok) return;
     const rows = (await res.json()).slice(0, 6);
     $("history").style.display = rows.length ? "block" : "none";
+    $("histCount").textContent = rows.length ? `(${rows.length})` : "";
     $("historyList").innerHTML = rows.map(r => `<button data-id="${r.id}"><span>${(r.product_name || "이름 없음").replace(/</g, "&lt;")} · ${r.mode}</span><span>${STATUS_KO[r.status] || r.status}${r.total_cost ? " · $" + r.total_cost.toFixed(3) : ""}</span></button>`).join("");
   } catch (_) {}
 }
