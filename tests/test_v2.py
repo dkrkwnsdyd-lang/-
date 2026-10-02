@@ -2289,3 +2289,101 @@ def test_reference_tempo_keeps_minimum_total_length_and_revision_swaps_repeated_
     engine._audit_and_revise(None, ctx, st, auto=True)
     final = st["final_script"]["scenes"]
     assert final[-1]["beat"] == "cta" and final[-1]["narration"] != other["narration"] and st["conversion_audit"]["gate"]["passed"]
+
+
+# ------------------------------------------------------------------ 쿠팡 파트너스 API (정보 전용, 이미지 없음)
+def _cp_response(rows):
+    from conftest import FakeResponse
+    return FakeResponse({"rCode": "0", "rMessage": "", "data": {"productData": rows}})
+
+
+_CP_ROW = {"productId": 1, "productName": "보온 텀블러 500ml", "productPrice": 12900, "productImage": "https://img.example/x.jpg", "categoryName": "주방용품",
+           "isRocket": True, "isFreeShipping": False, "productUrl": "https://link.coupang.com/x"}
+
+
+def test_coupang_signature_is_hmac_over_date_method_path_query():
+    import hashlib, hmac
+    from datetime import datetime, timezone
+    from shortsmaker.studio import coupang
+    now = datetime(2026, 10, 3, 1, 2, 3, tzinfo=timezone.utc)
+    h = coupang.sign("get", "/v2/x/search", "keyword=a&limit=1", "AK", "SK", now)
+    msg = "261003T010203Z" + "GET" + "/v2/x/search" + "keyword=a&limit=1"
+    exp = hmac.new(b"SK", msg.encode(), hashlib.sha256).hexdigest()
+    assert h == f"CEA algorithm=HmacSHA256, access-key=AK, signed-date=261003T010203Z, signature={exp}"        # 공식 문서와의 일치는 PC 에서 coupang-check 로 확인
+
+
+def test_coupang_search_never_keeps_images_and_hides_keys(monkeypatch):
+    from conftest import FakeSession
+    from shortsmaker.studio import coupang
+    monkeypatch.setenv("COUPANG_ACCESS_KEY", "AK123")
+    monkeypatch.setenv("COUPANG_SECRET_KEY", "SK456")
+    monkeypatch.setattr(coupang, "MIN_INTERVAL", 0.0)
+    coupang._cache.clear()
+    s = FakeSession(lambda m, u, kw: _cp_response([_CP_ROW]))
+    r = coupang.search("텀블러", 3, session=s, use_cache=False)
+    it = r["items"][0]
+    assert it["name"] == "보온 텀블러 500ml" and it["price_krw"] == 12900 and it["category"] == "주방용품" and it["source"] == "coupang_partners_api" and it["fetched_at"]
+    assert "productImage" not in it and "img.example" not in str(it)                         # 이미지는 저장/전달하지 않는다
+    auth = s.calls[0][2]["headers"]["Authorization"]
+    assert auth.startswith("CEA algorithm=HmacSHA256, access-key=AK123") and "SK456" not in auth and "SK456" not in str(r)
+    assert "keyword=" in s.calls[0][1]
+
+
+def test_coupang_errors_are_clear_and_tries_alternate_path_on_404(monkeypatch):
+    import pytest
+    from conftest import FakeResponse, FakeSession
+    from shortsmaker.studio import coupang
+    monkeypatch.setattr(coupang, "MIN_INTERVAL", 0.0)
+    monkeypatch.delenv("COUPANG_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("COUPANG_SECRET_KEY", raising=False)
+    with pytest.raises(coupang.CoupangNotConfigured):
+        coupang.search("텀블러")
+    assert coupang.check()["stage"] == "keys"
+    monkeypatch.setenv("COUPANG_ACCESS_KEY", "a")
+    monkeypatch.setenv("COUPANG_SECRET_KEY", "b")
+    seq = iter([FakeResponse({}, 404), _cp_response([_CP_ROW])])
+    s = FakeSession(lambda m, u, kw: next(seq))
+    r = coupang.search("텀블러", session=s, use_cache=False)
+    assert len(s.calls) == 2 and r["path"] == coupang.SEARCH_PATHS[1]
+    for status, text in ((401, "인증 실패"), (500, "오류")):
+        with pytest.raises(coupang.CoupangError, match=text):
+            coupang.search("텀블러", session=FakeSession(lambda m, u, kw, st=status: FakeResponse({}, st)), use_cache=False)
+    bad = FakeSession(lambda m, u, kw: FakeResponse({"rCode": "1", "rMessage": "invalid"}))
+    with pytest.raises(coupang.CoupangError, match="거절"):
+        coupang.search("텀블러", session=bad, use_cache=False)
+    assert coupang.check(FakeSession(lambda m, u, kw: _cp_response([_CP_ROW])))["ok"]
+
+
+def test_coupang_price_is_a_fact_only_while_fresh(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from shortsmaker.studio import coupang, grounding
+    now = datetime.now(timezone.utc)
+    fresh = {"source": "coupang_partners_api", "fetched_at": (now - timedelta(hours=2)).isoformat(timespec="seconds")}
+    stale = {"source": "coupang_partners_api", "fetched_at": (now - timedelta(hours=30)).isoformat(timespec="seconds")}
+    assert coupang.price_is_fresh(fresh) and not coupang.price_is_fresh(stale) and coupang.price_is_fresh(None) and not coupang.price_is_fresh({"source": "coupang_partners_api"})
+    f1 = grounding.allowed_facts(_sp(price="12,900원", price_meta=fresh))
+    f2 = grounding.allowed_facts(_sp(price="12,900원", price_meta=stale))
+    f3 = grounding.allowed_facts(_sp(price="12,900원"))
+    assert any(x.startswith("가격: 12,900원") and "쿠팡 파트너스 API" in x for x in f1)
+    assert not any(x.startswith("가격") for x in f2)                                          # 오래된 가격은 근거에서 제외
+    assert any(x == "가격: 12,900원" for x in f3)                                              # 사용자가 직접 입력한 가격은 그대로
+
+
+def test_coupang_api_endpoint_and_job_price_meta(tmp_path, monkeypatch):
+    from conftest import FakeSession
+    from fastapi.testclient import TestClient
+    from shortsmaker.studio import coupang
+    from shortsmaker.web.app import create_app
+    monkeypatch.setattr(coupang, "MIN_INTERVAL", 0.0)
+    monkeypatch.delenv("COUPANG_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("COUPANG_SECRET_KEY", raising=False)
+    c = TestClient(create_app({}, tmp_path / "o", tmp_path / "u"))
+    r = c.get("/api/v2/coupang/search?q=텀블러")
+    assert r.status_code == 400 and "COUPANG_ACCESS_KEY" in r.json()["detail"] and "COUPANG_SECRET_KEY" in r.json()["detail"]
+    monkeypatch.setenv("COUPANG_ACCESS_KEY", "a")
+    monkeypatch.setenv("COUPANG_SECRET_KEY", "b")
+    coupang._cache.clear()
+    fake = FakeSession(lambda m, u, kw: _cp_response([_CP_ROW]))
+    monkeypatch.setattr(coupang, "requests", fake)
+    ok = c.get("/api/v2/coupang/search?q=텀블러").json()
+    assert ok["items"][0]["name"] == "보온 텀블러 500ml" and "productImage" not in str(ok)

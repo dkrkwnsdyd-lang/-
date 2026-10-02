@@ -40,3 +40,10 @@ Gemini 키 넣는 법: 환경 설정 > API credentials(허용 웹사이트 `gene
 - Naver 쇼핑 검색 API 의존 코드: 없음. 상품 URL 은 공개 메타데이터(og:, JSON-LD)만 읽고, 실패 시 사진+수동 입력.
 - Coupang: Seller API / Partners API / 상품 페이지 import 를 구분해서 아직 어느 것도 연동하지 않음 (NEXT_TASKS).
 - 비공식 endpoint 사용: 없음. 영상 생성 provider 는 추측 endpoint 로 유료 호출하지 않도록 비활성.
+
+
+## 쿠팡 파트너스 Open API (2026-10-03)
+- 연결: `studio/coupang.py` (HMAC 서명, 상품 검색). 키: `.env` 의 `COUPANG_ACCESS_KEY` / `COUPANG_SECRET_KEY`
+- 사용 범위(사용자 결정): **이미지 사용 안 함**(응답 이미지 필드를 읽지도 저장하지도 않음), 정보(상품명/카테고리/가격/배송표시/링크)는 쇼츠 제작에만, 별도 저장소 없음(메모리 캐시 10분)
+- 가격: 조회 시각 기록, 24시간 지나면 사실 근거에서 제외
+- **검증 상태: 미검증.** 서명 방식·검색 주소는 공식 문서로 확인하지 못했다(개발 환경에서 문서/쿠팡 서버 접속 차단). 사용자 PC 에서 `python -m shortsmaker coupang-check` 로 확인 필요. 약관상 정보 사용 범위는 사용자가 확인

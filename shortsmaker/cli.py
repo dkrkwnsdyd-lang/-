@@ -96,6 +96,9 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--box", action="append", default=[], metavar="파일명=x0,y0,x1,y1",
                     help="복잡한 배경 사진의 제품 위치(0~1). 예: 정면.jpg=0.14,0.33,0.94,0.75 (확대 컷 허용)")
 
+    cp = sub.add_parser("coupang-check", help="쿠팡 파트너스 API 연결 점검 (키 값은 출력하지 않음)")
+    cs = sub.add_parser("coupang-search", help="쿠팡 파트너스 API 상품 검색 (정보만, 이미지 없음)")
+    cs.add_argument("keyword")
     sub.add_parser("api-status", help="API Control Center (키/모델/상태, 무료 확인만)")
     sub.add_parser("db-rollback", help="마지막 DB 마이그레이션 되돌리기")
 
@@ -213,6 +216,22 @@ def _run(args, cfg) -> int:
         return 0
     if args.command == "studio":
         return _studio(args)
+    if args.command == "coupang-check":
+        from .studio import coupang
+        r = coupang.check()
+        print(("OK  " if r["ok"] else "실패 ") + r["message"] + (f" (주소: {r.get('path')})" if r.get("path") else ""))
+        return 0 if r["ok"] else 1
+    if args.command == "coupang-search":
+        from .studio import coupang
+        try:
+            r = coupang.search(args.keyword, 5)
+        except (coupang.CoupangError, coupang.CoupangNotConfigured) as e:
+            print(f"실패: {e}")
+            return 1
+        for it in r["items"]:
+            print(f"- {it['name'][:50]} | {it['category']} | {it['price_krw']}원 | 로켓 {it.get('isRocket')} | {it['fetched_at']}")
+        print(f"{len(r['items'])}건 (주소 {r['path']})")
+        return 0
     if args.command == "api-status":
         from .providers import Router
         for row in Router().control_center(test=True):

@@ -25,6 +25,7 @@ class ProductInput:
     target: str = ""                  # 누가 쓰는지
     my_take: str = ""                 # 사용자가 직접 써본 느낌 한 줄 (실제 경험만). 문구에서 경험담으로 쓸 수 있는 유일한 근거
     price: str = ""
+    price_meta: dict | None = None    # 가격 출처/조회 시각 {"source":"coupang_partners_api","fetched_at":ISO}. 24시간 지나면 사실 근거에서 제외
     url: str = ""
     photos: list[str] = field(default_factory=list)
     compact: bool = False             # 12~15초 압축 구조

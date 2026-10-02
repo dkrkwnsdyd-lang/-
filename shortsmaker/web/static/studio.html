@@ -155,6 +155,10 @@
             <option>패션</option><option>인테리어</option><option>반려동물</option><option>건강</option><option>식품</option><option>의료기기</option>
           </select></div>
       </div>
+      <label class="f">쿠팡에서 상품 정보 찾기 (선택)</label>
+      <div class="addrow" style="display:flex;gap:6px"><input id="cpQuery" type="text" placeholder="상품명으로 검색" style="flex:1"><button type="button" id="cpGo">검색</button></div>
+      <p class="note">쿠팡 파트너스 API 로 상품명·카테고리·가격만 가져와요. <b>이미지는 가져오지 않고</b>, 정보는 쇼츠를 만들 때만 쓰며 따로 저장하지 않아요. 가격은 조회 후 24시간 안에만 대본 근거로 써요. 특징·성능은 직접 입력해 주세요.</p>
+      <div id="cpResults"></div><div id="cpPicked" class="note"></div>
       <label class="f" for="features">핵심 특징 (한 줄에 하나 · 사실만)</label>
       <textarea id="features" rows="3" placeholder="4단계 강도 조절&#10;USB-C 충전"></textarea>
       <div id="featureLink" style="display:none">
@@ -401,6 +405,7 @@ $("go").onclick = async () => {
   const feats = new Set($("features").value.split(/\n/).map(x => x.trim()).filter(Boolean));
   fd.append("feature_photos", JSON.stringify(Object.fromEntries(Object.entries(featureSel).filter(([k, v]) => feats.has(k) && v < files.length))));
   const v = (id) => $(id).value;
+  if (cpPick) { fd.append("price", cpPick.price_text); fd.append("price_source", "coupang_partners_api"); fd.append("price_fetched_at", cpPick.fetched_at); }
   fd.append("url", v("url")); fd.append("name", v("name")); fd.append("features", v("features"));
   fd.append("problem", v("problem")); fd.append("my_take", v("myTake")); fd.append("category", v("category")); fd.append("affiliate", v("affiliate"));
   fd.append("photo_rights", v("rights")); fd.append("reference_url", v("ref"));
@@ -543,6 +548,35 @@ $("stratBox").addEventListener("change", (ev) => {
 });
 
 
+
+
+// ---------------------------------------------------------------- 쿠팡 파트너스 (정보 전용, 이미지 없음)
+let cpPick = null;
+$("cpGo").onclick = async () => {
+  const q = ($("cpQuery").value || $("name").value || "").trim();
+  if (!q) { $("cpResults").innerHTML = `<p class="note warn">검색어를 입력하세요</p>`; return; }
+  $("cpGo").disabled = true; $("cpResults").innerHTML = `<p class="note">검색 중…</p>`;
+  try {
+    const res = await fetch(`/api/v2/coupang/search?q=${encodeURIComponent(q)}`);
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || "실패");
+    window._cpItems = d.items;
+    $("cpResults").innerHTML = d.items.length ? d.items.map((it, i) => `<button type="button" data-cp="${i}" style="display:block;width:100%;text-align:left;margin:4px 0;background:var(--bar)">
+      ${esc(it.name)}<br><span class="note">${esc(it.category || "")} · ${it.price_krw != null ? it.price_krw.toLocaleString() + "원" : "가격 없음"}${it.isRocket ? " · 로켓" : ""}</span></button>`).join("") : `<p class="note">검색 결과가 없어요</p>`;
+  } catch (e) { $("cpResults").innerHTML = `<p class="note warn">⚠ ${esc(e.message)}</p>`; }
+  $("cpGo").disabled = false;
+};
+$("cpResults").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-cp]");
+  if (!b) return;
+  const it = window._cpItems[Number(b.dataset.cp)];
+  $("name").value = it.name;
+  const opt = [...$("category").options].find(o => o.value && (it.category || "").includes(o.value));
+  if (opt) $("category").value = opt.value;
+  cpPick = it.price_krw != null ? { price_text: it.price_krw.toLocaleString() + "원", fetched_at: it.fetched_at } : null;
+  $("cpPicked").textContent = `선택: ${it.name}` + (cpPick ? ` · 가격 ${cpPick.price_text} (쿠팡 조회 ${it.fetched_at}, 24시간 안에만 사용)` : "");
+  $("cpResults").innerHTML = "";
+});
 
 // ---------------------------------------------------------------- REFERENCE LAB
 const R_HOOK = { problem_first:"문제 먼저", question:"질문형", curiosity_gap:"궁금증 유발", empathy:"공감형", shock_visual:"시각 충격", demo_first:"시연 먼저", number_list:"숫자/목록", direct_address:"직접 호명", pov:"POV", other:"기타" };

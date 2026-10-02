@@ -1,5 +1,8 @@
 # CHANGELOG_V2
 
+## 2026-10-03 — 쿠팡 파트너스 API (정보 전용)
+- `studio/coupang.py`, CLI `coupang-check`/`coupang-search`, `GET /api/v2/coupang/search`, 상품명 옆 '쿠팡에서 상품 정보 찾기'. 이미지 미사용, 가격 24시간 신선도, `ProductInput.price_meta`
+
 ## 2026-10-02 — REFERENCE_VIDEO_ENGINE
 - `studio/reference_engine/`: vocab(어휘), platforms, analyzer, patterns(추상 패턴·점수·라이브러리 태그), fingerprint(원문 복제 방지 해시), library(DB), mix(AUTO/수동 조합), apply(상품 적응·가이드·템포/전환 적용), remix(Licensed Remix 권한 검문)
 - DB 마이그레이션 `0003_reference_patterns` (기존 데이터 변경 없음). 원문/영상은 저장하지 않고 패턴 값 + 해시만 저장

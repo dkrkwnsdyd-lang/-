@@ -48,7 +48,10 @@ def allowed_facts(p: ProductInput, vision: dict | None = None) -> list[str]:
     if getattr(p, "my_take", ""):
         facts.append(f"직접 써본 느낌(사용자 작성): {p.my_take}")
     if p.price:
-        facts.append(f"가격: {p.price}")
+        from .coupang import price_is_fresh
+        if price_is_fresh(getattr(p, "price_meta", None)):
+            suffix = f" (쿠팡 파트너스 API, 조회 {p.price_meta['fetched_at']})" if getattr(p, "price_meta", None) else ""
+            facts.append(f"가격: {p.price}{suffix}")
     if vision and not vision.get("error"):
         for ph in vision.get("photos", []):
             facts += [f"사진에 인쇄된 글자: {t}" for t in ph.get("visible_text", [])]
