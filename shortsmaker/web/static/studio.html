@@ -630,6 +630,7 @@ function showResult(d) {
   $("improve").dataset.rej = rej.join(" | ");
   $("master").src = r.master_url + "#t=0.1"; $("master").preload = "metadata"; $("masterDl").href = r.master_url;
   $("dur").textContent = `${r.plan.story_pattern} · ${(r.qa.video.duration || 0).toFixed(1)}초 · 비용 $${(r.cost || 0).toFixed(3)}`;
+  if (r.music && r.music.source === "library") $("dur").textContent += ` · 음악: ${r.music.file}`;
   const s = r.qa.scores;
   $("overall").textContent = s.final ?? s.overall;
   const pill = $("statusPill");

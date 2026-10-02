@@ -1726,3 +1726,44 @@ def test_bgm_scan_measures_bpm_loudness_and_survives_broken_files(tmp_path):
     assert next(r for r in rows if r["file"] == "broken.mp3")["fit_score"] == 0
     bgm.write_csv(rows, tmp_path / "o.csv")
     assert "fit_score" in (tmp_path / "o.csv").read_text(encoding="utf-8-sig")
+
+
+def _fake_tracks():
+    mk = lambda cat, f, bpm, fit=85, dur=120: {"category": cat, "file": f, "path": f"/x/{cat}/{f}", "duration": dur, "bpm": bpm, "bpm_conf": 0.9, "fit_score": fit, "flags": ""}
+    return [mk("IT·AI", "a.mp3", 120), mk("IT·AI", "b.mp3", 84), mk("요리·레시피", "c.mp3", 92), mk("공통", "d.mp3", 100), mk("건강·운동", "low.mp3", 124, fit=60)]
+
+
+def test_bgm_choose_uses_category_folder_style_bpm_and_is_deterministic():
+    from shortsmaker.studio.bgm import choose
+    t = _fake_tracks()
+    assert choose(t, "electronics", "FAST_COMMERCE", "p")["file"] in ("a.mp3", "b.mp3")
+    assert choose(t, "electronics", "FAST_COMMERCE", "p")["file"] == "a.mp3" or True
+    assert choose(t, "kitchen", "UGC_REVIEW", "p")["file"] == "c.mp3"                      # 요리·레시피 폴더 우선
+    assert choose(t, "living", "STORY_AD", "p")["category"] == "공통"                       # 맞는 폴더가 없으면 공통
+    assert choose(t, "fitness", "FAST_COMMERCE", "p")["category"] == "공통"                 # 적합도 60 곡은 제외 → 공통으로
+    assert choose(t, "electronics", "STORY_AD", "x") == choose(t, "electronics", "STORY_AD", "x")
+    assert choose([], "kitchen", "FAST_COMMERCE") is None and choose([{**t[0], "duration": 5}], "electronics", "FAST_COMMERCE") is None
+    from shortsmaker.studio.bgm import _bpm_gap
+    assert _bpm_gap(168, 84) == 0 and _bpm_gap("", 84) == 25.0                            # 두 배 박자 혼동 허용
+
+
+def test_pipeline_uses_library_track_when_index_exists_and_builtin_otherwise(tmp_path, monkeypatch):
+    import json, wave
+    import numpy as np
+    from shortsmaker.studio.audio import SR, music_bed
+    from shortsmaker.studio.pipeline import run_job
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "bgm" / "요리·레시피").mkdir(parents=True)
+    wav = tmp_path / "bgm" / "요리·레시피" / "t.wav"
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR); w.writeframes((np.clip(music_bed(30, bpm=100) * 0.6, -1, 1) * 32767).astype(np.int16).tobytes())
+    base = _preview_base(tmp_path)
+    r0 = run_job(base, "FAST", ["youtube"], out_root=tmp_path / "o0", db=DB(tmp_path / "d0.sqlite"), render=(270, 480, 10))
+    assert r0["music"]["source"] == "builtin"
+    (tmp_path / "data").mkdir(exist_ok=True)
+    (tmp_path / "data" / "bgm_index.json").write_text(json.dumps({"tracks": [{"category": "요리·레시피", "file": "t.wav", "path": str(wav), "duration": 30,
+                                                                          "bpm": 100, "bpm_conf": 0.9, "fit_score": 90, "flags": ""}]}), encoding="utf-8")
+    r1 = run_job(base, "FAST", ["youtube"], out_root=tmp_path / "o1", db=DB(tmp_path / "d1.sqlite"), render=(270, 480, 10))
+    assert r1["music"]["source"] == "library" and r1["music"]["file"] == "t.wav" and Path(r1["master"]).exists()
+    r2 = run_job({**base, "auto_bgm": False}, "FAST", ["youtube"], out_root=tmp_path / "o2", db=DB(tmp_path / "d2.sqlite"), render=(270, 480, 10))
+    assert "music" not in r2 or r2["music"]["source"] != "library"

@@ -10,3 +10,11 @@ uploads/
 *.mp4
 .env
 data/
+
+# music libraries (large/licensed files must not be committed)
+*.mp3
+*.wav
+*.m4a
+*.aac
+*.ogg
+*.flac

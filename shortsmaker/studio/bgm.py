@@ -149,6 +149,94 @@ def summary(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
+# ------------------------------------------------------------------ 라이브러리: 색인 + 자동 선택
+import hashlib
+import json
+import os
+
+INDEX_PATH = Path("data/bgm_index.json")
+STYLE_BPM = {"FAST_COMMERCE": 124, "STORY_AD": 84, "UGC_REVIEW": 92, "STANDARD": 100}
+# 상품 카테고리(strategy.common.category_key) -> 어울리는 음악 폴더 이름(앞쪽이 우선). 폴더 이름에 이 단어가 들어 있으면 해당
+CATEGORY_FOLDERS = {
+    "electronics": ["IT", "AI", "공통"], "kitchen": ["요리", "레시피", "라이프해킹", "공통"], "living": ["라이프해킹", "상식", "공통"],
+    "fitness": ["건강", "운동", "동기부여", "공통"], "beauty": ["뷰티", "패션", "공통"], "camping": ["여행", "라이프해킹", "공통"],
+    "general": ["공통", "라이프해킹"],
+}
+MIN_FIT = 75
+
+
+def find_library(project_root: str | Path = ".") -> Path | None:
+    """SHORTSMAKER_BGM_DIR 환경변수, 없으면 프로젝트 폴더 안에서 이름에 'BGM'(대소문자 무관)이 들어간 폴더."""
+    env = os.environ.get("SHORTSMAKER_BGM_DIR", "").strip().strip('"')
+    if env and Path(env).is_dir():
+        return Path(env)
+    root = Path(project_root)
+    for d in sorted(root.iterdir()) if root.is_dir() else []:
+        if d.is_dir() and "bgm" in d.name.lower() and not d.name.startswith("."):
+            return d
+    return None
+
+
+def build_index(folder: str | Path, index_path: str | Path = INDEX_PATH, progress=None) -> list[dict]:
+    """분석 결과를 JSON 으로 저장. 파일 크기/수정시각이 같은 곡은 다시 분석하지 않는다."""
+    ip = Path(index_path)
+    old = {}
+    if ip.exists():
+        try:
+            old = {r["path"]: r for r in json.loads(ip.read_text(encoding="utf-8")).get("tracks", [])}
+        except (ValueError, KeyError):
+            old = {}
+    files = sorted(f for f in Path(folder).rglob("*") if f.suffix.lower() in EXTS)
+    rows = []
+    for i, f in enumerate(files, 1):
+        st = f.stat()
+        sig = f"{st.st_size}:{int(st.st_mtime)}"
+        r = old.get(str(f))
+        if not (r and r.get("sig") == sig):
+            try:
+                r = analyze(f)
+            except Exception as e:
+                r = {"file": f.name, "category": f.parent.name, "path": str(f), "error": str(e)[:80], "fit_score": 0, "flags": "error"}
+            r["sig"] = sig
+        rows.append(r)
+        if progress:
+            progress(i, len(files), f.name)
+    ip.parent.mkdir(parents=True, exist_ok=True)
+    ip.write_text(json.dumps({"folder": str(folder), "tracks": rows}, ensure_ascii=False), encoding="utf-8")
+    return rows
+
+
+def load_index(index_path: str | Path = INDEX_PATH) -> list[dict]:
+    try:
+        return json.loads(Path(index_path).read_text(encoding="utf-8")).get("tracks", [])
+    except (OSError, ValueError):
+        return []
+
+
+def _bpm_gap(bpm, target: float) -> float:
+    if bpm in ("", None):
+        return 25.0                                    # 박자를 모르면 중간 정도 불이익
+    b = float(bpm)
+    return min(abs(b - target), abs(b / 2 - target), abs(b * 2 - target))      # 반/두 배 박자 혼동 허용
+
+
+def choose(tracks: list[dict], category: str, style: str, seed: str = "") -> dict | None:
+    """카테고리 폴더(우선순위) + 적합도 75 이상 + 스타일 박자에 가까운 곡들 중에서, seed 로 결정적으로 하나 고른다."""
+    ok = [t for t in tracks if not t.get("error") and t.get("fit_score", 0) >= MIN_FIT and t.get("duration", 0) >= 20]
+    if not ok:
+        return None
+    words = CATEGORY_FOLDERS.get(category, CATEGORY_FOLDERS["general"])
+    target = STYLE_BPM.get(style, 100)
+    for rank, w in enumerate(words):
+        pool = [t for t in ok if w.lower() in t["category"].lower()]
+        if pool:
+            pool.sort(key=lambda t: (_bpm_gap(t.get("bpm"), target), -t["fit_score"], t["file"]))
+            top = pool[:3]                                  # 박자가 가장 가까운 3곡 중 seed 로 선택 (같은 상품은 같은 곡)
+            pick = top[int(hashlib.md5(seed.encode()).hexdigest(), 16) % len(top)]
+            return {**pick, "reason": f"카테고리 폴더 '{pick['category']}' · 스타일 박자 {target}BPM 에 가까운 곡 (곡 박자 {pick.get('bpm') or '미상'}) · 적합도 {pick['fit_score']}"}
+    return None
+
+
 def main(argv: list[str]) -> int:
     if not argv:
         print(__doc__)
@@ -161,6 +249,11 @@ def main(argv: list[str]) -> int:
     rows = scan(folder, lambda i, n, name: print(f"\r{i}/{n} {name[:40]:40}", end="", flush=True))
     print()
     write_csv(rows, out)
+    try:
+        build_index(folder, INDEX_PATH)           # 앱이 곡을 자동으로 고를 때 쓰는 색인 (data/bgm_index.json)
+        print(f"앱용 색인 저장: {INDEX_PATH.resolve()}")
+    except OSError as e:
+        print(f"색인 저장 실패: {e}")
     print(summary(rows))
     print(f"\n표 저장: {out.resolve()}  (엑셀로 열 수 있어요)")
     return 0

@@ -166,6 +166,28 @@ class StrategyBlocked(Exception):
         self.gate = gate
 
 
+def sctx_category(p) -> str:
+    from .strategy.common import category_key
+    return category_key(p.text())
+
+
+def _pick_bgm(inputs: dict, p, category: str, result: dict) -> dict | None:
+    """사용자가 곡을 직접 지정했으면 그것, 아니면(auto_bgm 이 꺼져 있지 않을 때) 음악 폴더 색인에서 카테고리/스타일에 맞는 곡. 없으면 내장 음악."""
+    from . import bgm as bgm_mod
+    if inputs.get("bgm_path"):
+        result["music"] = {"source": "user", "file": Path(inputs["bgm_path"]).name}
+        return {"path": inputs["bgm_path"]}
+    if inputs.get("auto_bgm") is False:
+        return None
+    tracks = bgm_mod.load_index()
+    t = bgm_mod.choose(tracks, category, p.video_style, seed=p.name or "") if tracks else None
+    if not t or not Path(t["path"]).exists():
+        result["music"] = {"source": "builtin", "note": "음악 폴더 색인이 없거나 맞는 곡이 없어 내장 음악 사용"}
+        return None
+    result["music"] = {"source": "library", "file": t["file"], "category": t["category"], "reason": t["reason"]}
+    return {"path": t["path"]}
+
+
 def _preview_result(renderer, sb, edl, identity, ctx, out_dir: Path) -> dict:
     """장면 카드용 썸네일(장면 중간 프레임)과 사진 목록, 장면별 선택지."""
     pdir = out_dir / "preview"
@@ -498,8 +520,9 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                                            progress_cb=lambda f: job.progress_cb and job.progress_cb(f"렌더 {f:.0%}"))
                 cta_mp4 = renderer.render(cta, vdir / "cta_master.mp4")
                 video_only = adapter.concat([body_mp4, cta_mp4], vdir / "master_video.mp4")
+                bgm_choice = _pick_bgm(inputs, p, sctx_category(p), result)
                 mix = build_mix(edl["total"], edl["events"], edl["voice"], vdir / "mix.wav",
-                                bgm_path=inputs.get("bgm_path"), music_style=edl.get("music"))
+                                bgm_path=bgm_choice["path"] if bgm_choice else None, music_style=edl.get("music"))
                 master = adapter.export_platform(video_only, mix, vdir / "MASTER.mp4", profiles["youtube"])
             with job.step("FINAL_QA"):
                 vision = None

@@ -1,5 +1,9 @@
 # CHANGELOG_V2
 
+## 2026-10-02 — 음악 폴더(BGM 라이브러리)
+- `studio/bgm.py`: 폴더 분석(길이/음량/무음/BPM/적합도), 색인(`data/bgm_index.json`, 변경 없는 곡은 재분석 안 함), `choose`(상품 카테고리→폴더, 적합도 75+, 스타일 BPM 근접, 같은 상품은 같은 곡), `find_library`
+- 파이프라인: 곡을 직접 지정하지 않으면 색인에서 자동 선택(없으면 내장 음악), 결과 `music` 에 이유 기록; `.gitignore` 에 음원 확장자 추가
+
 ## 2026-10-02 — 영상 스타일별 연출 차이
 - `storyboard/styles.py`: STANDARD/FAST_COMMERCE/STORY_AD/UGC_REVIEW 프로필(장면 길이 배율·Hook 상한·음성 여유, 모션 선호 가감·카메라 세기, 전환, 효과음 비율/강한 효과음 허용, 음악 bpm/킥/패드/음량, 자막 속도)
 - Motion Director `bias`, SFX Director `ratio/heavy`, `soft` 전환 렌더, 음악 베드 템포/킥 파라미터, EDL 에 style/intensity/music 전달
