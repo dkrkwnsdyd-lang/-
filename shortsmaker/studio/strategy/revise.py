@@ -74,8 +74,20 @@ def apply(router, ctx: Ctx, state: dict, script: dict, issues: list[dict]) -> tu
                 _drop(sc, prob["scene_id"], log, "공개 전 장면이 길어 문제 장면 삭제 (Hook 이 이미 문제를 제시)")
         elif op == "drop_repeat":
             for a, b, _ in (issues and [(0, i.get("scene_id"), 0) for i in issues if i["op"] == "drop_repeat"]) or []:
-                if b:
-                    _drop(sc, b, log, "앞 장면과 중복")
+                if not b:
+                    continue
+                if _drop(sc, b, log, "앞 장면과 중복"):
+                    continue
+                tgt = next((x for x in sc if x["scene_id"] == b), None)       # 삭제할 수 없는 핵심 장면(CTA)이면 덜 비슷한 다른 CTA 후보로 교체
+                if tgt and tgt["beat"] == "cta":
+                    others = " ".join(x["narration"] for x in sc if x is not tgt)
+                    cands = [c for c in (state.get("cta") or {}).get("candidates", []) if c["text"] != tgt["tts_line"] and c["total"] >= 55
+                             and jaccard(strip_marks(c["text"]), others) < 0.35]
+                    if cands:
+                        c = cands[0]
+                        log.append({"op": op, "scene_id": tgt["scene_id"], "before": tgt["narration"], "after": strip_marks(c["text"]), "why": "앞 장면과 거의 같은 말이라 다른 CTA 로 교체"})
+                        state["cta"]["selected"] = c
+                        _set(tgt, c["text"], c["caption"], ctx)
         elif op == "ensure_primary":
             pf = (state.get("primary_selling_point") or {}).get("feature") or ""
             if pf and not any(pf == s.get("feature") for s in sc):

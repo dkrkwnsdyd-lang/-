@@ -17,6 +17,7 @@ TRANSITION_MAP = {"whip": {"PRODUCT_REVEAL": "whip", "FEATURE": "whip"}, "flash"
                   "match_cut": {"PRODUCT_REVEAL": "soft"}}
 CAPTION_ZONE = {"short_center": "top", "top_keyword": "top", "short_bottom": "bottom", "dense_bottom": "bottom", "karaoke_word": "top", "none": "top"}
 MAX_SCENES = 8
+MIN_TOTAL = 12.0
 
 
 def stages_to_beats(stages: list[str], ctx, warnings: list[str]) -> list[tuple[str, str]]:
@@ -124,15 +125,26 @@ def shape_scenes(scenes: list, guide: dict) -> dict:
     applied = {}
     avg_t = (guide.get("tempo") or {}).get("avg")
     hook_max = (guide.get("tempo") or {}).get("hook_max")
+    hook = scenes[0] if scenes and scenes[0].scene_type == "HOOK" else None
     if avg_t and scenes:
         cur = sum(s.duration for s in scenes) / len(scenes)
         k = avg_t / cur if cur else 1.0
         for s in scenes:
             s.duration = round(max(1.1, min(4.2, s.duration * k)), 2)
         applied["tempo_scale"] = round(k, 2)
-    if hook_max and scenes and scenes[0].scene_type == "HOOK":
-        scenes[0].duration = round(min(scenes[0].duration, hook_max), 2)
+    if hook_max and hook is not None:
+        hook.duration = round(min(hook.duration, hook_max), 2)
         applied["hook_max"] = hook_max
+    total = sum(s.duration for s in scenes)
+    if avg_t and scenes and 0 < total < MIN_TOTAL:                  # 참고 템포가 너무 빨라 영상이 12초 아래로 줄지 않게 (Hook 은 상한 유지, 나머지를 늘림)
+        rest = [s for s in scenes if s is not hook]
+        need = MIN_TOTAL - (hook.duration if hook is not None else 0.0)
+        cur_rest = sum(s.duration for s in rest)
+        up = need / cur_rest if cur_rest else 1.0
+        for s in rest:
+            s.duration = round(min(4.2, s.duration * up), 2)
+        applied["min_total_applied"] = MIN_TOTAL
+        applied["tempo_scale"] = round(applied.get("tempo_scale", 1.0) * up, 2)
     tmap = (guide.get("transition") or {}).get("map") or {}
     if tmap:
         for i, s in enumerate(scenes):

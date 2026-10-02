@@ -13,6 +13,17 @@
 - 사용자 사진은 쿠팡 상품 이미지. 게시 전 쿠팡 파트너스 약관(이미지 사용 조건) 확인 또는 판매자 허락/직접 촬영 사진 필요
 - 나중에: Coupang Partners API 로 상품 정보/이미지를 가져오는 정식 경로 연동 검토 (Seller API / Partners / 페이지 import 를 혼동하지 말 것)
 
+## 00000. REFERENCE_VIDEO_ENGINE 다음 단계 (2026-10-02)
+- 구현됨: 분석기(YouTube URL=Gemini / 업로드 영상=로컬+Vision / 구조 메모), 패턴 추출(어휘 값만), Pattern Library(DB 0003), Pattern Mix(AUTO/수동), 상품 적응(근거 없는 상황 단계는 제외), 템포/전환/모션/CTA/Hook 유형 적용, 복제 방지(해시) + 번역투 금지, Licensed Remix 권한 검문(구조), Reference Lab UI/API
+- **실제 플랫폼 영상 분석은 YouTube 일반 영상 1개(뮤직비디오)로만 확인.** Reels/샤오홍슈 실제 영상, 쇼핑 쇼츠 분석 품질, 10개 Reference 실측은 미검증 (환경에서 접속 불가). 사용자 PC에서 실제 URL/영상으로 시험 필요
+- NEXT 1: 사용자 PC 에서 실제 쇼츠/릴스/샤오홍슈 영상 10개 분석 → 패턴 품질(Vision/Gemini 응답 정확도) 확인, 어휘 보정
+- NEXT 2: Instagram/샤오홍슈 URL 은 영상 접근 불가(다운로드 제외) → 업로드/메모 방식만. 공식 API/oEmbed 로 가능한지 검토
+- NEXT 3: 패턴의 늦은 공개(예: 9.5초)와 빠른 편집 템포(Reels)를 섞으면 공개 시점이 앞당겨짐(템포 우선). 우선순위 규칙 필요
+- NEXT 4: 복제 방지는 Gemini 가 말/자막 원문을 돌려줄 때만 해시 생성(음악 영상 등은 0개). 원문이 없으면 검사 불가
+- NEXT 5: Licensed Remix 는 권한 표시와 허용 연산 검문까지만 (실제 재편집 UI/렌더 연결 없음)
+- NEXT 6: 패턴 적용 전/후의 '실제 시청 품질' 비교(사람 평가). 지금 비교는 구조 지표(템포/공개/레이아웃 다양성/전략 점수) 위주
+- DO NOT REDO: reference_engine 패키지 (analyzer/patterns/library/mix/apply/remix/fingerprint/vocab)
+
 ## 0000. 하이브리드 출연 방식 다음 단계 (2026-10-02)
 - 구조 구현됨 / 실제 외부 API 호출은 **0건** (Higgsfield/Seedance/Kling 은 자리만, 공식 문서 검증 전 호출 금지)
 - NEXT 1: provider 하나를 공식 문서로 검증(엔드포인트·가격·이미지→영상 파라미터)해서 `presenter/providers.py` 에 어댑터 추가 → 그 전에는 AI 장면이 항상 원본 사진으로 대체됨

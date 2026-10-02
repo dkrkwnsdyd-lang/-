@@ -1,5 +1,12 @@
 # CHANGELOG_V2
 
+## 2026-10-02 — REFERENCE_VIDEO_ENGINE
+- `studio/reference_engine/`: vocab(어휘), platforms, analyzer, patterns(추상 패턴·점수·라이브러리 태그), fingerprint(원문 복제 방지 해시), library(DB), mix(AUTO/수동 조합), apply(상품 적응·가이드·템포/전환 적용), remix(Licensed Remix 권한 검문)
+- DB 마이그레이션 `0003_reference_patterns` (기존 데이터 변경 없음). 원문/영상은 저장하지 않고 패턴 값 + 해시만 저장
+- 전략 엔진: 패턴의 스토리 단계(situation/pain/pain_emotion/turning/…)로 대본 구조 변경, Hook 유형/CTA 방식 선호, 감사 시 늦은 공개 허용, 복제/번역투 차단(line_issues), 반복 CTA 교체
+- Storyboard: `story_role`, 템포/Hook 길이/전환/모션/자막 위치 적용(최소 12초 보장), `production.reference` 에 적용 결과
+- API/UI: REFERENCE LAB(분석·저장·조합·이 패턴으로 영상 제작), `POST /api/v2/reference/{analyze,mix}`, `GET/POST/DELETE /reference/patterns`
+
 ## 2026-10-02 — 하이브리드 출연 방식 (REAL_UGC / AI_PRESENTER / AI_PRODUCT_UGC)
 - `studio/presenter/`: modes(출연 방식·AUTO 우선순위·계획), real(실제 영상 구간 후보+배치), providers(VideoGenerationProvider 추상화·Router·미검증 stub·Mock), cost(ECONOMY/BALANCED/PREMIUM·월 예산 다운그레이드·생성 전 비용 표시), cache(동일 입력 재사용), fidelity(Product Fidelity QA: PASS/PRODUCT_MISMATCH/UNVERIFIED), generate(동의 후 생성·폴백·재생성 상한), safety(AI 진행자 가짜 사용 경험 금지)
 - Storyboard: `StoryScene.source_type`, `StoryScene.ai`, `Storyboard.production` 추가 (기존 필드 변경 없음). DB: 마이그레이션 `0002_ai_generations`(기존 테이블/데이터 변경 없음)

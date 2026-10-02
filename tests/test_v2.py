@@ -2269,3 +2269,23 @@ def test_reference_api_list_save_delete_mix(tmp_path):
     assert c.post("/api/v2/reference/mix", json={"ids": ["nope"]}).status_code == 404
     assert c.post("/api/v2/reference/analyze", data={}).status_code == 400
     assert c.delete(f"/api/v2/reference/patterns/{a}").json()["deleted"] and c.delete(f"/api/v2/reference/patterns/{a}").status_code == 404
+
+
+def test_reference_tempo_keeps_minimum_total_length_and_revision_swaps_repeated_cta(tmp_path):
+    import copy
+    from shortsmaker.studio.reference_engine.apply import shape_scenes
+    from shortsmaker.studio.strategy import engine, make_ctx, run_strategy
+    from types import SimpleNamespace as NS
+    scenes = [NS(duration=2.4, scene_type="HOOK", transition="cut") for _ in range(6)]
+    info = shape_scenes(scenes, {"tempo": {"avg": 1.2, "hook_max": 1.5}})
+    assert sum(s.duration for s in scenes) >= 11.9 and info["min_total_applied"] == 12.0 and scenes[0].duration <= 4.2
+    ctx = make_ctx(_sp(), style="STORY_AD")
+    st = run_strategy(None, ctx, auto=False)
+    rep = copy.deepcopy(st["script"])
+    last = rep["scenes"][-1]
+    other = next(s for s in rep["scenes"] if s["beat"] == "reveal")
+    last.update(tts_line=other["tts_line"], narration=other["narration"])           # CTA 가 앞 장면과 같은 말
+    st["script"] = rep
+    engine._audit_and_revise(None, ctx, st, auto=True)
+    final = st["final_script"]["scenes"]
+    assert final[-1]["beat"] == "cta" and final[-1]["narration"] != other["narration"] and st["conversion_audit"]["gate"]["passed"]
