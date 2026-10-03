@@ -12,14 +12,18 @@ from pathlib import Path
 from ...video import ffmpeg_exe
 
 FIDELITY_MIN = 85
-CHECKS = ("shape_changed", "color_changed", "logo_or_text_changed", "button_or_part_changed", "pattern_changed", "proportion_changed")
+CHECKS = ("shape_changed", "color_changed", "logo_or_text_changed", "button_or_part_changed", "pattern_changed", "proportion_changed",
+          "hand_anatomy_problem", "hand_product_intersection", "product_duplicate", "product_morph")
 
 SYSTEM = (
     "You compare a REAL product reference photo (image 1) with frames from an AI-generated video where a person holds/uses a product (images 2+). "
     "Decide whether the product in the video is the SAME product as in the reference: shape, color, logo/printed text, button positions, parts, "
     "pattern, size proportion, distinctive exterior. Be strict: if the product looks like a different or generic item, say so. "
+    "Also inspect physical interaction quality whenever hands are visible: natural finger count/anatomy, believable grip/contact, no fingers passing through the product, "
+    "no duplicated product, and no product melting/morphing/resizing across frames. "
     'Answer JSON only: {"same_product":true,"fidelity":0-100,"shape_changed":false,"color_changed":false,"logo_or_text_changed":false,'
-    '"button_or_part_changed":false,"pattern_changed":false,"proportion_changed":false,"product_visible":true,"notes":"short"}')
+    '"button_or_part_changed":false,"pattern_changed":false,"proportion_changed":false,"hand_anatomy_problem":false,'
+    '"hand_product_intersection":false,"product_duplicate":false,"product_morph":false,"product_visible":true,"notes":"short"}')
 
 
 def sample_frames(clip: str, out_dir: Path, count: int = 3, size: int = 640) -> list[str]:
