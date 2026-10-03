@@ -1,5 +1,11 @@
 # CHANGELOG_V2
 
+## 2026-10-03 — SNS 마감 (Retention Polish, OpusClip 방식 벤치마킹 1차, 선택·기본 OFF)
+- `studio/polish.py`: 컷 안에서 변화 없는 구간이 길면 펀치 줌(패턴 인터럽트)을 일정 간격으로 추가(스타일별 간격, 컷당 2회, 강조 시점/컷 경계와 겹치지 않음), 상단 진행 막대, 실측 리포트(최장 정지 구간 전/후, 첫 시각 변화·첫 자막 시각, 자막 글자/초). 컷 수/길이/대사/사진은 바뀌지 않음
+- 렌더러: layout 경로 카메라가 `Shot.punch_at` 을 읽도록(없으면 동작 없음), `MotionRenderer._progress`. form `polish_mode=1`, 결과 `polish`, UI 체크박스·결과 한 줄
+- 이미 있던 것(재사용): 단어별 팝 자막/강조색, 안전영역, 컷 템포 QA, 전환/효과음, 덕킹, LUFS 정규화
+- 실측(합성 텀블러 사진, FAST): 정지 구간 2.62s → 1.52s, 펀치 4개. 프레임을 직접 보고 진행 막대/줌 확인
+
 ## 2026-10-03 — 3-Scene Flow Mode (AI_PRODUCT_UGC 안의 선택 기능, 기본 OFF)
 - `studio/ugc_reference/flow3.py`: Scene 1(Scroll Stopper/Hook) → 2(Product Demo/Hero Use) → 3(Result/Hero Shot/CTA) 와 장면별 Google Flow 복사용 영어 프롬프트(Who/Where/손/카메라/프레이밍/조명/연속성/Product Lock/Avoid), Voice Over·Caption·SFX 는 별도 필드
 - 대사/자막은 기존 UGC 문장 생성 + `line_issues` 사실 검증 재사용. 레퍼런스 세션이 있으면 Mixer 의 추상 패턴(Hook 방식/카메라/인물·손동작/컷 속도/CTA)만 반영

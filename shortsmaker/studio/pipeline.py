@@ -560,6 +560,9 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                                zoomable_paths={ph['path'] for ph in identity.photos if zoomable(identity, ph['path'])})
                 else:      # Storyboard(JSON) -> EDL -> Renderer. AI 와 Renderer 는 Storyboard 로만 연결된다
                     edl = edit_from_storyboard(sb, voice, label=label)
+                    if p.polish:                      # SNS 마감 (선택·기본 OFF): 컷 안에 시청 유지용 펀치 줌 + 진행 막대. 내용/길이는 그대로
+                        from . import polish as polish_mod
+                        result["polish"] = polish_mod.apply(edl, sb.style)
             clip_report = clips_mod.assign(edl["shots"], plan.scenes, use_infos) if not p.legacy_render else clips_mod.assign(edl["shots"], plan.scenes, clip_infos)
             if video_paths:
                 result["clips"] = {"provided": len(video_paths), "usable": len(clip_infos), "used": (sb.production.get("real_scenes") or []) + clip_report}

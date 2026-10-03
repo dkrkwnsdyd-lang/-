@@ -1,5 +1,9 @@
 # TEST_RESULTS
 
+## 2026-10-03 — SNS 마감 (Retention Polish)
+- 단위: 펀치 추가·길이/컷 불변·강조 시점 비충돌 PASS · OFF 흔적 없음/ON 줌·진행 막대 렌더 PASS · 파이프라인 OFF/ON PASS
+- 실제 MP4(360x640, 합성 사진) 프레임 비교로 진행 막대와 펀치 줌 확인. 한계: 사람이 폰으로 본 체감/시청 유지율 개선은 미확인(측정 불가)
+
 ## 2026-10-03 — 3-Scene Flow Mode (실제 Google Flow 호출 없음, 프롬프트 생성만 검증)
 - OFF 회귀 PASS(결과에 flow3 없음, ugc 모듈 미로드) · ON 정확히 Scene 1~3 PASS · 장면별 단독 복사 가능(Product Lock/9:16/연속성/한국어 없음) PASS · Scene1 Hook/Scene2 Demo/Scene3 Hero+CTA PASS · UGC Reference 동시 사용 PASS · AI_PRODUCT_UGC Product Lock 유지 PASS · AI_PRESENTER 미적용 PASS · 가격/할인/후기/판매량 미생성 PASS · 모바일 420px 라이트/다크 가로 스크롤 없음·복사 버튼 44px·콘솔 오류 없음
 - 한계: 생성된 프롬프트로 실제 영상이 손/제품 오류 없이 나오는지는 미확인 (Flow 미호출)

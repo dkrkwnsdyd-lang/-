@@ -106,7 +106,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         boxes: str = Form(""), feature_photos: str = Form(""), my_take: str = Form(""), compact: str = Form(""),
         preview: str = Form(""), video_style: str = Form("FAST_COMMERCE"), auto_strategy: str = Form("1"),
         actor_mode: str = Form("AUTO"), cost_mode: str = Form("BALANCED"), monthly_budget: str = Form(""),
-        reference_patterns: str = Form(""), reference_picks: str = Form(""), price_source: str = Form(""), price_fetched_at: str = Form(""), ugc_session_id: str = Form(""), flow3_mode: str = Form(""),
+        reference_patterns: str = Form(""), reference_picks: str = Form(""), price_source: str = Form(""), price_fetched_at: str = Form(""), ugc_session_id: str = Form(""), flow3_mode: str = Form(""), polish_mode: str = Form(""),
     ):
         if len(photos) > MAX_PHOTOS:
             raise HTTPException(400, f"사진은 최대 {MAX_PHOTOS}장까지 올릴 수 있어요.")
@@ -178,7 +178,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
                   "cost_mode": cost_mode if cost_mode in ("ECONOMY", "BALANCED", "PREMIUM") else "BALANCED",
                   "monthly_budget": _budget(monthly_budget),
                   "reference_patterns": [x for x in (i.strip() for i in reference_patterns.split(",")) if x.startswith("rp_")][:5],
-                  "reference_picks": _picks(reference_picks), "ugc_session": ugc_session_id.strip() if ugc_session_id.startswith("us_") else "", "flow3": flow3_mode == "1", "price": price.strip(),
+                  "reference_picks": _picks(reference_picks), "ugc_session": ugc_session_id.strip() if ugc_session_id.startswith("us_") else "", "flow3": flow3_mode == "1", "polish": polish_mode == "1", "price": price.strip(),
                   "price_meta": ({"source": "coupang_partners_api", "fetched_at": price_fetched_at.strip()} if price_source == "coupang_partners_api" and price_fetched_at.strip() else None), "url": url.strip(),
                   "photos": saved, "videos": saved_videos, "photo_rights": photo_rights, "reference_url": reference_url.strip(),
                   "affiliate": affiliate, "category_hint": category, "product_boxes": product_boxes,

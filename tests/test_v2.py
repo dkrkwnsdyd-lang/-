@@ -1742,7 +1742,6 @@ def test_bgm_choose_uses_category_folder_style_bpm_and_is_deterministic():
     from shortsmaker.studio.bgm import choose
     t = _fake_tracks()
     assert choose(t, "electronics", "FAST_COMMERCE", "p")["file"] in ("a.mp3", "b.mp3")
-    assert choose(t, "electronics", "FAST_COMMERCE", "p")["file"] == "a.mp3" or True
     assert choose(t, "kitchen", "UGC_REVIEW", "p")["file"] == "c.mp3"                      # 요리·레시피 폴더 우선
     assert choose(t, "living", "STORY_AD", "p")["category"] == "공통"                       # 맞는 폴더가 없으면 공통
     assert choose(t, "fitness", "FAST_COMMERCE", "p")["category"] == "공통"                 # 적합도 60 곡은 제외 → 공통으로
@@ -2685,3 +2684,65 @@ def test_flow3_translates_korean_features_through_router_and_survives_failures()
     for bad in (R(boom=True), R({"features": ["한국어 그대로"]}), R("garbage")):               # 실패/한국어 결과/이상한 값 → 일반 문구로 계속 (예외 없음)
         pk = flow3.generate(p, router=bad)
         assert pk["problems"] == [] and "do not invent" in pk["scenes"][1]["flow_prompt"]
+
+
+# ------------------------------------------------------------------ SNS 마감 (Retention Polish: 시청 유지 리듬 / 진행 막대 / 실측 리포트)
+def _shots(durs, emph=None):
+    from shortsmaker.studio.motion import Shot, CaptionWord
+    out = []
+    for i, d in enumerate(durs):
+        out.append(Shot(scene_id=f"S{i}", shot="hero_push", source="", duration=d, caption_words=[CaptionWord("가나다라", 0.1)], emph_at=emph, data={"intensity": 1.0}))
+    return out
+
+
+def test_polish_adds_retention_punches_without_changing_length_or_cuts():
+    from shortsmaker.studio import polish
+    shots = _shots([1.5, 4.5, 3.0, 2.0])
+    edl = {"shots": shots, "timing": {"first_visual_change": 0.9, "first_caption": 0.2}}
+    total = sum(s.duration for s in shots)
+    before = polish.longest_static(shots)
+    rep = polish.apply(edl, "FAST_COMMERCE")
+    assert before > 3 and rep["longest_static_after"] < before and rep["longest_static_after"] <= 2.4 + 1e-9    # 변화 없는 구간이 줄었다
+    assert rep["punches_added"] > 0 and [s.duration for s in shots] == [1.5, 4.5, 3.0, 2.0] and sum(s.duration for s in shots) == total   # 길이/컷 불변
+    for s in shots:
+        assert len(s.punch_at) <= polish.MAX_PER_SHOT and all(polish.EDGE <= t < s.duration - polish.EDGE + 1e-9 for t in s.punch_at)
+    assert shots[0].punch_at == []                                                                          # 짧은 컷에는 넣지 않는다
+    assert [s.data["progress"] for s in shots][0][0] == 0.0 and shots[-1].data["progress"][1] == 1.0       # 진행 막대 구간이 이어진다
+    assert {f["check"] for f in rep["findings"]} == {"longest_static_seconds", "first_visual_change", "first_caption", "caption_chars_per_second"}
+    slow = _shots([4.5])
+    polish.apply({"shots": slow, "timing": {}}, "STORY_AD")
+    assert len(slow[0].punch_at) <= len(shots[1].punch_at) + 1                                              # STORY 는 FAST 보다 느슨
+    emph = _shots([4.0], emph=1.6)
+    polish.apply({"shots": emph, "timing": {}}, "FAST_COMMERCE")
+    assert all(abs(t - 1.6) >= polish.APART for t in emph[0].punch_at)                                       # 강조 시점과 겹치지 않음
+
+
+def test_polish_off_changes_nothing_and_on_renders_zoom_and_progress_bar(tmp_path):
+    import numpy as np
+    from PIL import Image
+    from shortsmaker.studio import motion as M, polish
+    from shortsmaker.studio.layout_render import default_cam
+    r = M.MotionRenderer.__new__(M.MotionRenderer)
+    shot = _shots([4.0])[0]
+    shot.motion = "slow_zoom"
+    base = M.MotionRenderer.cam_for(r, shot, 1.7, 1.7 / 4.0).scale
+    assert shot.punch_at == [] and "progress" not in shot.data                                              # OFF 상태: 흔적 없음
+    edl = {"shots": [shot], "timing": {}}
+    polish.apply(edl, "FAST_COMMERCE")
+    pt = shot.punch_at[0]
+    assert M.MotionRenderer.cam_for(r, shot, pt + 0.08, (pt + 0.08) / 4.0).scale > M.MotionRenderer.cam_for(r, shot, pt + 0.4, (pt + 0.4) / 4.0).scale + 0.03   # 펀치 순간 줌 인
+    r.safe = {"left": 0.06, "right": 0.06, "top": 0.1, "bottom": 0.2}
+    img = Image.new("RGB", (M.W, M.H), (20, 20, 20))
+    out = np.asarray(M.MotionRenderer._progress(r, img, 0.5))
+    y = int(M.H * 0.052) + 2
+    assert out[y, int(M.W * 0.06) + 5, 0] > 200 and out[y, int(M.W * 0.9), 0] < 60                          # 왼쪽 절반만 채워짐
+    assert np.asarray(img)[y].max() == 20                                                                    # 원본 프레임은 건드리지 않음
+
+
+def test_polish_pipeline_off_vs_on_and_form_field(tmp_path):
+    from shortsmaker.studio.pipeline import run_job
+    base = _preview_base(tmp_path)
+    off = run_job({**base, "preview": True}, "PRO", ["youtube"], out_root=tmp_path / "p0", db=DB(tmp_path / "a.db"), render=(270, 480, 10), router=_Offline(db=DB(tmp_path / "a.db"), job_id="p0"))
+    assert off["status"] == "PREVIEW_READY" and "polish" not in off
+    on = run_job({**base, "preview": True, "polish": True}, "PRO", ["youtube"], out_root=tmp_path / "p1", db=DB(tmp_path / "b.db"), render=(270, 480, 10), router=_Offline(db=DB(tmp_path / "b.db"), job_id="p1"))
+    assert on["status"] == "PREVIEW_READY" and on["polish"]["enabled"] and on["polish"]["longest_static_after"] <= on["polish"]["longest_static_before"]

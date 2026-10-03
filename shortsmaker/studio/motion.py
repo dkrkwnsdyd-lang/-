@@ -540,6 +540,10 @@ class MotionRenderer:
             cam.bob *= k
             if cam.bg_scale is not None:
                 cam.bg_scale = 1.0 + (cam.bg_scale - 1.0) * k
+        for pt in shot.punch_at:                           # SNS 마감(Retention Polish)이 넣은 펀치 줌 (없으면 아무 일도 하지 않음)
+            dt = t - pt
+            if 0 <= dt < 0.5:
+                cam.scale += 0.07 * (ease_out(dt / 0.08) if dt < 0.08 else 1 - ease((dt - 0.08) / 0.42))
         return cam
 
     def close_clips(self) -> None:
@@ -591,6 +595,14 @@ class MotionRenderer:
             dd.text((pad, pad), text, font=f, fill=(255, 255, 255, 230))
             self._label_cache[text] = img
         return self._label_cache[text]
+
+    def _progress(self, frame: Image.Image, frac: float) -> Image.Image:
+        y, h = int(H * 0.052), max(4, int(H * 0.0034))
+        x0, x1 = int(W * self.safe["left"]), int(W * (1 - self.safe["right"]))
+        d = ImageDraw.Draw(frame := frame.copy(), "RGBA")
+        d.rounded_rectangle([x0, y, x1, y + h], h // 2, fill=(0, 0, 0, 90))
+        d.rounded_rectangle([x0, y, x0 + max(h, int((x1 - x0) * frac)), y + h], h // 2, fill=(255, 255, 255, 235))
+        return frame
 
     def frame(self, shot: Shot, t: float, index: int) -> Image.Image:
         """shot 시작 기준 t 초의 프레임."""
@@ -699,6 +711,9 @@ class MotionRenderer:
                     layer, pos = res
                     frame = frame.copy()
                     frame.paste(layer, pos, layer)
+        prog = (shot.data or {}).get("progress")
+        if prog:                                           # SNS 마감: 상단 진행 막대 (플랫폼 UI 와 겹치지 않는 안전영역 아래)
+            frame = self._progress(frame, prog[0] + (prog[1] - prog[0]) * min(max(t / shot.duration, 0), 1))
         if shot.label:
             lab = self._label(shot.label)
             frame = frame.copy() if not shot.caption_words else frame

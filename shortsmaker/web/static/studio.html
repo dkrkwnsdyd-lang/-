@@ -229,6 +229,8 @@
         <span><b>미리보기 먼저</b><br><span class="note">영상을 만들기 전에 장면 카드로 문구·순서·이미지·모션을 확인하고 고쳐요. 렌더링은 [영상 제작]을 눌렀을 때만 해요.</span></span></label>
       <label class="optrow"><input type="checkbox" id="compact">
         <span><b>12~15초 짧게 만들기</b><br><span class="note">훅 → 제품 공개 → 사용/기능 → 혜택 → 짧은 CTA. 같은 사진의 확대 반복으로 시간을 채우지 않아요.</span></span></label>
+      <label class="optrow"><input type="checkbox" id="polishOn">
+        <span><b>SNS 마감 (시청 유지 리듬)</b><br><span class="note">컷 안에서 변화가 오래 없으면 짧은 줌 포인트를 넣고 상단에 진행 막대를 더해요. 내용·길이·대사는 그대로예요. 끄면 기존과 동일해요.</span></span></label>
       <label class="f" for="ref">참고 영상 URL (선택 · 구조만 분석, 복제하지 않음)</label>
       <input id="ref" type="url" placeholder="https://youtube.com/shorts/…">
     </details>
@@ -463,6 +465,7 @@ $("go").onclick = async () => {
   fd.append("reference_patterns", selectedRefs.join(","));
   if ($("ugcOn").checked && window._ugcSession) fd.append("ugc_session_id", window._ugcSession);
   if ($("flow3On").checked) fd.append("flow3_mode", "1");
+  if ($("polishOn").checked) fd.append("polish_mode", "1");
   fd.append("actor_mode", document.querySelector("input[name=actor]:checked").value);
   fd.append("cost_mode", $("costMode").value);
   fd.append("monthly_budget", $("monthlyBudget").value || "");
@@ -1069,6 +1072,7 @@ function showResult(d) {
     + ((r.qa.gates || []).filter(g => g.hit).map(g => `<p class="note warn">🚧 ${g.gate} → ${g.effect}</p>`).join(""));
   $("qaNotes").innerHTML = Object.entries(r.qa.notes || {}).map(([k, v]) => `<p class="note">• ${LABEL[k] || k}: ${v.join(", ")}</p>`).join("")
     + `<p class="note">측정 방식: ${r.qa.method}</p>`
+    + (r.polish ? `<p class="note">✨ SNS 마감: 시청 유지 줌 ${r.polish.punches_added}개 · 변화 없는 구간 최장 ${r.polish.longest_static_before}s → ${r.polish.longest_static_after}s · 진행 막대` + (r.polish.warnings || []).map(w => `<br><span class="warn">⚠ ${String(w).replace(/</g, "&lt;")}</span>`).join("") + `</p>` : "")
     + (r.warnings || []).map(w => `<p class="note warn">⚠ ${w}</p>`).join("")
     + ((r.reference && r.reference.status === "UNVERIFIED" && r.reference.note) ? `<p class="note warn">⚠ 참고 영상: ${String(r.reference.note).replace(/</g, "&lt;")}</p>` : "")
     + (r.photo_notes || []).map(w => `<p class="note">📷 ${String(w).replace(/</g, "&lt;")}</p>`).join("")
