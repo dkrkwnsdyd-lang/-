@@ -1,5 +1,9 @@
 # TEST_RESULTS
 
+## 2026-10-03 — UGC Reference Mode (합성 fixture + 오프라인 라우터, 실제 영상/AI 호출 없음)
+- A OFF 회귀: PASS(서브프로세스에서 UGC 모듈 미로드 확인) · B ON 레퍼런스 3개: PASS · C 분석 구조화/1개 실패 시 계속: PASS · D 콘셉트 3개+사실 안전: PASS · E 스토리보드(3~5초): PASS · F 장면 프롬프트·분리: PASS · G 기존 영상 엔진 연결(Preview+MP4): PASS · H 저장 후 재조회/수정 유지: PASS(API), 브라우저 복구는 코드만 · I 모바일 420px 라이트/다크: 가로 스크롤 없음, 콘솔 오류 없음, OFF 시 UGC 요청 0건
+- 한계: 분석 입력은 합성 fixture, 실제 Reels/샤오홍슈 분석·실제 AI 영상 생성은 미검증
+
 ## 2026-10-01 — Storyboard V2 (Storyboard Engine / Scene Director / Layout / Motion) 실사진 검증
 
 동일 상품(M-Circle, 사진 2장), PRO, 자동 12~15초, 실제 Gemini 평가. 기존 경로(`legacy_render`) vs 스토리보드 경로.

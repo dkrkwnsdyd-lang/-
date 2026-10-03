@@ -244,6 +244,21 @@
     <div id="err" class="note bad"></div>
   </section>
 
+  <section class="card" id="ugcCard">
+    <label class="optrow" style="margin-top:0"><input type="checkbox" id="ugcOn">
+      <span><b>UGC Reference Mode</b> <span class="note" id="ugcState">OFF</span><br><span class="note">잘 만든 UGC 숏폼 3~5개의 연출 원리(Hook·카메라·행동·구성)만 분석해서 내 상품에 맞는 새 UGC 콘셉트·스토리보드·장면별 영상 프롬프트를 만들어요. 끄면 기존 방식 그대로예요. 영상은 복제하거나 이어 붙이지 않아요.</span></span></label>
+    <div id="ugcBody" style="display:none">
+      <p class="note">1) 레퍼런스 3~5개 추가 (영상 파일 · YouTube 링크 · 구조 메모). 하나가 실패해도 나머지로 진행해요. Instagram/샤오홍슈/TikTok 링크는 영상을 가져오지 않아서 파일을 올리거나 메모를 적어 주세요. 영상 파일은 분석 후 삭제돼요.</p>
+      <div id="ugcRefs"></div>
+      <div class="actions"><button type="button" id="ugcAddRef">+ 레퍼런스 추가</button><button type="button" class="primary" id="ugcAnalyze" style="margin-top:0">레퍼런스 분석</button></div>
+      <div id="ugcRefResults"></div>
+      <p class="note" style="margin-top:12px">2) 위 상품 정보(상품명·특징·불편·대상)를 바탕으로 콘셉트 3개를 만들어요.</p>
+      <button type="button" class="primary" id="ugcConcepts" style="margin-top:6px" disabled>UGC 콘셉트 만들기</button>
+      <div id="ugcBusy" class="note"></div>
+      <div id="ugcMix"></div><div id="ugcConceptList"></div><div id="ugcBoard"></div><div id="ugcPackage"></div>
+    </div>
+  </section>
+
   <section class="card" id="refLab">
     <details>
       <summary><b>REFERENCE LAB</b> <span class="note">참고 영상의 연출 공식만 분석해서 내 상품 영상에 적용 (복제/짜깁기 아님)</span></summary>
@@ -436,6 +451,7 @@ $("go").onclick = async () => {
   fd.append("preview", $("previewFirst").checked ? "1" : "");
   fd.append("video_style", $("vstyle").value);
   fd.append("reference_patterns", selectedRefs.join(","));
+  if ($("ugcOn").checked && window._ugcSession) fd.append("ugc_session_id", window._ugcSession);
   fd.append("actor_mode", document.querySelector("input[name=actor]:checked").value);
   fd.append("cost_mode", $("costMode").value);
   fd.append("monthly_budget", $("monthlyBudget").value || "");
@@ -571,6 +587,114 @@ $("stratBox").addEventListener("change", (ev) => {
 
 
 
+
+
+// ---------------------------------------------------------------- UGC REFERENCE MODE (켰을 때만 동작)
+const UGC = { refs: [], refIds: [], session: null };
+const UGC_KO = { problem_solution:"문제 해결형", usage_experience:"사용 체험형", discovery:"발견형" };
+const STAGE_UGC = { hook:"Hook", problem:"Problem", agitation:"Agitation", solution:"Solution", demonstration:"Demonstration", proof:"Proof", benefit:"Benefit", cta:"CTA" };
+const ASPECT_KO = { hook:"Hook", person:"인물 연출", demonstration:"시연", before_after:"Before/After", camera:"카메라", editing:"편집", cta:"CTA", structure:"광고 구조" };
+function ugcAddRow() {
+  if (UGC.refs.length >= 5) return;
+  const i = UGC.refs.length; UGC.refs.push({});
+  const d = document.createElement("div"); d.className = "card"; d.style.cssText = "margin:8px 0;padding:10px"; d.dataset.i = i;
+  d.innerHTML = `<b class="note">레퍼런스 ${i + 1}</b><input type="file" accept="video/*" data-k="file"><input type="url" data-k="url" placeholder="YouTube 링크 (선택)" style="margin-top:6px"><textarea data-k="notes" rows="2" placeholder="구조 메모 (선택)" style="margin-top:6px"></textarea><div class="note" data-st></div>`;
+  $("ugcRefs").appendChild(d);
+  if (UGC.refs.length >= 5) $("ugcAddRef").disabled = true;
+}
+function ugcRemember(id) { try { localStorage.setItem("ugcSession", id); } catch (e) {} }
+async function ugcRestore() {          // 새로고침/재접속: 서버에 저장된 마지막 세션을 다시 불러온다 (켰을 때만)
+  let id = ""; try { id = localStorage.getItem("ugcSession") || ""; } catch (e) {}
+  if (!id) return;
+  try {
+    const res = await fetch("/api/v2/ugc/sessions/" + encodeURIComponent(id)); if (!res.ok) return;
+    UGC.session = await res.json(); window._ugcSession = id; drawUgc();
+    $("ugcBusy").textContent = "이전에 만든 UGC 세션을 불러왔어요.";
+  } catch (e) {}
+}
+$("ugcOn").onchange = () => {
+  const on = $("ugcOn").checked;
+  $("ugcBody").style.display = on ? "block" : "none"; $("ugcState").textContent = on ? "ON" : "OFF";
+  if (on && !UGC.refs.length) { ugcAddRow(); ugcAddRow(); ugcAddRow(); ugcRestore(); }
+  if (!on) { UGC.session = null; window._ugcSession = ""; }
+};
+$("ugcAddRef").onclick = ugcAddRow;
+$("ugcAnalyze").onclick = async () => {
+  const rows = [...$("ugcRefs").children]; UGC.refIds = [];
+  $("ugcAnalyze").disabled = true;
+  for (const row of rows) {
+    const f = row.querySelector("[data-k=file]").files[0], u = row.querySelector("[data-k=url]").value.trim(), n = row.querySelector("[data-k=notes]").value.trim();
+    const st = row.querySelector("[data-st]");
+    if (!f && !u && !n) { st.textContent = ""; continue; }
+    st.textContent = "분석 중…";
+    const fd = new FormData(); if (f) fd.append("file", f); fd.append("url", u); fd.append("notes", n);
+    try {
+      const res = await fetch("/api/v2/ugc/references", { method:"POST", body:fd }); const d = await res.json();
+      if (d.status === "FAILED" || !d.id) st.innerHTML = `<span class="warn">⚠ 분석 실패: ${esc(d.error || "알 수 없는 오류")} (이 레퍼런스는 제외하고 진행해요)</span>`;
+      else { UGC.refIds.push(d.id); const a = d.analysis; st.innerHTML = `<span class="ok">✓ ${d.status === "VERIFIED" ? "분석됨" : "부분 분석"}</span> · Hook ${esc(a.hook.pattern || "-")} · 인물 ${esc(a.ugc_person.mode || "-")} · 평균 컷 ${a.editing.avg_cut ?? "-"}s · 구조 ${a.structure.map(s => STAGE_UGC[s.stage] || s.stage).join("→") || "-"}${d.error ? `<br><span class="warn">${esc(d.error)}</span>` : ""}`; }
+    } catch (e) { st.innerHTML = `<span class="warn">⚠ ${esc(e.message)}</span>`; }
+  }
+  $("ugcAnalyze").disabled = false; $("ugcConcepts").disabled = UGC.refIds.length === 0;
+  $("ugcBusy").textContent = UGC.refIds.length ? `분석 성공 ${UGC.refIds.length}개` : "분석에 성공한 레퍼런스가 없어요";
+};
+function ugcProduct() {
+  const v = (id) => $(id).value.trim();
+  return { name: v("name"), features: v("features"), problem: v("problem"), target: "", my_take: v("myTake"), category_hint: v("category") };
+}
+$("ugcConcepts").onclick = async () => {
+  $("ugcConcepts").disabled = true; $("ugcBusy").textContent = "믹서·콘셉트 만드는 중… (최대 1~2분)";
+  try {
+    const res = await fetch("/api/v2/ugc/sessions", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ product:ugcProduct(), reference_ids:UGC.refIds }) });
+    const d = await res.json(); if (!res.ok) throw new Error(d.detail || "실패");
+    UGC.session = d; window._ugcSession = d.id; drawUgc(); ugcRemember(d.id);
+    $("ugcBusy").textContent = "";
+  } catch (e) { $("ugcBusy").textContent = "⚠ " + e.message; }
+  $("ugcConcepts").disabled = false;
+};
+function drawUgc() {
+  const s = UGC.session; if (!s) return;
+  const m = s.mixer || {};
+  $("ugcMix").innerHTML = `<div class="card" style="margin:10px 0;padding:12px"><b>채택한 연출 패턴</b>` + (m.warnings || []).map(w => `<p class="note warn">⚠ ${esc(w)}</p>`).join("")
+    + (m.adopted || []).map(a => `<div class="note">✓ <b>${ASPECT_KO[a.aspect] || a.aspect}</b> ← ${esc(a.source || a.from)} — ${esc(a.reason)}</div>`).join("")
+    + (m.rejected || []).map(a => `<div class="note warn">✕ ${ASPECT_KO[a.aspect] || a.aspect}: ${esc(a.reason)}</div>`).join("") + `</div>`;
+  const cs = (s.concepts && s.concepts.concepts) || [];
+  $("ugcConceptList").innerHTML = cs.map(c => `<div class="card" style="margin:8px 0;padding:12px;${s.selected_concept === c.id ? "border-color:var(--accent)" : ""}">
+    <b>Concept ${c.id} — ${esc(c.title)}</b> ${c.recommended ? '<span class="note ok">추천</span>' : ""}
+    <div class="note">Hook: “${esc(c.hook.text)}”</div><div class="note">Target: ${esc(c.target)} · 감정: ${esc(c.emotion)} · USP: ${esc(c.main_usp)}</div>
+    <div class="note">Angle: ${esc((c.selling_angle || {}).title || "-")} · 구조: ${c.stages.map(x => STAGE_UGC[x]).join(" → ")}</div>
+    <div class="note">선택 이유: ${esc(c.reason)}</div>${(c.notes || []).map(n => `<div class="note warn">⚠ ${esc(n)}</div>`).join("")}
+    <button type="button" data-ugcpick="${c.id}" style="margin-top:6px">${s.selected_concept === c.id ? "선택됨 ✓" : "이 콘셉트로 스토리보드"}</button></div>`).join("");
+  const b = s.storyboard;
+  $("ugcBoard").innerHTML = b ? `<b>Storyboard</b> <span class="note">${b.total_seconds}초 · ${b.scenes.length}장면 · 인물 ${esc(b.person_mode)}</span>` + b.scenes.map(x => `<div class="card" style="margin:8px 0;padding:10px">
+    <b class="note">Scene ${x.scene_number} · ${x.time[0]}~${x.time[1]}s · ${STAGE_UGC[x.stage]}</b>
+    <div class="note">Visual: ${esc(x.visual)}</div><div class="note">Person: ${esc(x.person_action)}</div><div class="note">Product: ${esc(x.product_action)}</div>
+    <div class="note">Camera: ${esc(x.camera_shot_ko)} · ${esc(x.camera_angle_ko)} · ${esc(x.camera_movement_ko)}</div><div class="note">SFX: ${esc(x.sfx || "없음")} · ${esc(x.purpose)}</div>
+    <label class="note">Voice Over</label><textarea rows="2" data-ugcedit="${x.scene_number}" data-f="voice_over">${esc(x.voice_over)}</textarea>
+    <label class="note">Caption</label><input data-ugcedit="${x.scene_number}" data-f="caption" value="${esc(x.caption)}">
+    <label class="note">Video Prompt (영상 생성용 · 대사/자막 없음)</label><textarea rows="4" data-ugcedit="${x.scene_number}" data-f="video_prompt">${esc((s.package.scenes.find(p => p.scene_number === x.scene_number) || {}).video_prompt || "")}</textarea></div>`).join("")
+    + `<div id="ugcEditMsg" class="note"></div><button type="button" id="ugcSaveEdits">수정 저장</button>` : "";
+  const pk = s.package;
+  $("ugcPackage").innerHTML = pk ? `<div class="card" style="margin:10px 0;padding:12px"><b>Final Prompt Package</b> <span class="note">${pk.scenes.length}개 장면 · CTA: ${esc(pk.cta)} · 음악: ${esc(pk.music_mood)}</span>
+    <div class="actions"><a class="btn" href="/api/v2/ugc/sessions/${s.id}/package" target="_blank">JSON 보기</a><button type="button" id="ugcUse">이 세션으로 영상 제작 (위 사진/정보 사용)</button></div>
+    <p class="note" id="ugcUseMsg"></p></div>` : "";
+}
+$("ugcCard").addEventListener("click", async (ev) => {
+  const t = ev.target;
+  if (t.dataset.ugcpick) {
+    const res = await fetch(`/api/v2/ugc/sessions/${UGC.session.id}/select`, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ concept_id:t.dataset.ugcpick }) });
+    const d = await res.json(); if (res.ok) { UGC.session = d; drawUgc(); ugcRemember(d.id); } else $("ugcBusy").textContent = "⚠ " + (d.detail || "실패");
+  } else if (t.id === "ugcSaveEdits") {
+    const edits = {};
+    document.querySelectorAll("[data-ugcedit]").forEach(el => { (edits[el.dataset.ugcedit] = edits[el.dataset.ugcedit] || {})[el.dataset.f] = el.value; });
+    const res = await fetch(`/api/v2/ugc/sessions/${UGC.session.id}/scenes`, { method:"PATCH", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ edits }) });
+    const d = await res.json();
+    if (res.ok) { UGC.session = d.session; drawUgc(); $("ugcEditMsg").innerHTML = (d.rejected || []).length ? `<span class="warn">반영되지 않은 수정: ${d.rejected.map(r => esc(`Scene ${r.scene}: ${r.why}`)).join(" · ")}</span>` : `<span class="ok">저장됨</span>`; }
+  } else if (t.id === "ugcUse") {
+    window._ugcSession = UGC.session.id; $("ugcUseMsg").textContent = "연결됨 ✓ 위에서 사진을 올리고 [쇼츠 제작]을 누르면 이 스토리보드로 만들어요 (AI 영상은 비용 확인 후에만 생성).";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+});
+$("ugcCard").addEventListener("change", (ev) => {});
 
 // ---------------------------------------------------------------- 쿠팡 파트너스 (정보 전용, 이미지 없음)
 let cpPick = null;

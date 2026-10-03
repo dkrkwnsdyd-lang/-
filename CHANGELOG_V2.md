@@ -1,5 +1,11 @@
 # CHANGELOG_V2
 
+## 2026-10-03 — UGC Reference Mode (선택 기능, 기본 OFF)
+- `studio/ugc_reference/`: schema, analyzer(업로드 영상/YouTube/메모 → 구조화 JSON, 실패해도 예외 없음), mixer(연출 원리만 채택·상품에 안 맞으면 기각+이유), concepts(문제해결/사용체험/발견 3개), storyboard(3~5초 장면), prompts(영상 프롬프트와 대사/자막/SFX 분리, provider 무관 Prompt Package), service(DB 저장·선택·장면 수정), connect(기존 영상 엔진 연결)
+- DB 마이그레이션 `0004_ugc_reference`(테이블 2개 추가, 기존 데이터 변경 없음). API `/api/v2/ugc/*` 8개, form `ugc_session_id`
+- 파이프라인: 세션이 있으면 director_data/장면 프롬프트만 주입(AI 장면 비용 제어·동의 규칙은 그대로). OFF 에서는 UGC 모듈을 import 하지 않음(테스트로 확인)
+- 사실 안전: "써봤다" 류 표현은 my_take/검증된 후기가 있을 때만(사용 체험형은 설명/시연형으로 대체), 원본 영상·문장은 저장하지 않음
+
 ## 2026-10-03 — 쿠팡 파트너스 API (정보 전용)
 - `studio/coupang.py`, CLI `coupang-check`/`coupang-search`, `GET /api/v2/coupang/search`, 상품명 옆 '쿠팡에서 상품 정보 찾기'. 이미지 미사용, 가격 24시간 신선도, `ProductInput.price_meta`
 

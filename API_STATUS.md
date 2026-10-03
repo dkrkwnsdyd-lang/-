@@ -42,6 +42,9 @@ Gemini 키 넣는 법: 환경 설정 > API credentials(허용 웹사이트 `gene
 - 비공식 endpoint 사용: 없음. 영상 생성 provider 는 추측 endpoint 로 유료 호출하지 않도록 비활성.
 
 
+## UGC Reference Mode API (2026-10-03, 모두 지연 import)
+`POST /api/v2/ugc/references`(file/url/notes) · `GET /ugc/references/{id}` · `POST/GET /ugc/sessions` · `GET /ugc/sessions/{id}` · `POST /ugc/sessions/{id}/select` · `PATCH /ugc/sessions/{id}/scenes` · `GET /ugc/sessions/{id}/package` · 영상 제작 form `ugc_session_id`(`us_` 접두사만)
+
 ## 쿠팡 파트너스 Open API (2026-10-03)
 - 연결: `studio/coupang.py` (HMAC 서명, 상품 검색). 키: `.env` 의 `COUPANG_ACCESS_KEY` / `COUPANG_SECRET_KEY`
 - 사용 범위(사용자 결정): **이미지 사용 안 함**(응답 이미지 필드를 읽지도 저장하지도 않음), 정보(상품명/카테고리/가격/배송표시/링크)는 쇼츠 제작에만, 별도 저장소 없음(메모리 캐시 10분)

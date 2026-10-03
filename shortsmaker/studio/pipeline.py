@@ -364,6 +364,16 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
             p.compact = True
             result.setdefault("warnings", []).append("원본 사진이 2장 이하라 같은 사진을 반복하지 않도록 12~15초로 짧게 만들었어요")
         with job.step("SCRIPT"):
+            if p.ugc_session and not p.director_data:      # UGC Reference Mode ON: 저장된 UGC 스토리보드/패키지를 기존 파이프라인 입력(director_data)으로 변환 (OFF 면 이 코드는 실행되지 않음)
+                from .ugc_reference import connect as ugc_connect, service as ugc_service
+                us = ugc_service.get_session(db, p.ugc_session)
+                if us and us.get("package"):
+                    p.director_data = ugc_connect.to_director_data(us)
+                    p.scene_prompts = ugc_connect.scene_prompts(us)
+                    result["ugc_reference"] = {"session": us["id"], "concept": us["package"]["concept"], "scene_count": len(us["package"]["scenes"]),
+                                               "adopted": [{"aspect": a["aspect"], "from": a["from"]} for a in (us["mixer"] or {}).get("adopted", [])]}
+                else:
+                    result.setdefault("warnings", []).append("선택한 UGC 세션을 찾을 수 없어 기본 구성으로 만들었어요")
             pattern_guide = None
             if p.reference_patterns:      # REFERENCE_VIDEO_ENGINE: 라이브러리 패턴(들)을 섞어 현재 상품용 연출 가이드로 (내용 복사 없음, 구조만)
                 from .reference_engine import build_guide, library as ref_lib, mix as ref_mix
@@ -516,6 +526,9 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 if p.edits:
                     result["edits_report"] = {k: plan_edits[k] + sb_edits[k] for k in ("applied", "rejected")}
                 # AI 장면: 캐시는 동의 없이 재사용, 새 생성(비용)은 generate_ai 동의가 있을 때만. 실패/불일치는 원본으로 대체
+                for i, sc in enumerate(sb.scenes):             # UGC 세션의 장면별 영상 프롬프트를 AI 장면 계획에 적용 (영상 생성은 기존 비용 제어/동의 규칙 그대로)
+                    if sc.ai and i < len(p.scene_prompts) and p.scene_prompts[i]:
+                        sc.ai["prompt_override"] = p.scene_prompts[i]
                 provs = ai_providers if ai_providers is not None else default_providers()
                 if any(sc.ai for sc in sb.scenes):
                     (out_dir / "ai").mkdir(exist_ok=True)

@@ -13,6 +13,10 @@
 - 사용자 사진은 쿠팡 상품 이미지. 게시 전 쿠팡 파트너스 약관(이미지 사용 조건) 확인 또는 판매자 허락/직접 촬영 사진 필요
 - 나중에: Coupang Partners API 로 상품 정보/이미지를 가져오는 정식 경로 연동 검토 (Seller API / Partners / 페이지 import 를 혼동하지 말 것)
 
+## 000000. UGC Reference Mode 다음 단계 (2026-10-03)
+- 2차 후보: URL 자동 수집(Instagram/샤오홍슈/TikTok), 고급 영상 분석(프레임 단위), 자동 렌더/게시(승인 후), 분석 재사용 라이브러리 UI, 장면별 영상 프롬프트 provider별 변환
+- 실제 Gemini 로 실제 UGC 영상 3~5개를 분석해 본 적 없음(합성 fixture 로만 검증). 실제 AI 영상 provider 호출은 여전히 미검증
+
 ## 00000. REFERENCE_VIDEO_ENGINE 다음 단계 (2026-10-02)
 - 구현됨: 분석기(YouTube URL=Gemini / 업로드 영상=로컬+Vision / 구조 메모), 패턴 추출(어휘 값만), Pattern Library(DB 0003), Pattern Mix(AUTO/수동), 상품 적응(근거 없는 상황 단계는 제외), 템포/전환/모션/CTA/Hook 유형 적용, 복제 방지(해시) + 번역투 금지, Licensed Remix 권한 검문(구조), Reference Lab UI/API
 - **실제 플랫폼 영상 분석은 YouTube 일반 영상 1개(뮤직비디오)로만 확인.** Reels/샤오홍슈 실제 영상, 쇼핑 쇼츠 분석 품질, 10개 Reference 실측은 미검증 (환경에서 접속 불가). 사용자 PC에서 실제 URL/영상으로 시험 필요

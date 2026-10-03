@@ -18,6 +18,8 @@ TTS, Job Queue 등)은 **이 저장소와 접근 가능한 다른 저장소(`dkr
 6. 개선 우선순위: 지시서 58번 순서 그대로 진행
 7. API 연결 상태: 전부 미연결 (API_STATUS.md)
 
+## 2026-10-03 UGC Reference Mode 1차 구현됨 (기본 OFF, 합성 fixture 검증, 실제 영상·AI 호출 미검증)
+
 ## Completed
 - SHORTS BRAIN 3영역 분리 (SYSTEM / LEARNED / JOB)
 - Provider 추상화 + MODEL REGISTRY + Router(재시도·폴백·비용·키 마스킹) + API Control Center(`/control`)

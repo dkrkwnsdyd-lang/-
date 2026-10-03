@@ -35,6 +35,20 @@ class RenderRequest(BaseModel):
     generate_ai: bool = False      # True 일 때만 AI 영상 생성(비용 발생 가능). 캐시된 결과는 동의 없이 재사용
 
 
+class UgcSessionRequest(BaseModel):
+    product: dict
+    reference_ids: list[str]
+
+
+class UgcSelectRequest(BaseModel):
+    concept_id: str
+    product_reference: str | None = None
+
+
+class UgcEditRequest(BaseModel):
+    edits: dict
+
+
 class MixRequest(BaseModel):
     ids: list[str]
     picks: dict | None = None
@@ -86,7 +100,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         boxes: str = Form(""), feature_photos: str = Form(""), my_take: str = Form(""), compact: str = Form(""),
         preview: str = Form(""), video_style: str = Form("FAST_COMMERCE"), auto_strategy: str = Form("1"),
         actor_mode: str = Form("AUTO"), cost_mode: str = Form("BALANCED"), monthly_budget: str = Form(""),
-        reference_patterns: str = Form(""), reference_picks: str = Form(""), price_source: str = Form(""), price_fetched_at: str = Form(""),
+        reference_patterns: str = Form(""), reference_picks: str = Form(""), price_source: str = Form(""), price_fetched_at: str = Form(""), ugc_session_id: str = Form(""),
     ):
         if len(photos) > MAX_PHOTOS:
             raise HTTPException(400, f"사진은 최대 {MAX_PHOTOS}장까지 올릴 수 있어요.")
@@ -158,7 +172,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
                   "cost_mode": cost_mode if cost_mode in ("ECONOMY", "BALANCED", "PREMIUM") else "BALANCED",
                   "monthly_budget": _budget(monthly_budget),
                   "reference_patterns": [x for x in (i.strip() for i in reference_patterns.split(",")) if x.startswith("rp_")][:5],
-                  "reference_picks": _picks(reference_picks), "price": price.strip(),
+                  "reference_picks": _picks(reference_picks), "ugc_session": ugc_session_id.strip() if ugc_session_id.startswith("us_") else "", "price": price.strip(),
                   "price_meta": ({"source": "coupang_partners_api", "fetched_at": price_fetched_at.strip()} if price_source == "coupang_partners_api" and price_fetched_at.strip() else None), "url": url.strip(),
                   "photos": saved, "videos": saved_videos, "photo_rights": photo_rights, "reference_url": reference_url.strip(),
                   "affiliate": affiliate, "category_hint": category, "product_boxes": product_boxes,
@@ -237,6 +251,84 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
     def storyboard_from_strategy(job_id: str, req: RenderRequest):
         """[Storyboard 만들기]: (전략을 고치고 난 뒤) 확정한 대본으로 Storyboard/미리보기를 다시 만든다. MP4 는 만들지 않는다."""
         return _spawn_from(job_id, req.edits, preview=True)
+
+    # ------------------------------------------------------------ UGC REFERENCE MODE (선택 기능: 켰을 때만 호출됨, import 도 이때 처음)
+    @app.post("/api/v2/ugc/references")
+    def ugc_reference_add(file: UploadFile | None = File(default=None), url: str = Form(""), notes: str = Form("")):
+        """레퍼런스 하나를 분석해 저장. 실패해도 오류가 아니라 status=FAILED + 안내 문구로 돌려준다 (다른 레퍼런스는 계속 진행)."""
+        from ..studio.ugc_reference import service
+        path = ""
+        if file and file.filename:
+            suffix = Path(file.filename).suffix.lower()
+            if suffix not in VIDEO_EXTS:
+                return {"id": None, "status": "FAILED", "source_ref": file.filename, "error": f"지원하지 않는 영상 형식이에요 ({suffix or '확장자 없음'}). mp4/mov 로 올려 주세요", "analysis": None}
+            d = Path(upload_dir) / "ugc_ref"
+            d.mkdir(parents=True, exist_ok=True)
+            dst = d / f"{uuid.uuid4().hex[:8]}{suffix}"
+            with open(dst, "wb") as out:
+                shutil.copyfileobj(file.file, out)
+            path = str(dst)
+        try:
+            return service.analyze_and_store(db, Router(db=db, job_id="ugc_reference"), file=path, url=url, notes=notes)
+        finally:
+            if path:
+                Path(path).unlink(missing_ok=True)          # 원본 영상은 분석 후 삭제 (구조 JSON 만 저장)
+
+    @app.get("/api/v2/ugc/references/{rid}")
+    def ugc_reference_get(rid: str):
+        from ..studio.ugc_reference import service
+        r = service.get_references(db, [rid])
+        if not r:
+            raise HTTPException(404, "레퍼런스 없음")
+        return service.public_reference({**r[0], "method": "", "created_at": ""})
+
+    @app.post("/api/v2/ugc/sessions")
+    def ugc_session_create(req: UgcSessionRequest):
+        from ..studio.ugc_reference import service
+        try:
+            s = service.create_session(db, Router(db=db, job_id="ugc_session"), req.product, req.reference_ids[:service.MAX_REFERENCES])
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return service.public_session(s)
+
+    @app.get("/api/v2/ugc/sessions")
+    def ugc_session_list():
+        from ..studio.ugc_reference import service
+        return {"sessions": service.list_sessions(db)}
+
+    @app.get("/api/v2/ugc/sessions/{sid}")
+    def ugc_session_get(sid: str):
+        from ..studio.ugc_reference import service
+        s = service.get_session(db, sid)
+        if not s:
+            raise HTTPException(404, "세션 없음")
+        return service.public_session(s)
+
+    @app.post("/api/v2/ugc/sessions/{sid}/select")
+    def ugc_session_select(sid: str, req: UgcSelectRequest):
+        from ..studio.ugc_reference import service
+        try:
+            return service.select_concept(db, Router(db=db, job_id="ugc_session"), sid, req.concept_id, req.product_reference)
+        except KeyError:
+            raise HTTPException(404, "세션 없음")
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    @app.patch("/api/v2/ugc/sessions/{sid}/scenes")
+    def ugc_session_edit(sid: str, req: UgcEditRequest):
+        from ..studio.ugc_reference import service
+        try:
+            return service.edit_scenes(db, sid, req.edits)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    @app.get("/api/v2/ugc/sessions/{sid}/package")
+    def ugc_session_package(sid: str):
+        from ..studio.ugc_reference import service
+        s = service.get_session(db, sid)
+        if not s or not s["package"]:
+            raise HTTPException(404, "프롬프트 패키지가 없어요")
+        return s["package"]
 
     # ------------------------------------------------------------ COUPANG (정보 전용)
     @app.get("/api/v2/coupang/search")

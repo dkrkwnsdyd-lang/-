@@ -39,6 +39,8 @@ class ProductInput:
     strategy_force: bool = False      # Quality Gate 미통과여도 사용자가 확인하고 제작
     reference_patterns: list[str] = field(default_factory=list)   # Pattern Library id (REFERENCE_VIDEO_ENGINE): 구조만 적용, 내용 복사 없음
     reference_picks: dict | None = None                           # 영역별 수동 선택 {"hook": id, "story": id, "tempo": id, "cta": id} (없으면 AUTO MIX)
+    ugc_session: str = ""             # UGC Reference Mode 세션 id (선택). 있으면 그 스토리보드/프롬프트 패키지로 대본·장면을 구성하고 기존 렌더/Preview 를 그대로 쓴다
+    scene_prompts: list[str] = field(default_factory=list)   # (내부) 장면별 AI 영상 프롬프트
     actor_mode: str = "AUTO"          # PRODUCT_ONLY | REAL_UGC | AI_PRESENTER | AI_PRODUCT_UGC | AUTO (presenter/modes.py)
     cost_mode: str = "BALANCED"       # ECONOMY | BALANCED | PREMIUM (AI 영상 길이 상한)
     monthly_budget: float | None = None  # 월 AI 예산(USD). 넘으면 비용 모드를 내린다. 결제는 하지 않는다

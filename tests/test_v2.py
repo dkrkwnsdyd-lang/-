@@ -113,15 +113,16 @@ def test_control_center_never_calls_paid_video(tmp_path):
 # ------------------------------------------------------------------ db
 def test_migration_up_down(tmp_path):
     db = DB(tmp_path / "x.db")
-    assert db.applied() == ["0001_v2_init", "0002_ai_generations", "0003_reference_patterns"]
+    assert db.applied() == ["0001_v2_init", "0002_ai_generations", "0003_reference_patterns", "0004_ugc_reference"]
     db.create_job("j1", "PRO", "p", {})
-    assert db.rollback() == "0003_reference_patterns"            # 가장 최근 것만 되돌린다 (기존 데이터는 그대로)
+    assert db.rollback() == "0004_ugc_reference"                  # 가장 최근 것만 되돌린다 (기존 데이터는 그대로)
+    assert db.rollback() == "0003_reference_patterns"
     assert db.rollback() == "0002_ai_generations"
     assert db.applied() == ["0001_v2_init"] and db.job("j1")
     assert db.rollback() == "0001_v2_init"
     assert db.applied() == []
     db.migrate()
-    assert db.applied() == ["0001_v2_init", "0002_ai_generations", "0003_reference_patterns"]
+    assert db.applied() == ["0001_v2_init", "0002_ai_generations", "0003_reference_patterns", "0004_ugc_reference"]
 
 
 # ------------------------------------------------------------------ director
@@ -2387,3 +2388,186 @@ def test_coupang_api_endpoint_and_job_price_meta(tmp_path, monkeypatch):
     monkeypatch.setattr(coupang, "requests", fake)
     ok = c.get("/api/v2/coupang/search?q=텀블러").json()
     assert ok["items"][0]["name"] == "보온 텀블러 500ml" and "productImage" not in str(ok)
+
+
+# ------------------------------------------------------------------ UGC REFERENCE MODE
+def _ugc_router(db, raw_by_call):
+    """업로드 영상 분석용 가짜 Vision: 호출 순서대로 fixture JSON 을 돌려준다."""
+    from types import SimpleNamespace as NS
+    seq = iter(raw_by_call)
+
+    class R(_Offline):
+        def has_real(self, task):
+            return task in ("vision", "llm")
+
+        def run(self, task, method, **kw):
+            if task == "vision":
+                return NS(provider="fake", model="v", value=next(seq))
+            return NS(provider="local", model="-", value={})
+    return R(db=db, job_id="ugc")
+
+
+def _ugc_product(**kw):
+    base = {"name": "보온보냉 스텐 텀블러", "features": ["원터치 뚜껑", "컵홀더에 쏙 들어가는 슬림형"], "problem": "텀블러 뚜껑 여는 게 번거로워요", "target": "출퇴근 직장인", "category_hint": "주방"}
+    base.update(kw)
+    return base
+
+
+def _ugc_refs(tmp_path, db, keys=("A_hook", "B_selfie", "C_hands_demo")):
+    from ugc_fixtures import REFS
+    from shortsmaker.studio.ugc_reference import service
+    ids = []
+    router = _ugc_router(db, [REFS[k] for k in keys])
+    for i, k in enumerate(keys):
+        v = _make_video(tmp_path / f"ref{i}.mp4", 360, 640, 5)
+        r = service.analyze_and_store(db, router, file=v)
+        assert r["status"] in ("VERIFIED", "PARTIAL"), r
+        ids.append(r["id"])
+    return ids
+
+
+def test_ugc_mode_off_never_loads_ugc_modules(tmp_path):
+    import subprocess, sys
+    code = ("import sys; import shortsmaker.web.app, shortsmaker.studio.pipeline; "
+            "from shortsmaker.web.app import create_app; create_app({}, '%s', '%s'); "
+            "assert not any(m.startswith('shortsmaker.studio.ugc_reference') for m in sys.modules), [m for m in sys.modules if 'ugc_reference' in m]" % (tmp_path / "o", tmp_path / "u"))
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=str(Path(__file__).resolve().parents[1]))
+    assert r.returncode == 0, r.stderr[-400:]
+
+
+def test_ugc_reference_analysis_is_structured_and_one_failure_does_not_stop_others(tmp_path):
+    from shortsmaker.studio.ugc_reference import service
+    db = DB(tmp_path / "u.db")
+    ids = _ugc_refs(tmp_path, db)
+    refs = service.get_references(db, ids)
+    a = refs[1]["analysis"]
+    assert set(a) >= {"hook", "ugc_person", "product", "camera", "editing", "cta", "structure", "emotional_tone", "useful_patterns", "scores"}
+    assert a["ugc_person"]["mode"] == "selfie" and "handheld_shake" in a["ugc_person"]["authenticity_cues"] and a["camera"]["movements"] == ["handheld"]
+    assert [s["stage"] for s in refs[0]["analysis"]["structure"]][:3] == ["hook", "problem", "agitation"]
+    assert refs[0]["fingerprint"] and "가상의 테스트" not in str(refs[0]["analysis"])              # 원문은 저장 안 함, 해시만
+    bad = tmp_path / "bad.mp4"; bad.write_bytes(b"not a video")
+    r_bad = service.analyze_and_store(db, _ugc_router(db, []), file=str(bad))
+    assert r_bad["status"] == "FAILED" and "지원하지 않는" in r_bad["error"]
+    r_url = service.analyze_and_store(db, _ugc_router(db, []), url="https://www.instagram.com/reel/ABC/")
+    assert r_url["status"] == "FAILED" and "구조 메모" in r_url["error"]
+    big = service.analyze_and_store(db, _ugc_router(db, []))
+    assert big["status"] == "FAILED" and "필요해요" in big["error"]
+    s = service.create_session(db, _Offline(db=db, job_id="s"), _ugc_product(), ids + [r_bad["id"]])                # 5개 중 일부 실패해도 나머지로 진행
+    assert any("분석에 실패해 제외" in w for w in s["mixer"]["warnings"]) and s["mixer"]["adopted"]
+    assert sum(1 for r in s["mixer"]["references"] if r["status"] == "FAILED") == 1
+
+
+def test_ugc_mixer_adopts_per_aspect_and_rejects_what_product_cannot_support(tmp_path):
+    from shortsmaker.studio.ugc_reference import mixer, service
+    db = DB(tmp_path / "u.db")
+    ids = _ugc_refs(tmp_path, db, ("A_hook", "B_selfie", "C_hands_demo", "D_before_after", "E_fast_cta"))
+    refs = service.get_references(db, ids)
+    ctx, _ = service._ctx(_ugc_product())
+    m = mixer.mix(refs, ctx)
+    a = {x["aspect"]: x for x in m["adopted"]}
+    by = {r["id"]: i for i, r in enumerate(refs)}
+    assert by[a["hook"]["from"]] == 0 and by[a["person"]["from"]] == 1 and by[a["demonstration"]["from"]] == 2 and by[a["editing"]["from"]] == 4 and by[a["cta"]["from"]] == 4
+    assert "before_after" not in a and any(x["aspect"] == "before_after" and "전/후 자료" in x["reason"] for x in m["rejected"])        # 데이터 없이 Before/After 를 쓰지 않는다
+    assert all(x["reason"] and x["source"] for x in m["adopted"])                                                                  # 채택 이유 기록
+    nop = mixer.mix(refs, service._ctx(_ugc_product(problem=""))[0])                                                                 # 불편 입력이 없으면 문제 Hook/단계 제외
+    assert not any(s in nop["aspects"]["structure"]["pattern"]["stages"] for s in ("problem", "agitation"))
+    assert any("problem_first" in str(x) or "문제" in x["reason"] for x in nop["rejected"])
+    with_ba = mixer.mix(refs, service._ctx(_ugc_product(before_after=["a.jpg", "b.jpg"]))[0])
+    assert "before_after" in with_ba["aspects"]
+
+
+def test_ugc_concepts_storyboard_prompts_and_separation(tmp_path):
+    from shortsmaker.studio.ugc_reference import prompts, service
+    db = DB(tmp_path / "u.db")
+    ids = _ugc_refs(tmp_path, db)
+    s = service.create_session(db, _Offline(db=db, job_id="s"), _ugc_product(), ids)
+    cs = s["concepts"]["concepts"]
+    assert [c["id"] for c in cs] == ["A", "B", "C"] and len({c["type"] for c in cs}) == 3
+    for c in cs:
+        assert c["hook"]["text"] and c["target"] and c["selling_angle"] and c["emotion"] and c["main_usp"] and c["reason"] and c["stages"][0] == "hook" and c["stages"][-1] == "cta"
+    assert {c["hook"]["text"] for c in cs} != {cs[0]["hook"]["text"]}                                   # 콘셉트마다 Hook 이 다르다
+    s = service.select_concept(db, _Offline(db=db, job_id="s"), s["id"], "A")
+    sc = s["storyboard"]["scenes"]
+    need = {"scene_number", "time", "visual", "person_action", "product_action", "camera_shot", "camera_movement", "voice_over", "caption", "sfx", "purpose"}
+    assert all(need <= set(x) for x in sc) and all(3.0 <= x["duration"] <= 5.0 for x in sc) and sc[0]["stage"] == "hook" and sc[-1]["stage"] == "cta"
+    assert sc[0]["time"][0] == 0 and all(a["time"][1] == b["time"][0] for a, b in zip(sc, sc[1:]))
+    pkg = s["package"]
+    assert pkg["provider_agnostic"] and {"concept", "scenes", "voice_script", "captions", "cta", "music_mood", "product_reference"} <= set(pkg)
+    for x in pkg["scenes"]:
+        vp = x["video_prompt"]
+        for must in ("Subject:", "Product:", "Location:", "Person:", "Expression:", "Camera:", "Lighting/Environment:", "UGC", "smartphone", "9:16", "Duration:"):
+            assert must in vp, (must, vp)
+        assert not any("가" <= ch <= "힣" for ch in vp.replace(_ugc_product()["name"], ""))                  # 영상 프롬프트는 행동/카메라 중심의 영어 (한국어는 상품명뿐, 카피 없음)
+    assert prompts.check_separation(pkg) == []
+    assert pkg["voice_script"] and len(pkg["voice_script"]) == len(pkg["scenes"]) == len(pkg["captions"])
+
+
+def test_ugc_concept_b_never_claims_use_without_evidence_and_verified_with_it(tmp_path):
+    from shortsmaker.studio.presenter.safety import experience_issues
+    from shortsmaker.studio.ugc_reference import service
+    db = DB(tmp_path / "u.db")
+    ids = _ugc_refs(tmp_path, db)
+    s = service.create_session(db, _Offline(db=db, job_id="s"), _ugc_product(), ids)
+    b = next(c for c in s["concepts"]["concepts"] if c["id"] == "B")
+    assert b["ugc_kind"] == "UGC_PRESENTATION" and any("써봤다" in n for n in b["notes"])
+    s = service.select_concept(db, _Offline(db=db, job_id="s"), s["id"], "B")
+    assert not experience_issues(" ".join(x["voice_over"] + " " + x["caption"] for x in s["storyboard"]["scenes"]))
+    s2 = service.create_session(db, _Offline(db=db, job_id="s"), _ugc_product(my_take="출근길에 한 손으로 열기 편했어요"), ids)
+    b2 = next(c for c in s2["concepts"]["concepts"] if c["id"] == "B")
+    assert b2["ugc_kind"] == "UGC_REVIEW_VERIFIED" and "proof" in b2["stages"]
+
+
+def test_ugc_edit_scenes_validates_claims_and_keeps_user_prompt_and_persists(tmp_path):
+    from shortsmaker.studio.ugc_reference import service
+    db = DB(tmp_path / "u.db")
+    ids = _ugc_refs(tmp_path, db)
+    s = service.create_session(db, _Offline(db=db, job_id="s"), _ugc_product(), ids)
+    s = service.select_concept(db, _Offline(db=db, job_id="s"), s["id"], "A")
+    res = service.edit_scenes(db, s["id"], {"2": {"voice_over": "원터치 뚜껑이 있어요", "caption": "원터치 [[뚜껑]]", "video_prompt": "My custom prompt for scene two", "camera_shot": "wide"},
+                                           "3": {"voice_over": "제가 일주일 써봤는데 정말 좋아요"}, "4": {"voice_over": "12시간 보온돼요"}, "9": {"voice_over": "x"}})
+    assert {(a["scene"], a["field"]) for a in res["applied"]} >= {("2", "voice_over"), ("2", "caption"), ("2", "video_prompt"), ("2", "camera_shot")}
+    why = " ".join(r["why"] for r in res["rejected"])
+    assert "fake_experience" in why and "data_unverified" in why or "performance_unverified" in why and any(r["scene"] == "9" for r in res["rejected"])
+    pkg = res["session"]["package"]
+    assert pkg["scenes"][1]["voice_over"] == "원터치 뚜껑이 있어요" and pkg["scenes"][1]["video_prompt"] == "My custom prompt for scene two" and pkg["voice_script"][1] == "원터치 뚜껑이 있어요"
+    again = service.get_session(DB(tmp_path / "u.db"), s["id"])                                          # 새 연결(재접속)로 다시 읽어도 유지
+    assert again["package"]["scenes"][1]["video_prompt"] == "My custom prompt for scene two" and again["selected_concept"] == "A"
+    assert service.list_sessions(DB(tmp_path / "u.db"))[0]["id"] == s["id"]
+
+
+def test_ugc_session_connects_to_existing_pipeline_preview_and_mp4(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from shortsmaker.studio.pipeline import run_job
+    from shortsmaker.studio.ugc_reference import service
+    db = DB(tmp_path / "u.db")
+    ids = _ugc_refs(tmp_path, db)
+    s = service.create_session(db, _Offline(db=db, job_id="s"), _ugc_product(), ids)
+    s = service.select_concept(db, _Offline(db=db, job_id="s"), s["id"], "A")
+    base = _preview_base(tmp_path)
+    pv = run_job({**base, "ugc_session": s["id"], "preview": True, "actor_mode": "AI_PRODUCT_UGC", "cost_mode": "PREMIUM"}, "PRO", ["youtube"], out_root=tmp_path / "o1", db=db,
+                 render=(270, 480, 10), router=_Offline(db=db, job_id="g1"))
+    assert pv["status"] == "PREVIEW_READY", pv.get("error")
+    assert pv["ugc_reference"]["session"] == s["id"] and pv["ugc_reference"]["adopted"]
+    narr = [x["narration"] for x in pv["storyboard"]["scenes"]]
+    assert narr[0] == s["storyboard"]["scenes"][0]["voice_over"] and narr[-1] == s["storyboard"]["scenes"][-1]["voice_over"]
+    ai = [x for x in pv["storyboard"]["scenes"] if x["ai"]]
+    assert ai and all("UGC smartphone footage feeling" in x["ai"]["prompt_override"] and "Subject:" in x["ai"]["prompt_override"] for x in ai)            # UGC 장면 프롬프트가 AI 장면 계획에 들어감 (호출은 동의 전이라 없음)
+    assert all(Path(p).exists() for p in pv["preview"]["thumbs"].values())
+    r = run_job({**base, "ugc_session": s["id"], "actor_mode": "PRODUCT_ONLY", "cost_mode": "ECONOMY"}, "FAST", ["youtube"], out_root=tmp_path / "o2", db=db,
+                render=(270, 480, 10), router=_Offline(db=db, job_id="g2"))
+    assert r["status"] in ("COMPLETE", "QUALITY_FAIL", "NEEDS_REVIEW") and Path(r["master"]).exists(), r.get("error")
+
+
+def test_ugc_api_flow_and_unsupported_reference_message(tmp_path):
+    from fastapi.testclient import TestClient
+    from shortsmaker.web.app import create_app
+    c = TestClient(create_app({}, tmp_path / "o", tmp_path / "u"))
+    bad = c.post("/api/v2/ugc/references", files={"file": ("x.txt", b"hello", "text/plain")}).json()
+    assert bad["status"] == "FAILED" and "지원하지 않는 영상 형식" in bad["error"]
+    none = c.post("/api/v2/ugc/references", data={"url": "https://www.xiaohongshu.com/explore/66aabb"}).json()
+    assert none["status"] == "FAILED" and "구조 메모" in none["error"]
+    assert c.post("/api/v2/ugc/sessions", json={"product": {"name": ""}, "reference_ids": ["x"]}).status_code == 400
+    assert c.post("/api/v2/ugc/sessions", json={"product": {"name": "a"}, "reference_ids": []}).status_code == 400
+    assert c.get("/api/v2/ugc/sessions/nope").status_code == 404 and c.get("/api/v2/ugc/sessions").json() == {"sessions": []}
+    assert c.post("/api/v2/ugc/sessions/nope/select", json={"concept_id": "A"}).status_code == 404
+    assert c.get("/api/v2/ugc/sessions/nope/package").status_code == 404
