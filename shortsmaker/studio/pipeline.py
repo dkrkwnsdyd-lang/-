@@ -526,9 +526,13 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 if p.edits:
                     result["edits_report"] = {k: plan_edits[k] + sb_edits[k] for k in ("applied", "rejected")}
                 # AI 장면: 캐시는 동의 없이 재사용, 새 생성(비용)은 generate_ai 동의가 있을 때만. 실패/불일치는 원본으로 대체
-                for i, sc in enumerate(sb.scenes):             # UGC 세션의 장면별 영상 프롬프트를 AI 장면 계획에 적용 (영상 생성은 기존 비용 제어/동의 규칙 그대로)
-                    if sc.ai and i < len(p.scene_prompts) and p.scene_prompts[i]:
-                        sc.ai["prompt_override"] = p.scene_prompts[i]
+                # AI_PRODUCT_UGC 전용 Prompt Compiler:
+                # UGC Reference 장면 프롬프트는 제품 사용 UGC 장면에만 적용한다.
+                # AI_PRESENTER 에 product-use 프롬프트가 섞이는 것을 막고, Product Lock/손 접촉 QA 규칙을 강제한다.
+                from .presenter import product_ugc as product_ugc_mod
+                for i, sc in enumerate(sb.scenes):
+                    ref_prompt = p.scene_prompts[i] if i < len(p.scene_prompts) else ""
+                    product_ugc_mod.apply_to_scene(sc, ctx=sctx, identity=identity, reference_prompt=ref_prompt)
                 provs = ai_providers if ai_providers is not None else default_providers()
                 if any(sc.ai for sc in sb.scenes):
                     (out_dir / "ai").mkdir(exist_ok=True)
