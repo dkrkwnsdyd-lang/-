@@ -2666,3 +2666,22 @@ def test_flow3_off_is_default_and_pipeline_applies_only_to_ai_product_ugc(tmp_pa
                    render=(270, 480, 10), router=_Offline(db=DB(tmp_path / "c.db"), job_id="f2"))
     assert pres["status"] == "PREVIEW_READY" and "flow3" not in pres                                # AI_PRESENTER 에는 들어가지 않음
     assert all("prompt_override" not in x["ai"] for x in pres["storyboard"]["scenes"] if x["ai"])
+
+
+def test_flow3_translates_korean_features_through_router_and_survives_failures():
+    from shortsmaker.studio.ugc_reference import flow3
+
+    class R:
+        def __init__(self, value=None, boom=False): self.value, self.boom = value, boom
+        def has_real(self, t): return True
+        def run(self, task, method, **kw):
+            assert task == "llm" and method == "json"
+            if self.boom:
+                raise RuntimeError("x")
+            return type("PR", (), {"value": self.value})()
+    p = _ugc_product()
+    ok = flow3.generate(p, router=R({"features": ["opens with one touch", "slim cup holder fit"]}))
+    assert "opens with one touch" in ok["scenes"][1]["flow_prompt"] and not _HANGUL.search(ok["scenes"][1]["flow_prompt"])
+    for bad in (R(boom=True), R({"features": ["한국어 그대로"]}), R("garbage")):               # 실패/한국어 결과/이상한 값 → 일반 문구로 계속 (예외 없음)
+        pk = flow3.generate(p, router=bad)
+        assert pk["problems"] == [] and "do not invent" in pk["scenes"][1]["flow_prompt"]

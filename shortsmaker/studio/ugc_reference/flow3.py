@@ -279,10 +279,14 @@ def translate_features(router, features: list[str]) -> list[str]:
     try:
         if not router.has_real("llm"):
             return []
-        r = router.run("llm", "text", system="Translate each product feature into a short, literal English phrase (max 8 words). Do not add, embellish or infer anything. Output one phrase per line, same order, no numbering.",
-                       user="\n".join(feats), temperature=0.0)
-        lines = [re.sub(r"^[-*\d.\s]+", "", x).strip() for x in str(getattr(r, "text", r) or "").splitlines() if x.strip()]
-        return [x for x in lines if x and not _KO.search(x) and len(x) <= 80][:3]
+        r = router.run("llm", "json", system="Translate each product feature into a short, literal English phrase (max 8 words). Do not add, embellish or infer anything. "
+                       'Return JSON {"features": ["...", ...]} in the same order and the same count.', user="\n".join(feats), temperature=0.0)
+        v = getattr(r, "value", r)
+        arr = v.get("features") if isinstance(v, dict) else v
+        if not isinstance(arr, list):
+            return []
+        out = [re.sub(r"^[-*\d.\s]+", "", str(x)).strip() for x in (arr or []) if isinstance(x, str)]
+        return [x for x in out if x and not _KO.search(x) and len(x) <= 80][:3]
     except Exception:
         return []
 
