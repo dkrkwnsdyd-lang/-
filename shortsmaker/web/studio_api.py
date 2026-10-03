@@ -40,6 +40,12 @@ class UgcSessionRequest(BaseModel):
     reference_ids: list[str]
 
 
+class Flow3Request(BaseModel):
+    product: dict
+    ugc_session_id: str = ""
+    product_reference: str | None = None
+
+
 class UgcSelectRequest(BaseModel):
     concept_id: str
     product_reference: str | None = None
@@ -100,7 +106,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         boxes: str = Form(""), feature_photos: str = Form(""), my_take: str = Form(""), compact: str = Form(""),
         preview: str = Form(""), video_style: str = Form("FAST_COMMERCE"), auto_strategy: str = Form("1"),
         actor_mode: str = Form("AUTO"), cost_mode: str = Form("BALANCED"), monthly_budget: str = Form(""),
-        reference_patterns: str = Form(""), reference_picks: str = Form(""), price_source: str = Form(""), price_fetched_at: str = Form(""), ugc_session_id: str = Form(""),
+        reference_patterns: str = Form(""), reference_picks: str = Form(""), price_source: str = Form(""), price_fetched_at: str = Form(""), ugc_session_id: str = Form(""), flow3_mode: str = Form(""),
     ):
         if len(photos) > MAX_PHOTOS:
             raise HTTPException(400, f"사진은 최대 {MAX_PHOTOS}장까지 올릴 수 있어요.")
@@ -172,7 +178,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
                   "cost_mode": cost_mode if cost_mode in ("ECONOMY", "BALANCED", "PREMIUM") else "BALANCED",
                   "monthly_budget": _budget(monthly_budget),
                   "reference_patterns": [x for x in (i.strip() for i in reference_patterns.split(",")) if x.startswith("rp_")][:5],
-                  "reference_picks": _picks(reference_picks), "ugc_session": ugc_session_id.strip() if ugc_session_id.startswith("us_") else "", "price": price.strip(),
+                  "reference_picks": _picks(reference_picks), "ugc_session": ugc_session_id.strip() if ugc_session_id.startswith("us_") else "", "flow3": flow3_mode == "1", "price": price.strip(),
                   "price_meta": ({"source": "coupang_partners_api", "fetched_at": price_fetched_at.strip()} if price_source == "coupang_partners_api" and price_fetched_at.strip() else None), "url": url.strip(),
                   "photos": saved, "videos": saved_videos, "photo_rights": photo_rights, "reference_url": reference_url.strip(),
                   "affiliate": affiliate, "category_hint": category, "product_boxes": product_boxes,
@@ -329,6 +335,21 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         if not s or not s["package"]:
             raise HTTPException(404, "프롬프트 패키지가 없어요")
         return s["package"]
+
+    @app.post("/api/v2/flow3")
+    def flow3_generate(req: Flow3Request):
+        """3-Scene Flow Mode (선택): Scene 1~3 Google Flow 프롬프트 패키지. UGC 세션이 있으면 레퍼런스 믹서 결과의 추상 패턴만 반영. 저장/영상 호출 없음."""
+        from ..studio.ugc_reference import flow3
+        mixed = None
+        if req.ugc_session_id.startswith("us_"):
+            from ..studio.ugc_reference import service
+            sess = service.get_session(db, req.ugc_session_id)
+            if sess:
+                mixed = {**(sess.get("mixer") or {}), "fingerprint": sess.get("_fingerprint", [])}
+        try:
+            return flow3.generate(req.product, mixed=mixed, product_reference=req.product_reference, router=Router(db=db, job_id="flow3"))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
 
     # ------------------------------------------------------------ COUPANG (정보 전용)
     @app.get("/api/v2/coupang/search")

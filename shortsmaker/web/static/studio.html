@@ -259,6 +259,16 @@
     </div>
   </section>
 
+  <section class="card" id="flow3Card">
+    <label class="optrow" style="margin-top:0"><input type="checkbox" id="flow3On">
+      <span><b>3-Scene Flow Mode</b> <span class="note" id="flow3State">OFF</span><br><span class="note">AI 제품사용(AI_PRODUCT_UGC) 안의 선택 기능이에요. Scene 1 훅 → Scene 2 제품 시연 → Scene 3 결과·히어로 샷·CTA 로 이어지는 Google Flow용 프롬프트를 장면별로 복사해서 쓸 수 있어요. 끄면 기존 방식 그대로예요. 위 UGC Reference Mode 를 켜고 세션을 만들었다면 그 레퍼런스의 연출 원리만 반영해요.</span></span></label>
+    <div id="flow3Body" style="display:none">
+      <button type="button" class="primary" id="flow3Go" style="margin-top:6px">3-Scene 생성</button>
+      <div id="flow3Busy" class="note"></div>
+      <div id="flow3Out"></div>
+    </div>
+  </section>
+
   <section class="card" id="refLab">
     <details>
       <summary><b>REFERENCE LAB</b> <span class="note">참고 영상의 연출 공식만 분석해서 내 상품 영상에 적용 (복제/짜깁기 아님)</span></summary>
@@ -452,6 +462,7 @@ $("go").onclick = async () => {
   fd.append("video_style", $("vstyle").value);
   fd.append("reference_patterns", selectedRefs.join(","));
   if ($("ugcOn").checked && window._ugcSession) fd.append("ugc_session_id", window._ugcSession);
+  if ($("flow3On").checked) fd.append("flow3_mode", "1");
   fd.append("actor_mode", document.querySelector("input[name=actor]:checked").value);
   fd.append("cost_mode", $("costMode").value);
   fd.append("monthly_budget", $("monthlyBudget").value || "");
@@ -695,6 +706,46 @@ $("ugcCard").addEventListener("click", async (ev) => {
   }
 });
 $("ugcCard").addEventListener("change", (ev) => {});
+
+
+// ---------------------------------------------------------------- 3-Scene Flow Mode (켰을 때만 동작)
+const F3 = { pkg: null };
+async function f3Copy(text, btn) {
+  const ok = () => { const o = btn.textContent; btn.textContent = "복사됨 ✓"; setTimeout(() => btn.textContent = o, 1400); };
+  try { await navigator.clipboard.writeText(text); ok(); }
+  catch (e) { const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select(); try { document.execCommand("copy"); ok(); } catch (_) { btn.textContent = "길게 눌러 직접 복사"; } t.remove(); }
+}
+$("flow3On").onchange = () => { const on = $("flow3On").checked; $("flow3Body").style.display = on ? "block" : "none"; $("flow3State").textContent = on ? "ON" : "OFF"; if (!on) F3.pkg = null; };
+$("flow3Go").onclick = async () => {
+  $("flow3Go").disabled = true; $("flow3Busy").textContent = "만드는 중…";
+  try {
+    const sess = ($("ugcOn").checked && window._ugcSession) ? window._ugcSession : "";
+    const res = await fetch("/api/v2/flow3", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ product:ugcProduct(), ugc_session_id:sess }) });
+    const d = await res.json(); if (!res.ok) throw new Error(d.detail || "실패");
+    F3.pkg = d; drawFlow3(); $("flow3Busy").textContent = "";
+  } catch (e) { $("flow3Busy").textContent = "⚠ " + e.message; }
+  $("flow3Go").disabled = false;
+};
+function drawFlow3() {
+  const k = F3.pkg; if (!k) return;
+  const row = (a, b) => `<div class="note"><b>${a}</b> ${esc(b)}</div>`;
+  $("flow3Out").innerHTML = `<p class="note">Hook 방식: <b>${esc(k.hook_style)}</b> — ${esc(k.hook_style_reason)}${k.reference_mode ? " · 레퍼런스 원리 반영" : " · 레퍼런스 없이 상품 정보만 사용"}</p>`
+    + (k.problems.length ? `<p class="note warn">⚠ ${k.problems.map(esc).join(" · ")}</p>` : "")
+    + `<div class="actions"><button type="button" data-f3all="1">전체 Prompt 복사</button></div>`
+    + k.scenes.map(x => `<div class="card" style="margin:8px 0;padding:12px"><b>Scene ${x.scene_number} — ${esc(x.title)}</b> <span class="note">${x.duration_label}${x.is_cta ? " · CTA" : ""}</span>
+      ${row("목적", x.purpose)}${row("Visual", x.visual)}${row("Person", x.person_action)}${row("Product", x.product_action)}
+      ${row("Camera", x.camera_shot + " · " + x.camera_angle + " · " + x.camera_movement)}${row("Lighting", x.lighting)}${row("Environment", x.environment)}
+      <label class="note">Google Flow Video Prompt (복사용 · 한국어/자막 없음)</label><textarea rows="6" readonly>${esc(x.flow_prompt)}</textarea>
+      <details><summary class="note">Negative · Product Lock 규칙</summary><div class="note">${x.negative_constraints.map(esc).join(" / ")}</div><div class="note">${x.product_fidelity_rules.map(esc).join("<br>")}</div></details>
+      ${row("Voice Over", x.voice_over)}${row("Caption", x.caption.replace(/\[\[|\]\]/g, ""))}${row("SFX", x.sfx || "없음")}
+      <button type="button" data-f3="${x.scene_number}" style="margin-top:6px;min-height:44px;width:100%">Scene ${x.scene_number} 복사</button></div>`).join("")
+    + `<p class="note">${esc(k.assemble_note)}</p>`;
+}
+$("flow3Card").addEventListener("click", (ev) => {
+  const t = ev.target; if (!F3.pkg) return;
+  if (t.dataset.f3) f3Copy(F3.pkg.copy_text["scene_" + t.dataset.f3], t);
+  else if (t.dataset.f3all) f3Copy(F3.pkg.copy_text.all, t);
+});
 
 // ---------------------------------------------------------------- 쿠팡 파트너스 (정보 전용, 이미지 없음)
 let cpPick = null;

@@ -1,5 +1,9 @@
 # TEST_RESULTS
 
+## 2026-10-03 — 3-Scene Flow Mode (실제 Google Flow 호출 없음, 프롬프트 생성만 검증)
+- OFF 회귀 PASS(결과에 flow3 없음, ugc 모듈 미로드) · ON 정확히 Scene 1~3 PASS · 장면별 단독 복사 가능(Product Lock/9:16/연속성/한국어 없음) PASS · Scene1 Hook/Scene2 Demo/Scene3 Hero+CTA PASS · UGC Reference 동시 사용 PASS · AI_PRODUCT_UGC Product Lock 유지 PASS · AI_PRESENTER 미적용 PASS · 가격/할인/후기/판매량 미생성 PASS · 모바일 420px 라이트/다크 가로 스크롤 없음·복사 버튼 44px·콘솔 오류 없음
+- 한계: 생성된 프롬프트로 실제 영상이 손/제품 오류 없이 나오는지는 미확인 (Flow 미호출)
+
 ## 2026-10-03 — UGC Reference Mode (합성 fixture + 오프라인 라우터, 실제 영상/AI 호출 없음)
 - A OFF 회귀: PASS(서브프로세스에서 UGC 모듈 미로드 확인) · B ON 레퍼런스 3개: PASS · C 분석 구조화/1개 실패 시 계속: PASS · D 콘셉트 3개+사실 안전: PASS · E 스토리보드(3~5초): PASS · F 장면 프롬프트·분리: PASS · G 기존 영상 엔진 연결(Preview+MP4): PASS · H 저장 후 재조회/수정 유지: PASS(API), 브라우저 복구는 코드만 · I 모바일 420px 라이트/다크: 가로 스크롤 없음, 콘솔 오류 없음, OFF 시 UGC 요청 0건
 - 한계: 분석 입력은 합성 fixture, 실제 Reels/샤오홍슈 분석·실제 AI 영상 생성은 미검증

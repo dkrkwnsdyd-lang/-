@@ -529,6 +529,16 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 for i, sc in enumerate(sb.scenes):             # UGC 세션의 장면별 영상 프롬프트를 AI 장면 계획에 적용 (영상 생성은 기존 비용 제어/동의 규칙 그대로)
                     if sc.ai and i < len(p.scene_prompts) and p.scene_prompts[i]:
                         sc.ai["prompt_override"] = p.scene_prompts[i]
+                if p.flow3 and actor_mode == "AI_PRODUCT_UGC" and any(sc.ai for sc in sb.scenes):    # 3-Scene Flow Mode (선택, 기본 OFF): AI 제품사용 장면에만 Scene 프롬프트 적용
+                    from .ugc_reference import flow3 as flow3_mod
+                    mixed3 = None
+                    if p.ugc_session:
+                        from .ugc_reference import service as ugc_service3
+                        us3 = ugc_service3.get_session(db, p.ugc_session)
+                        mixed3 = {**(us3.get("mixer") or {}), "fingerprint": us3.get("_fingerprint", [])} if us3 else None
+                    f3 = flow3_mod.build(sctx, mixed3, product_reference=ref_photo, feature_en=flow3_mod.translate_features(router, list(p.features)))
+                    applied3 = flow3_mod.apply_to_scenes(sb.scenes, f3)
+                    result["flow3"] = {"applied_scenes": applied3, "hook_style": f3["hook_style"], "problems": f3["problems"], "package": f3}
                 provs = ai_providers if ai_providers is not None else default_providers()
                 if any(sc.ai for sc in sb.scenes):
                     (out_dir / "ai").mkdir(exist_ok=True)

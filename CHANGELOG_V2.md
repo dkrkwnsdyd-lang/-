@@ -1,5 +1,12 @@
 # CHANGELOG_V2
 
+## 2026-10-03 — 3-Scene Flow Mode (AI_PRODUCT_UGC 안의 선택 기능, 기본 OFF)
+- `studio/ugc_reference/flow3.py`: Scene 1(Scroll Stopper/Hook) → 2(Product Demo/Hero Use) → 3(Result/Hero Shot/CTA) 와 장면별 Google Flow 복사용 영어 프롬프트(Who/Where/손/카메라/프레이밍/조명/연속성/Product Lock/Avoid), Voice Over·Caption·SFX 는 별도 필드
+- 대사/자막은 기존 UGC 문장 생성 + `line_issues` 사실 검증 재사용. 레퍼런스 세션이 있으면 Mixer 의 추상 패턴(Hook 방식/카메라/인물·손동작/컷 속도/CTA)만 반영
+- 파이프라인: form `flow3_mode=1` 이고 출연 방식이 AI_PRODUCT_UGC 일 때만, AI 제품사용으로 계획된 장면에 Scene 프롬프트 적용(비용 제어/동의/Fidelity QA 그대로). AI_PRESENTER 등에는 적용 안 함
+- API `POST /api/v2/flow3`(저장/영상 호출 없음), UI: 3-Scene Flow Mode 토글, Scene 1/2/3 복사·전체 복사. DB 변경 없음
+- 한국어 특징은 실제 LLM 이 있을 때만 짧은 영어로 번역해 프롬프트에 넣음(없으면 일반 문구, 기능을 지어내지 않음)
+
 ## 2026-10-03 — UGC Reference Mode (선택 기능, 기본 OFF)
 - `studio/ugc_reference/`: schema, analyzer(업로드 영상/YouTube/메모 → 구조화 JSON, 실패해도 예외 없음), mixer(연출 원리만 채택·상품에 안 맞으면 기각+이유), concepts(문제해결/사용체험/발견 3개), storyboard(3~5초 장면), prompts(영상 프롬프트와 대사/자막/SFX 분리, provider 무관 Prompt Package), service(DB 저장·선택·장면 수정), connect(기존 영상 엔진 연결)
 - DB 마이그레이션 `0004_ugc_reference`(테이블 2개 추가, 기존 데이터 변경 없음). API `/api/v2/ugc/*` 8개, form `ugc_session_id`

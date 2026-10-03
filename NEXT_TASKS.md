@@ -13,6 +13,10 @@
 - 사용자 사진은 쿠팡 상품 이미지. 게시 전 쿠팡 파트너스 약관(이미지 사용 조건) 확인 또는 판매자 허락/직접 촬영 사진 필요
 - 나중에: Coupang Partners API 로 상품 정보/이미지를 가져오는 정식 경로 연동 검토 (Seller API / Partners / 페이지 import 를 혼동하지 말 것)
 
+## 0000000. 3-Scene Flow Mode 다음 단계 (2026-10-03)
+- 실제 Google Flow 에 샘플 Scene 1~3 을 넣어 결과(손/제품 일관성)를 사람이 확인해야 함 (Flow 는 자동 호출하지 않음 — 공식 API 연결 미검증)
+- Scene 간 시작/끝 프레임 이어 붙이기(Flow 의 frames-to-video) 활용 여부, 장면별 프롬프트 편집/저장, Scene 4~5 확장은 2차
+
 ## 000000. UGC Reference Mode 다음 단계 (2026-10-03)
 - 2차 후보: URL 자동 수집(Instagram/샤오홍슈/TikTok), 고급 영상 분석(프레임 단위), 자동 렌더/게시(승인 후), 분석 재사용 라이브러리 UI, 장면별 영상 프롬프트 provider별 변환
 - 실제 Gemini 로 실제 UGC 영상 3~5개를 분석해 본 적 없음(합성 fixture 로만 검증). 실제 AI 영상 provider 호출은 여전히 미검증

@@ -42,6 +42,9 @@ Gemini 키 넣는 법: 환경 설정 > API credentials(허용 웹사이트 `gene
 - 비공식 endpoint 사용: 없음. 영상 생성 provider 는 추측 endpoint 로 유료 호출하지 않도록 비활성.
 
 
+## 3-Scene Flow API (2026-10-03)
+`POST /api/v2/flow3` {product, ugc_session_id?, product_reference?} → Flow 프롬프트 패키지(저장/외부 호출 없음) · 영상 제작 form `flow3_mode=1`(AI_PRODUCT_UGC 일 때만 적용)
+
 ## UGC Reference Mode API (2026-10-03, 모두 지연 import)
 `POST /api/v2/ugc/references`(file/url/notes) · `GET /ugc/references/{id}` · `POST/GET /ugc/sessions` · `GET /ugc/sessions/{id}` · `POST /ugc/sessions/{id}/select` · `PATCH /ugc/sessions/{id}/scenes` · `GET /ugc/sessions/{id}/package` · 영상 제작 form `ugc_session_id`(`us_` 접두사만)
 

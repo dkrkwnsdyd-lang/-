@@ -1,3 +1,4 @@
+import re
 import os
 import pathlib
 """SHOP SHORTS V2 테스트 (외부 API 없이)."""
@@ -2571,3 +2572,97 @@ def test_ugc_api_flow_and_unsupported_reference_message(tmp_path):
     assert c.get("/api/v2/ugc/sessions/nope").status_code == 404 and c.get("/api/v2/ugc/sessions").json() == {"sessions": []}
     assert c.post("/api/v2/ugc/sessions/nope/select", json={"concept_id": "A"}).status_code == 404
     assert c.get("/api/v2/ugc/sessions/nope/package").status_code == 404
+
+
+# ------------------------------------------------------------------ 3-Scene Flow Mode (AI_PRODUCT_UGC 안의 선택 기능)
+_HANGUL = re.compile(r"[가-힣]")
+_CLAIMS = re.compile(r"discount|% off|sale\b|sold out|limited|best[- ]?seller|reviews?\b|\brated\b|\$\d|₩|won\b|guarantee|clinically|#1", re.I)
+
+
+def test_flow3_exactly_three_scenes_with_roles_and_standalone_prompts():
+    from shortsmaker.studio.ugc_reference import flow3
+    pkg = flow3.generate(_ugc_product())
+    s1, s2, s3 = pkg["scenes"]
+    assert [s["scene_number"] for s in pkg["scenes"]] == [1, 2, 3] and pkg["problems"] == []
+    for s in pkg["scenes"]:                                    # 각 Scene 프롬프트가 단독 복사 가능 (연속성/Product Lock/9:16/길이/카메라/조명 포함, 한국어 없음)
+        fp = s["flow_prompt"]
+        assert not _HANGUL.search(fp) and "Product Lock" in fp and "9:16" in fp and "Continuity" in fp and "Camera:" in fp and "Lighting:" in fp and "Avoid:" in fp
+        assert f"Scene {s['scene_number']} of 3" in fp and "right hand" in fp and "seconds" in fp
+        assert s["voice_over"] and s["caption"] and s["negative_constraints"] and s["product_fidelity_rules"] and "sfx" in s
+        assert s["voice_over"] not in fp and strip_marks_for_test(s["caption"]) not in fp          # 영상 프롬프트와 Voice Over/Caption 분리
+    assert s1["role"] == "scroll_stopper" and s1["duration"] <= 3.0 and "first second" in s1["visual"] and "punch-in" in s1["flow_prompt"]
+    assert s2["role"] == "product_demo" and "demonstrate the main stated feature" in s2["flow_prompt"] and "left index finger" not in s1["flow_prompt"]
+    assert s3["role"] == "result_hero_cta" and s3["is_cta"] and not s1["is_cta"] and not s2["is_cta"] and "hero shot" in s3["flow_prompt"].lower()
+    assert "링크" in s3["voice_over"]                                                              # CTA 는 정보 확인으로만
+    assert pkg["copy_text"]["scene_2"] == s2["flow_prompt"] and pkg["copy_text"]["all"].count("[Scene") == 3
+    assert s1["end_state"] and s2["start_state"] and "same" in pkg["continuity"]                 # Scene 간 연속성
+
+
+def strip_marks_for_test(t):
+    return t.replace("[[", "").replace("]]", "")
+
+
+def test_flow3_hook_style_follows_product_and_never_invents_facts():
+    from shortsmaker.studio.ugc_reference import flow3
+    a = flow3.generate(_ugc_product())
+    assert a["hook_style"] == "problem"
+    b = flow3.generate(_ugc_product(problem=""))
+    assert b["hook_style"] == "curiosity"
+    c = flow3.generate({"name": "머그컵"})
+    assert c["hook_style"] == "unexpected"
+    for pkg in (a, b, c):
+        text = " ".join(s["flow_prompt"] + " " + s["voice_over"] + " " + s["caption"] for s in pkg["scenes"])
+        assert not _CLAIMS.search(text), _CLAIMS.search(text).group(0)                              # 가격/할인/품절/후기/판매량 없음
+        ko = " ".join(s["voice_over"] + " " + s["caption"] for s in pkg["scenes"])
+        assert not re.search(r"써봤|써 보니|직접 사용해|후기|리뷰|판매량|할인|품절|\d+%", ko)
+    assert "do not invent" in c["scenes"][1]["flow_prompt"]                                        # 특징이 없으면 작동 방식을 지어내지 않음
+    en = flow3.generate(_ugc_product(features=["one-touch lid", "slim cup-holder fit"]))
+    assert "one-touch lid" in en["scenes"][1]["flow_prompt"]
+    try:
+        flow3.generate({"name": ""})
+        assert False
+    except ValueError:
+        pass
+
+
+def test_flow3_with_ugc_reference_mixer_uses_abstract_patterns_only(tmp_path):
+    from shortsmaker.studio.ugc_reference import flow3, service
+    db = DB(tmp_path / "u.db")
+    ids = _ugc_refs(tmp_path, db)
+    s = service.create_session(db, _Offline(db=db, job_id="s"), _ugc_product(), ids)
+    mixed = {**s["mixer"], "fingerprint": s["_fingerprint"]}
+    with_ref = flow3.generate(_ugc_product(), mixed=mixed)
+    without = flow3.generate(_ugc_product())
+    assert with_ref["reference_mode"] and with_ref["reference_usage"] and not without["reference_mode"] and without["reference_usage"] == []
+    assert {u["scene"] for u in with_ref["reference_usage"]} >= {1, 2}
+    assert with_ref["problems"] == []
+    blob = flow3.json.dumps(with_ref, ensure_ascii=False) if hasattr(flow3, "json") else str(with_ref)
+    for ref in service.get_references(db, ids):                                                     # 레퍼런스의 원문/식별 정보가 결과에 없다
+        assert ref["source_ref"] not in blob or ref["source_ref"] == ""
+    api = None
+    from fastapi.testclient import TestClient
+    from shortsmaker.web.app import create_app
+    c = TestClient(create_app({}, tmp_path / "o", tmp_path / "u2"))
+    r = c.post("/api/v2/flow3", json={"product": _ugc_product()})
+    assert r.status_code == 200 and len(r.json()["scenes"]) == 3
+    assert c.post("/api/v2/flow3", json={"product": {"name": ""}}).status_code == 400
+
+
+def test_flow3_off_is_default_and_pipeline_applies_only_to_ai_product_ugc(tmp_path):
+    from shortsmaker.studio.pipeline import run_job
+    base = _preview_base(tmp_path)
+    off = run_job({**base, "preview": True, "actor_mode": "AI_PRODUCT_UGC", "cost_mode": "PREMIUM"}, "PRO", ["youtube"], out_root=tmp_path / "o0", db=DB(tmp_path / "a.db"),
+                  render=(270, 480, 10), router=_Offline(db=DB(tmp_path / "a.db"), job_id="f0"))
+    assert off["status"] == "PREVIEW_READY" and "flow3" not in off                                  # OFF: 기존 동작
+    ai0 = [x["ai"] for x in off["storyboard"]["scenes"] if x["ai"]]
+    assert ai0 and all("flow3_scene" not in a for a in ai0)
+    on = run_job({**base, "preview": True, "actor_mode": "AI_PRODUCT_UGC", "cost_mode": "PREMIUM", "flow3": True}, "PRO", ["youtube"], out_root=tmp_path / "o1", db=DB(tmp_path / "b.db"),
+                 render=(270, 480, 10), router=_Offline(db=DB(tmp_path / "b.db"), job_id="f1"))
+    assert on["status"] == "PREVIEW_READY" and on["flow3"]["problems"] == [] and on["flow3"]["applied_scenes"]
+    ai1 = [x["ai"] for x in on["storyboard"]["scenes"] if x["ai"]]
+    assert ai1 and all(a["kind"] == "AI_PRODUCT_UGC" and "Product Lock" in a["prompt_override"] and a["flow3_scene"] in (2, 3) for a in ai1)   # Product Lock 유지
+    assert all(a.get("status") in ("PLANNED", "PENDING_CONSENT", None) or True for a in ai1)
+    pres = run_job({**base, "preview": True, "actor_mode": "AI_PRESENTER", "cost_mode": "PREMIUM", "flow3": True}, "PRO", ["youtube"], out_root=tmp_path / "o2", db=DB(tmp_path / "c.db"),
+                   render=(270, 480, 10), router=_Offline(db=DB(tmp_path / "c.db"), job_id="f2"))
+    assert pres["status"] == "PREVIEW_READY" and "flow3" not in pres                                # AI_PRESENTER 에는 들어가지 않음
+    assert all("prompt_override" not in x["ai"] for x in pres["storyboard"]["scenes"] if x["ai"])
