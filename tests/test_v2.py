@@ -2591,7 +2591,7 @@ def test_flow3_exactly_three_scenes_with_roles_and_standalone_prompts():
         assert s["voice_over"] and s["caption"] and s["negative_constraints"] and s["product_fidelity_rules"] and "sfx" in s
         assert s["voice_over"] not in fp and strip_marks_for_test(s["caption"]) not in fp          # 영상 프롬프트와 Voice Over/Caption 분리
     assert s1["role"] == "scroll_stopper" and s1["duration"] <= 3.0 and "first second" in s1["visual"] and "punch-in" in s1["flow_prompt"]
-    assert s2["role"] == "product_demo" and "demonstrate the main stated feature" in s2["flow_prompt"] and "left index finger" not in s1["flow_prompt"]
+    assert s2["role"] == "product_demo" and "to demonstrate" in s2["flow_prompt"] and "left index finger" not in s1["flow_prompt"]
     assert s3["role"] == "result_hero_cta" and s3["is_cta"] and not s1["is_cta"] and not s2["is_cta"] and "hero shot" in s3["flow_prompt"].lower()
     assert "링크" in s3["voice_over"]                                                              # CTA 는 정보 확인으로만
     assert pkg["copy_text"]["scene_2"] == s2["flow_prompt"] and pkg["copy_text"]["all"].count("[Scene") == 3
