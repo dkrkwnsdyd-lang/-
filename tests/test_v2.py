@@ -2746,3 +2746,104 @@ def test_polish_pipeline_off_vs_on_and_form_field(tmp_path):
     assert off["status"] == "PREVIEW_READY" and "polish" not in off
     on = run_job({**base, "preview": True, "polish": True}, "PRO", ["youtube"], out_root=tmp_path / "p1", db=DB(tmp_path / "b.db"), render=(270, 480, 10), router=_Offline(db=DB(tmp_path / "b.db"), job_id="p1"))
     assert on["status"] == "PREVIEW_READY" and on["polish"]["enabled"] and on["polish"]["longest_static_after"] <= on["polish"]["longest_static_before"]
+
+
+# ------------------------------------------------------------------ 하이라이트 구간 자동 선택
+def _highlight_video(path, seconds=24):
+    """합성 영상: 0~6s 정지·무음 / 6~12s 적당한 움직임+소리 / 12~18s 거친 깜빡임 / 18~24s 정지·무음."""
+    import subprocess, wave
+    import numpy as np
+    from shortsmaker.video import ffmpeg_exe
+    w, h, fps = 192, 340, 12
+    rng = np.random.default_rng(3)
+    bg = (rng.random((h, w)) * 80 + 90).astype(np.uint8)
+    wav = path.with_suffix(".wav")
+    sr = 8000
+    t = np.arange(seconds * sr) / sr
+    amp = np.where((t >= 6) & (t < 12), 0.5 * (np.sin(2 * np.pi * 3 * t) > 0), 0.0005)
+    with wave.open(str(wav), "wb") as f:
+        f.setnchannels(1); f.setsampwidth(2); f.setframerate(sr)
+        f.writeframes((np.sin(2 * np.pi * 700 * t) * amp * 30000).astype(np.int16).tobytes())
+    p = subprocess.Popen([ffmpeg_exe(), "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "gray", "-s", f"{w}x{h}", "-r", str(fps), "-i", "-", "-i", str(wav),
+                          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(path)], stdin=subprocess.PIPE)
+    for n in range(seconds * fps):
+        s = n / fps
+        fr = bg.copy()
+        if 6 <= s < 12:
+            x = int(40 + 70 * (0.5 + 0.5 * np.sin((s - 6) * 2.2)))
+            fr[120:190, x:x + 60] = 255
+        elif 12 <= s < 18:
+            fr = np.roll(np.roll(bg, int(rng.integers(-30, 30)), axis=1), int(rng.integers(-30, 30)), axis=0)     # 같은 선명도, 거친 흔들림
+        p.stdin.write(fr.tobytes())
+    p.stdin.close(); p.wait()
+    wav.unlink(missing_ok=True)
+    return str(path)
+
+
+def test_highlights_pick_moving_sound_segment_and_off_is_unchanged(tmp_path):
+    from shortsmaker.studio import clips, highlights
+    v = _highlight_video(tmp_path / "h.mp4")
+    info = clips.analyze_clip(v, tmp_path, max_seconds=highlights.MAX_SECONDS)
+    assert info["ok"] and info["duration"] > 20                                               # 60초 한도 대신 긴 영상도 훑는다
+    base_before = clips.best_window(info, 4.0)
+    assert "sig" not in info
+    warnings = highlights.enrich([info], None, tmp_path)
+    assert warnings == [] and info["sig"]["sound"] and info["sig_sources"] == ["동작(로컬)", "소리(로컬)"] and info["sig"]["visible"] is None
+    top = highlights.top(info, 4.0, 2)
+    assert top and 5.0 <= top[0]["start"] and top[0]["start"] + top[0]["dur"] <= 12.7                  # 움직임+소리가 있는 6~12초 구간
+    assert any("소리" in r for r in top[0]["reasons"]) and any("움직임이 적당" in r for r in top[0]["reasons"])
+    assert len(top) == 2 and (top[1]["start"] >= top[0]["start"] + top[0]["dur"] - 0.01 or top[1]["start"] + top[1]["dur"] <= top[0]["start"] + 0.01)   # 겹치지 않음
+    assert all(0.3 <= highlights.factor(info, i, 12) <= 1.6 for i in range(0, 60, 7))
+    info2 = clips.analyze_clip(v, tmp_path, max_seconds=highlights.MAX_SECONDS)
+    assert clips.best_window(info2, 4.0) == base_before                                           # sig 없으면 기존 선택과 동일
+
+
+def test_highlights_vision_marks_exclude_private_info_and_failures_fall_back(tmp_path):
+    from types import SimpleNamespace as NS
+    from shortsmaker.studio import clips, highlights
+    v = _highlight_video(tmp_path / "h2.mp4")
+
+    class Vis:
+        def __init__(self, mode): self.mode = mode
+        def has_real(self, t): return t == "vision"
+        def run(self, task, method, **kw):
+            if self.mode == "boom":
+                raise RuntimeError("x")
+            n = len(kw["images"])
+            frames = []
+            for j in range(n):
+                sec = 24 * (j + 0.5) / n
+                frames.append({"i": j, "product_visible": 6 <= sec < 18, "in_use": 6 <= sec < 12, "private_info": 0 <= sec < 4})
+            return NS(provider="fake", model="v", value={"frames": frames})
+    info = clips.analyze_clip(v, tmp_path, max_seconds=highlights.MAX_SECONDS)
+    assert highlights.enrich([info], Vis("ok"), tmp_path) == [] and "제품/사용(AI 해석)" in info["sig_sources"]
+    top = highlights.top(info, 4.0, 3, beat="demo")
+    assert top[0]["start"] >= 5.0 and top[0]["start"] + top[0]["dur"] <= 12.7 and any("사용하는 모습" in r for r in top[0]["reasons"])
+    assert all(not (t["start"] < 3.0) for t in top)                                                  # 개인정보가 보이는 구간은 고르지 않는다
+    bad = clips.analyze_clip(v, tmp_path, max_seconds=highlights.MAX_SECONDS)
+    assert highlights.enrich([bad], Vis("boom"), tmp_path) == [] and bad["sig"]["visible"] is None and highlights.top(bad, 4.0, 1)   # Vision 실패 → 로컬 신호로 계속
+    weird = clips.analyze_clip(v, tmp_path, max_seconds=highlights.MAX_SECONDS)
+    class Junk(Vis):
+        def run(self, task, method, **kw): return NS(provider="f", model="v", value="garbage")
+    assert highlights.enrich([weird], Junk("x"), tmp_path) == [] and weird["sig"]["visible"] is None
+
+
+def test_highlights_api_preview_and_pipeline_opt_in(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from shortsmaker.web.app import create_app
+    monkeypatch.chdir(tmp_path)
+    v = _highlight_video(tmp_path / "api.mp4")
+    c = TestClient(create_app({}, tmp_path / "o", tmp_path / "u"))
+    r = c.post("/api/v2/highlights", files={"file": ("api.mp4", open(v, "rb"), "video/mp4")})
+    assert r.status_code == 200 and r.json()["clips"][0]["top"] and r.json()["clips"][0]["top"][0]["reasons"]
+    assert not list((tmp_path / "u" / "highlight_tmp").glob("*.mp4"))                                 # 업로드 원본은 분석 후 삭제
+    assert c.post("/api/v2/highlights", files={"file": ("x.txt", b"hi", "text/plain")}).status_code == 400
+    off, _ = _ai_job(tmp_path, "REAL_UGC", "ECONOMY", "hl0", [], videos=[v], preview=True)
+    assert "highlights" not in off                                                                    # OFF: 기존 동작
+    on, _ = _ai_job(tmp_path, "REAL_UGC", "ECONOMY", "hl1", [], videos=[v], preview=True, extra={"highlight": True})
+    assert on["highlights"] and on["highlights"][0]["top"]
+    used = on["clips"]["used"]
+    demo = next(u for u in used if u["scene_type"] == "DEMO")
+    assert 5.5 <= demo["start"] and demo["start"] + demo["dur"] <= 12.7 and any("소리" in r for r in demo["reasons"])    # 가장 중요한 시연 장면이 움직임+소리가 있는 구간
+    assert all(u.get("reasons") for u in used)
+    assert len({round(u["start"], 1) for u in used}) == len(used)                                                      # 같은 구간을 두 번 쓰지 않음

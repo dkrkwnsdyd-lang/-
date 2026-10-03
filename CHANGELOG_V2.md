@@ -1,5 +1,11 @@
 # CHANGELOG_V2
 
+## 2026-10-03 — 하이라이트 구간 자동 선택 (OpusClip ClipGenius 방식 1차, 선택·기본 OFF)
+- `studio/highlights.py`: 구간 점수 보정 계수(0.3~1.6). 신호: 동작 적정성(로컬), 원본 소리 활동(로컬, 결과물에는 쓰지 않음), 제품 노출/사용 중/개인정보(Vision, 클립당 1회 호출·AI 해석, 실패하면 로컬 신호로 계속). 고른 이유를 측정값과 함께 `reasons` 로 반환
+- 기존 선택 경로 재사용: `clips.best_window`(beat 인자 추가, info 에 sig 가 있을 때만 보정) → `clips.assign`(기존)과 `presenter/real.place`(REAL_UGC) 둘 다 개선. OFF 에서는 점수 계산 동일(테스트로 확인)
+- 분석 길이: 기본 60초 → 하이라이트 모드 240초. form `highlight_mode=1`, 결과 `highlights`/`clips.used[].reasons`, API `POST /api/v2/highlights`(업로드 영상 미리 분석, 원본은 분석 후 삭제), UI 체크박스·미리 찾기 버튼
+- 한계: 합성 영상으로만 검증(실제 상품 사용 영상 미검증). 소리가 일정한 소음이면 신호로 쓰지 않음. 사람 얼굴이 있는 구간은 Vision 이 개인정보로 표시한 경우만 감점
+
 ## 2026-10-03 — SNS 마감 (Retention Polish, OpusClip 방식 벤치마킹 1차, 선택·기본 OFF)
 - `studio/polish.py`: 컷 안에서 변화 없는 구간이 길면 펀치 줌(패턴 인터럽트)을 일정 간격으로 추가(스타일별 간격, 컷당 2회, 강조 시점/컷 경계와 겹치지 않음), 상단 진행 막대, 실측 리포트(최장 정지 구간 전/후, 첫 시각 변화·첫 자막 시각, 자막 글자/초). 컷 수/길이/대사/사진은 바뀌지 않음
 - 렌더러: layout 경로 카메라가 `Shot.punch_at` 을 읽도록(없으면 동작 없음), `MotionRenderer._progress`. form `polish_mode=1`, 결과 `polish`, UI 체크박스·결과 한 줄

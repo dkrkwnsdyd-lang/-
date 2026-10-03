@@ -161,6 +161,10 @@
     </div>
     <input id="vid" type="file" accept="video/*" multiple hidden>
     <div id="vlist"></div>
+    <label class="optrow" style="margin-top:6px"><input type="checkbox" id="highlightOn">
+      <span><b>하이라이트 자동 선택</b> <span class="note">(영상 클립용 · 선택)</span><br><span class="note">긴 영상(최대 4분)에서 움직임이 적당하고, 소리가 살아 있고, 제품이 보이거나 쓰이는 구간을 골라요. 고른 이유도 함께 보여줘요. 끄면 기존 방식 그대로예요.</span></span></label>
+    <div class="actions" id="hlRow" style="display:none"><button type="button" id="hlPreview">🔎 하이라이트 미리 찾기 (첫 번째 영상)</button></div>
+    <div id="hlOut"></div>
     <p class="note" id="vidHint">💡 직접 찍은 <b>사용 장면 영상</b>(3~10초)을 넣으면 사진 대신 실제 움직임이 쓰여요. 가장 선명한 구간을 자동으로 고르고, <b>원본 소리는 쓰지 않아요</b>. 사진은 꼭 1장 이상 필요해요.</p>
     <p class="note warn" id="fewHint" style="display:none">⚠ 사진이 3장보다 적어요. 한 장으로는 같은 화면이 반복돼 품질이 낮아져요 (실측: 1장 61점, 2장 67점). <b>정면 · 옆 · 디테일 · 사용 장면</b> 3~4장이면 훨씬 좋아요.</p>
     <p class="note" id="boxHint" style="display:none">💡 사진을 누르면 <b>제품 위치</b>를 표시할 수 있어요. 배경이 복잡한 사진(야외·소품 많음)은 표시해야 확대 컷이 제품에 정확히 맞아요.</p>
@@ -352,6 +356,10 @@ const PF = { youtube:"YouTube", instagram:"Instagram", tiktok:"TikTok", threads:
 const ICON = { PASS:"🟢", PASS_WITH_WARNING:"🟡", REQUIRES_EDIT:"🟠", BLOCKED:"🔴", UNKNOWN:"⚪" };
 let files = [];
 let videos = [];
+function hlHtml(clips) {
+  return (clips || []).map(c => `<div class="card" style="margin:8px 0;padding:10px"><b class="note">${esc(c.clip)} · ${Math.round(c.duration)}초 · 신호: ${c.signals.map(esc).join(", ")}</b>`
+    + (c.top.length ? c.top.map((t, i) => `<div class="note">${i + 1}위 ${t.start.toFixed(1)}~${(t.start + t.dur).toFixed(1)}초 · 점수 ${t.score}${(t.reasons || []).length ? "<br>↳ " + t.reasons.map(esc).join(" · ") : ""}</div>`).join("") : '<div class="note">고를 만한 구간이 없어요</div>') + `</div>`).join("");
+}
 const toast = (msg) => { const t = $("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2200); };
 let boxes = new Map();   // File -> [x0,y0,x1,y1]
 let editing = null, drag = null;
@@ -388,6 +396,18 @@ function drawVideos() {
   });
 }
 $("vidBtn").onclick = () => $("vid").click();
+$("highlightOn").onchange = () => { $("hlRow").style.display = $("highlightOn").checked ? "flex" : "none"; if (!$("highlightOn").checked) $("hlOut").innerHTML = ""; };
+$("hlPreview").onclick = async () => {
+  if (!videos.length) { $("hlOut").innerHTML = '<p class="note warn">먼저 영상을 추가하세요</p>'; return; }
+  $("hlPreview").disabled = true; $("hlOut").innerHTML = '<p class="note">분석 중… (긴 영상은 1~2분 걸릴 수 있어요)</p>';
+  try {
+    const fd = new FormData(); fd.append("file", videos[0]);
+    const res = await fetch("/api/v2/highlights", { method:"POST", body:fd }); const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || "실패");
+    $("hlOut").innerHTML = (d.warnings || []).map(w => `<p class="note warn">⚠ ${esc(w)}</p>`).join("") + hlHtml(d.clips);
+  } catch (e) { $("hlOut").innerHTML = `<p class="note warn">⚠ ${esc(e.message)}</p>`; }
+  $("hlPreview").disabled = false;
+};
 $("vid").onchange = (e) => { setTimeout(drawThumbs, 0); videos.push(...[...e.target.files].filter(f => f.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|mkv|3gp)$/i.test(f.name))); e.target.value = ""; drawVideos(); };
 
 function drawThumbs() {
@@ -466,6 +486,7 @@ $("go").onclick = async () => {
   if ($("ugcOn").checked && window._ugcSession) fd.append("ugc_session_id", window._ugcSession);
   if ($("flow3On").checked) fd.append("flow3_mode", "1");
   if ($("polishOn").checked) fd.append("polish_mode", "1");
+  if ($("highlightOn").checked) fd.append("highlight_mode", "1");
   fd.append("actor_mode", document.querySelector("input[name=actor]:checked").value);
   fd.append("cost_mode", $("costMode").value);
   fd.append("monthly_budget", $("monthlyBudget").value || "");
@@ -1072,6 +1093,7 @@ function showResult(d) {
     + ((r.qa.gates || []).filter(g => g.hit).map(g => `<p class="note warn">🚧 ${g.gate} → ${g.effect}</p>`).join(""));
   $("qaNotes").innerHTML = Object.entries(r.qa.notes || {}).map(([k, v]) => `<p class="note">• ${LABEL[k] || k}: ${v.join(", ")}</p>`).join("")
     + `<p class="note">측정 방식: ${r.qa.method}</p>`
+    + (r.highlights ? `<p class="note">🎯 하이라이트 선택</p>` + hlHtml(r.highlights) : "")
     + (r.polish ? `<p class="note">✨ SNS 마감: 시청 유지 줌 ${r.polish.punches_added}개 · 변화 없는 구간 최장 ${r.polish.longest_static_before}s → ${r.polish.longest_static_after}s · 진행 막대` + (r.polish.warnings || []).map(w => `<br><span class="warn">⚠ ${String(w).replace(/</g, "&lt;")}</span>`).join("") + `</p>` : "")
     + (r.warnings || []).map(w => `<p class="note warn">⚠ ${w}</p>`).join("")
     + ((r.reference && r.reference.status === "UNVERIFIED" && r.reference.note) ? `<p class="note warn">⚠ 참고 영상: ${String(r.reference.note).replace(/</g, "&lt;")}</p>` : "")

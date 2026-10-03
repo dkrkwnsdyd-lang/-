@@ -468,7 +468,11 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
         clip_infos: list[dict] = []
         if video_paths:
             with job.step("CLIPS"):
-                clip_infos, cw = clips_mod.prepare(video_paths, out_dir / "clips_work")
+                if p.highlight:                   # 하이라이트 모드(선택·기본 OFF): 긴 영상도 훑고 동작/소리/제품·사용 신호로 구간을 고른다
+                    from . import highlights as hl_mod
+                    clip_infos, cw = clips_mod.prepare(video_paths, out_dir / "clips_work", max_seconds=hl_mod.MAX_SECONDS)
+                else:
+                    clip_infos, cw = clips_mod.prepare(video_paths, out_dir / "clips_work")
                 result.setdefault("warnings", []).extend(cw)
                 screened, unchecked = [], False
                 for info in clip_infos:
@@ -485,6 +489,9 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 clip_infos = screened
                 if unchecked and clip_infos:
                     result["warnings"].append("영상 속 개인 정보(얼굴/번호판/주소 등)를 자동으로 검사하지 못했어요. 게시 전에 직접 확인하세요.")
+                if p.highlight and clip_infos:
+                    result["warnings"].extend(hl_mod.enrich(clip_infos, router, out_dir / "clips_hl"))
+                    result["highlights"] = hl_mod.summary(clip_infos)
                 job.say(f"영상 클립 {len(clip_infos)}/{len(video_paths)}개 사용 가능")
 
         # 6 TTS -----------------------------------------------------------------

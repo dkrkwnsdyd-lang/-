@@ -17,9 +17,15 @@ PREFER = {"DEMO": ("use", "press", "hold"), "FEATURE": ("press", "closeup", "use
           "BENEFIT": ("use", "wear", "hold"), "PROOF": ("use", "wear"), "PROBLEM": ("other",)}
 ELIGIBLE_ORDER = ("DEMO", "PRODUCT_REVEAL", "FEATURE", "BENEFIT")
 MAX_REAL_SCENES = 3
+BEAT_OF = {"DEMO": "demo", "FEATURE": "demo", "BENEFIT": "benefit", "PRODUCT_REVEAL": "reveal"}     # 하이라이트 보정용 (사용 중인 구간 우대)
 
 TAG_SYSTEM = ('You see one frame from the middle of a candidate segment of a user-shot product video. Answer JSON only: '
               '{"action":"hold|use|press|closeup|unbox|wear|other","product_visible":true,"face_visible":false,"desc":"Korean, max 20 chars"}')
+
+
+def _reasons(info: dict, w: dict, sc) -> list[str]:
+    from .. import highlights
+    return highlights.explain(info, w["start"], w["dur"], BEAT_OF.get(sc.scene_type))
 
 
 def candidate_windows(info: dict, dur: float, n: int = 3) -> list[dict]:
@@ -72,7 +78,7 @@ def place(scenes: list, infos: list[dict], router=None, work_dir: Path | None = 
             break
         cands = []
         for info in infos:
-            for w in candidate_windows_avoid(info, max(1.4, sc.duration), used[info["index"]]):
+            for w in candidate_windows_avoid(info, max(1.4, sc.duration), used[info["index"]], beat=BEAT_OF.get(sc.scene_type)):
                 tag = tag_window(router, info, w, work_dir) if router is not None else {}
                 pref = PREFER.get(sc.scene_type, ())
                 bonus = 0.25 * (len(pref) - pref.index(tag["action"])) / max(len(pref), 1) if tag.get("action") in pref else 0.0
@@ -92,11 +98,12 @@ def place(scenes: list, infos: list[dict], router=None, work_dir: Path | None = 
         sc.duration = round(min(sc.duration, w["dur"]), 2) if w["dur"] >= 1.2 else sc.duration
         sc.ai = {}
         report.append({"scene_id": sc.scene_id, "scene_type": sc.scene_type, "clip": Path(info["path"]).name, "start": w["start"], "dur": w["dur"],
-                      "score": w["score"], "tag": tag.get("desc") or "", "action": action})
+                      "score": w["score"], "tag": tag.get("desc") or "", "action": action,
+                      **({"reasons": _reasons(info, w, sc)} if info.get("sig") else {})})
     return report
 
 
-def candidate_windows_avoid(info: dict, dur: float, avoid: list, n: int = 2) -> list[dict]:
+def candidate_windows_avoid(info: dict, dur: float, avoid: list, n: int = 2, beat: str | None = None) -> list[dict]:
     out, used = [], list(avoid)
     for _ in range(n):
         w = clips_mod.best_window(info, dur, used)

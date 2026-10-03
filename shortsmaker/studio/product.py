@@ -40,6 +40,7 @@ class ProductInput:
     reference_patterns: list[str] = field(default_factory=list)   # Pattern Library id (REFERENCE_VIDEO_ENGINE): 구조만 적용, 내용 복사 없음
     reference_picks: dict | None = None                           # 영역별 수동 선택 {"hook": id, "story": id, "tempo": id, "cta": id} (없으면 AUTO MIX)
     ugc_session: str = ""             # UGC Reference Mode 세션 id (선택). 있으면 그 스토리보드/프롬프트 패키지로 대본·장면을 구성하고 기존 렌더/Preview 를 그대로 쓴다
+    highlight: bool = False           # 하이라이트 구간 자동 선택(동작/소리/제품·사용 신호, 선택·기본 OFF)
     polish: bool = False              # SNS 마감(시청 유지 리듬/진행 막대/실측 리포트, 선택·기본 OFF)
     flow3: bool = False               # 3-Scene Flow Mode (선택, 기본 OFF): AI_PRODUCT_UGC 장면에 Scene 1~3 프롬프트 적용
     scene_prompts: list[str] = field(default_factory=list)   # (내부) 장면별 AI 영상 프롬프트

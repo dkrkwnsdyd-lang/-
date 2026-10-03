@@ -32,12 +32,12 @@ def _lap_var(gray: np.ndarray) -> float:
     return float(lap.var())
 
 
-def analyze_clip(path: str | Path, work_dir: Path) -> dict:
+def analyze_clip(path: str | Path, work_dir: Path, max_seconds: int = MAX_ANALYZE_SECONDS) -> dict:
     """{ok, path, duration, aspect, sharp[], bright[], motion[], warnings[]} - 실패해도 예외 대신 ok=False."""
     path = Path(path)
     tmp = Path(tempfile.mkdtemp(prefix="clip_", dir=work_dir))
     try:
-        cmd = [ffmpeg_exe(), "-y", "-loglevel", "error", "-t", str(MAX_ANALYZE_SECONDS), "-i", str(path),
+        cmd = [ffmpeg_exe(), "-y", "-loglevel", "error", "-t", str(max_seconds), "-i", str(path),
                "-an", "-vf", f"fps={ANALYSIS_FPS},scale=192:-2", "-q:v", "3", str(tmp / "f_%04d.jpg")]
         r = subprocess.run(cmd, capture_output=True, text=True)
         frames = sorted(tmp.glob("f_*.jpg"))
@@ -79,7 +79,7 @@ def _window_score(info: dict, i: int, win: int) -> float:
     return sn * bright_f * shaky * static
 
 
-def best_window(info: dict, dur: float, avoid: list[tuple[float, float]] | None = None) -> dict | None:
+def best_window(info: dict, dur: float, avoid: list[tuple[float, float]] | None = None, beat: str | None = None) -> dict | None:
     """길이 dur 초짜리 가장 좋은 구간. 이미 쓴 구간(avoid)과는 겹치지 않는다. 못 찾으면 None."""
     n = len(info["sharp"])
     win = max(2, round(dur * ANALYSIS_FPS))
@@ -92,16 +92,19 @@ def best_window(info: dict, dur: float, avoid: list[tuple[float, float]] | None 
         if any(s < ae and e > as_ for as_, ae in (avoid or [])):
             continue
         sc = _window_score(info, i, win)
+        if info.get("sig"):                       # 하이라이트 모드: 동작/소리/제품·사용 신호로 보정 (OFF 면 info 에 sig 가 없어 기존과 동일)
+            from . import highlights
+            sc *= highlights.factor(info, i, win, beat)
         if best is None or sc > best["score"]:
             best = {"start": round(s, 3), "dur": round(win / ANALYSIS_FPS, 3), "score": round(sc, 3)}
     return best
 
 
-def prepare(paths: list[str], work_dir: Path) -> tuple[list[dict], list[str]]:
+def prepare(paths: list[str], work_dir: Path, max_seconds: int = MAX_ANALYZE_SECONDS) -> tuple[list[dict], list[str]]:
     work_dir.mkdir(parents=True, exist_ok=True)
     infos, warnings = [], []
     for i, p in enumerate(paths):
-        info = analyze_clip(p, work_dir)
+        info = analyze_clip(p, work_dir, max_seconds)
         name = Path(p).name
         if not info["ok"]:
             warnings.append(f"영상 {i + 1}: 사용할 수 없어 제외 - {info.get('error', '')}")
@@ -147,7 +150,7 @@ def assign(shots: list, scenes: list, infos: list[dict]) -> list[dict]:
             break
         best = None
         for info in infos:
-            w = best_window(info, shot.duration, used[info["index"]])
+            w = best_window(info, shot.duration, used[info["index"]], beat=beat_of.get(shot.scene_id))
             if w and (best is None or w["score"] > best[1]["score"]):
                 best = (info, w)
         if best is None:
@@ -160,8 +163,12 @@ def assign(shots: list, scenes: list, infos: list[dict]) -> list[dict]:
         shot.clip_start = w["start"]
         shot.clip_aspect = info["aspect"]
         shot.punch_at = []
-        report.append({"scene_id": shot.scene_id, "beat": beat_of[shot.scene_id], "clip": Path(info["path"]).name,
-                       "start": w["start"], "dur": w["dur"], "score": w["score"]})
+        entry = {"scene_id": shot.scene_id, "beat": beat_of[shot.scene_id], "clip": Path(info["path"]).name,
+                 "start": w["start"], "dur": w["dur"], "score": w["score"]}
+        if info.get("sig"):
+            from . import highlights
+            entry["reasons"] = highlights.explain(info, w["start"], w["dur"], beat_of.get(shot.scene_id))
+        report.append(entry)
     return report
 
 

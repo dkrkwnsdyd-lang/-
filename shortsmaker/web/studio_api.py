@@ -106,7 +106,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         boxes: str = Form(""), feature_photos: str = Form(""), my_take: str = Form(""), compact: str = Form(""),
         preview: str = Form(""), video_style: str = Form("FAST_COMMERCE"), auto_strategy: str = Form("1"),
         actor_mode: str = Form("AUTO"), cost_mode: str = Form("BALANCED"), monthly_budget: str = Form(""),
-        reference_patterns: str = Form(""), reference_picks: str = Form(""), price_source: str = Form(""), price_fetched_at: str = Form(""), ugc_session_id: str = Form(""), flow3_mode: str = Form(""), polish_mode: str = Form(""),
+        reference_patterns: str = Form(""), reference_picks: str = Form(""), price_source: str = Form(""), price_fetched_at: str = Form(""), ugc_session_id: str = Form(""), flow3_mode: str = Form(""), polish_mode: str = Form(""), highlight_mode: str = Form(""),
     ):
         if len(photos) > MAX_PHOTOS:
             raise HTTPException(400, f"사진은 최대 {MAX_PHOTOS}장까지 올릴 수 있어요.")
@@ -178,7 +178,7 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
                   "cost_mode": cost_mode if cost_mode in ("ECONOMY", "BALANCED", "PREMIUM") else "BALANCED",
                   "monthly_budget": _budget(monthly_budget),
                   "reference_patterns": [x for x in (i.strip() for i in reference_patterns.split(",")) if x.startswith("rp_")][:5],
-                  "reference_picks": _picks(reference_picks), "ugc_session": ugc_session_id.strip() if ugc_session_id.startswith("us_") else "", "flow3": flow3_mode == "1", "polish": polish_mode == "1", "price": price.strip(),
+                  "reference_picks": _picks(reference_picks), "ugc_session": ugc_session_id.strip() if ugc_session_id.startswith("us_") else "", "flow3": flow3_mode == "1", "polish": polish_mode == "1", "highlight": highlight_mode == "1", "price": price.strip(),
                   "price_meta": ({"source": "coupang_partners_api", "fetched_at": price_fetched_at.strip()} if price_source == "coupang_partners_api" and price_fetched_at.strip() else None), "url": url.strip(),
                   "photos": saved, "videos": saved_videos, "photo_rights": photo_rights, "reference_url": reference_url.strip(),
                   "affiliate": affiliate, "category_hint": category, "product_boxes": product_boxes,
@@ -335,6 +335,30 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         if not s or not s["package"]:
             raise HTTPException(404, "프롬프트 패키지가 없어요")
         return s["package"]
+
+    @app.post("/api/v2/highlights")
+    def highlights_preview(file: UploadFile = File(...)):
+        """올린 (긴) 영상에서 하이라이트 구간 후보와 고른 이유(측정 근거)를 미리 보여준다. 원본은 분석 후 삭제, 저장 없음."""
+        from ..studio import clips, highlights
+        suffix = Path(file.filename or "").suffix.lower()
+        if suffix not in VIDEO_EXTS:
+            raise HTTPException(400, f"지원하지 않는 영상 형식이에요 ({suffix or '확장자 없음'}). mp4/mov 로 올려 주세요")
+        d = Path(upload_dir) / "highlight_tmp"
+        d.mkdir(parents=True, exist_ok=True)
+        dst = d / f"{uuid.uuid4().hex[:8]}{suffix}"
+        with open(dst, "wb") as out:
+            shutil.copyfileobj(file.file, out)
+        if dst.stat().st_size > MAX_VIDEO_BYTES:
+            dst.unlink(missing_ok=True)
+            raise HTTPException(400, f"영상은 {MAX_VIDEO_BYTES // 1024 // 1024}MB 이하여야 해요")
+        try:
+            infos, warnings = clips.prepare([str(dst)], d / "work", max_seconds=highlights.MAX_SECONDS)
+            if not infos:
+                raise HTTPException(400, "; ".join(warnings) or "영상을 읽을 수 없어요")
+            warnings += highlights.enrich(infos, Router(db=db, job_id="highlights"), d / "work")
+            return {"warnings": warnings, "clips": highlights.summary(infos)}
+        finally:
+            dst.unlink(missing_ok=True)
 
     @app.post("/api/v2/flow3")
     def flow3_generate(req: Flow3Request):
