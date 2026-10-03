@@ -5,7 +5,7 @@ making a paid video API call.
 """
 from types import SimpleNamespace
 
-from shortsmaker.studio.presenter import product_ugc
+from shortsmaker.studio.presenter import fidelity, product_ugc
 
 
 class _Identity:
@@ -107,3 +107,63 @@ def test_non_product_scene_is_ignored_without_ai_product_ugc():
         identity=_Identity(),
         reference_prompt="",
     )
+
+
+class _VisionRouter:
+    def __init__(self, value):
+        self.value = value
+
+    def has_real(self, task):
+        return task == "vision"
+
+    def run(self, *args, **kwargs):
+        return SimpleNamespace(value=self.value)
+
+
+def test_fidelity_rejects_bad_hand_contact(monkeypatch, tmp_path):
+    ref = tmp_path / "ref.jpg"
+    ref.write_bytes(b"reference")
+    monkeypatch.setattr(fidelity, "sample_frames", lambda clip, out_dir: ["frame1.jpg", "frame2.jpg"])
+    router = _VisionRouter({
+        "same_product": True,
+        "fidelity": 96,
+        "shape_changed": False,
+        "color_changed": False,
+        "logo_or_text_changed": False,
+        "button_or_part_changed": False,
+        "pattern_changed": False,
+        "proportion_changed": False,
+        "hand_anatomy_problem": True,
+        "hand_product_intersection": False,
+        "product_duplicate": False,
+        "product_morph": False,
+        "product_visible": True,
+        "notes": "extra finger",
+    })
+    result = fidelity.check(router, str(ref), "clip.mp4", tmp_path / "qa")
+    assert result["status"] == "PRODUCT_MISMATCH"
+    assert "hand_anatomy_problem" in result["reasons"]
+
+
+def test_fidelity_accepts_same_product_and_clean_interaction(monkeypatch, tmp_path):
+    ref = tmp_path / "ref.jpg"
+    ref.write_bytes(b"reference")
+    monkeypatch.setattr(fidelity, "sample_frames", lambda clip, out_dir: ["frame1.jpg", "frame2.jpg"])
+    router = _VisionRouter({
+        "same_product": True,
+        "fidelity": 95,
+        "shape_changed": False,
+        "color_changed": False,
+        "logo_or_text_changed": False,
+        "button_or_part_changed": False,
+        "pattern_changed": False,
+        "proportion_changed": False,
+        "hand_anatomy_problem": False,
+        "hand_product_intersection": False,
+        "product_duplicate": False,
+        "product_morph": False,
+        "product_visible": True,
+        "notes": "clean",
+    })
+    result = fidelity.check(router, str(ref), "clip.mp4", tmp_path / "qa")
+    assert result["status"] == "PASS"
