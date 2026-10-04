@@ -2847,3 +2847,83 @@ def test_highlights_api_preview_and_pipeline_opt_in(tmp_path, monkeypatch):
     assert 5.5 <= demo["start"] and demo["start"] + demo["dur"] <= 12.7 and any("소리" in r for r in demo["reasons"])    # 가장 중요한 시연 장면이 움직임+소리가 있는 구간
     assert all(u.get("reasons") for u in used)
     assert len({round(u["start"], 1) for u in used}) == len(used)                                                      # 같은 구간을 두 번 쓰지 않음
+
+
+# ------------------------------------------------------------------ 모션그래픽 (21가지 기법)
+@pytest.fixture(scope="module")
+def motiongfx_render(tmp_path_factory):
+    from product_fixtures import make_photos
+    from shortsmaker.studio import motiongfx as M
+    d = tmp_path_factory.mktemp("mg")
+    photo = make_photos("kitchen_tumbler", d / "p", 1)[0]
+    r = M.render(photo, d / "mg.mp4", name="보온보냉 스텐 텀블러", features=["원터치 뚜껑", "컵홀더에 쏙 들어가는 슬림형", "세척이 쉬운 넓은 입구"], price=19900, discount=20)
+    return M, r, d, photo
+
+
+def test_motiongfx_uses_all_21_techniques_and_each_scene_stacks_three(motiongfx_render):
+    M, r, d, _ = motiongfx_render
+    tech = r["techniques"]
+    used = {t for ts in tech.values() for t in ts}
+    assert used == {ko for _, ko in M.TECHNIQUES} and len(M.TECHNIQUES) == 21                      # 21개 전부 실제 실행 기록 기반으로 사용
+    for scene in ("S1", "S2", "S3", "S4", "S5", "S6"):
+        assert len(tech[scene]) >= 3, (scene, tech[scene])                                        # 한 장면에 기법 3개 이상 겹침
+    assert all("이징" in v for v in tech.values()) and r["ease_calls"] > 3000                      # 모든 장면/전환이 이징 사용
+    assert {"매치컷"} <= set(tech["T1"]) and {"휩 팬", "모션 블러"} <= set(tech["T2"]) and {"줌 스루", "모션 블러"} <= set(tech["T3"]) and "아이리스" in tech["T4"] and "매치컷" in tech["T5"]
+    assert {"푸시 인", "키네틱 타이포", "비트 싱크"} <= set(tech["S1"])                                # 오프닝 요구 조합
+    assert {"마스크 리빌", "예비동작", "스쿼시 앤 스트레치", "홀드"} <= set(tech["S2"])                  # 제품 등장 요구 조합
+    assert {"스태거", "오버랩", "팔로스루"} <= set(tech["S3"]) and "카운트업" in tech["S4"] and {"패럴랙스", "세컨더리 액션"} <= set(tech["S2"] + tech["S3"])
+    assert "아크" in tech["S5"] and "루프" in tech["S6"]
+    md = M.table_markdown(tech)
+    assert "21/21 — 전부 사용" in md and "| 오프닝 (0~3초) |" in md
+
+
+def test_motiongfx_video_is_beat_synced_looping_and_vertical(motiongfx_render):
+    import subprocess, re
+    from shortsmaker.video import ffmpeg_exe
+    M, r, d, _ = motiongfx_render
+    info = subprocess.run([ffmpeg_exe(), "-i", r["video"]], capture_output=True, text=True).stderr
+    assert "540x960" in info and "30 fps" in info and "Audio: aac" in info and "Duration: 00:00:18.0" in info
+    assert M.BPM == 120 and abs(M.BEAT - 0.5) < 1e-9
+    for i in range(7):                                                                             # 장면 경계/전환은 박 위
+        assert abs(M.B(M.SCENE_BEATS * i) / M.BEAT - round(M.B(M.SCENE_BEATS * i) / M.BEAT)) < 1e-9
+    assert all(abs(e["t"] / (M.BEAT / 2) - round(e["t"] / (M.BEAT / 2))) < 1e-6 for e in r["schedule"])    # 큰 움직임/효과음은 8분음표 격자 위
+    assert r["loop_diff"] < 3.0                                                                    # 마지막 프레임 ≈ 첫 프레임 (루프)
+
+
+def test_motiongfx_music_kicks_land_on_beats(motiongfx_render):
+    import numpy as np
+    from shortsmaker.studio import audio
+    M, _, _, _ = motiongfx_render
+    bed = audio.music_bed(M.TOTAL, bpm=M.BPM, kick_gain=0.85, pad_gain=0.2)
+    rms = lambda t: float(np.sqrt(np.mean(bed[int(t * audio.SR):int((t + 0.06) * audio.SR)] ** 2)))
+    on = np.mean([rms(k * M.BEAT) for k in range(0, 30, 2)])
+    off = np.mean([rms(k * M.BEAT + M.BEAT / 2 + 0.1) for k in range(0, 30, 2)])
+    assert on > off * 4
+
+
+def test_motiongfx_every_movement_goes_through_easing():
+    import re
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "shortsmaker" / "studio" / "motiongfx.py").read_text(encoding="utf-8")
+    assert "lerp" not in src and "def tween" in src and "def track" in src                         # 선형 보간 함수가 없고 tween/track 만 쓴다
+    body = src[src.index("# ------------------------------------------------------------------ 장면"):]
+    assert not re.search(r"\b\w+\s*\+\s*\(\w+\s*-\s*\w+\)\s*\*\s*seg\(", body)                    # 'a + (b-a)*seg()' 같은 이징 없는 직접 보간 금지
+
+
+def test_motiongfx_never_invents_numbers_and_handles_busy_photos(tmp_path):
+    from product_fixtures import make_photos
+    from shortsmaker.studio import motiongfx as M
+    photos = make_photos("kitchen_tumbler", tmp_path, 3)
+    M._TEXT.clear()
+    M.rec = M.Rec()
+    c = M.Ctx(photos[0], "텀블러", ["원터치 뚜껑", "슬림형"], None, None, "자세한 정보는 링크에서")          # 가격/할인 입력 없음
+    M.s4_numbers(c, B_end := M.B(5))
+    keys = [k[0] for k in M._TEXT]
+    assert "2가지" in keys and not any(k.endswith("원") or k.endswith("%") for k in keys)             # 입력한 특징 수만 센다
+    busy = M.Ctx(photos[2], "텀블러", ["원터치 뚜껑"], 9900, None, "자세한 정보는 링크에서")             # 배경이 복잡한 사진도 사진 카드로 안전하게
+    for t in (0.5, 4.0, 9.5, 13.0, 16.5):
+        im = M.frame_at(busy, t)
+        assert im.size == (M.W, M.H)
+    from shortsmaker.cli import build_parser
+    a = build_parser().parse_args(["motiongfx", "p.jpg", "--name", "x", "--price", "9900"])
+    assert a.command == "motiongfx" and a.price == 9900 and a.discount is None

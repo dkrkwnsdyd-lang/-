@@ -96,6 +96,15 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--box", action="append", default=[], metavar="파일명=x0,y0,x1,y1",
                     help="복잡한 배경 사진의 제품 위치(0~1). 예: 정면.jpg=0.14,0.33,0.94,0.75 (확대 컷 허용)")
 
+    mg = sub.add_parser("motiongfx", help="모션그래픽 21기법 영상 (상품 사진 1장 → 18초 루프 모션그래픽 MP4 + 기법 표)")
+    mg.add_argument("photo", help="상품 사진 (배경이 단순하면 배경을 지워 쓰고, 아니면 사진 카드로 사용)")
+    mg.add_argument("--name", required=True)
+    mg.add_argument("--features", default="", help="핵심 특징 최대 3개, 쉼표 구분 (사실만)")
+    mg.add_argument("--price", type=int, default=None, help="가격(원). 입력했을 때만 카운트업에 표시")
+    mg.add_argument("--discount", type=int, default=None, help="할인율(%). 입력했을 때만 표시 (없으면 지어내지 않음)")
+    mg.add_argument("--cta", default="자세한 정보는 링크에서")
+    mg.add_argument("--out", default="output/motiongfx.mp4")
+
     cp = sub.add_parser("coupang-check", help="쿠팡 파트너스 API 연결 점검 (키 값은 출력하지 않음)")
     cs = sub.add_parser("coupang-search", help="쿠팡 파트너스 API 상품 검색 (정보만, 이미지 없음)")
     cs.add_argument("keyword")
@@ -216,6 +225,15 @@ def _run(args, cfg) -> int:
         return 0
     if args.command == "studio":
         return _studio(args)
+    if args.command == "motiongfx":
+        from .studio import motiongfx
+        r = motiongfx.render(args.photo, args.out, name=args.name, features=_split(args.features, ","), price=args.price, discount=args.discount, cta=args.cta,
+                             progress_cb=lambda p: print(f"  렌더 {p * 100:3.0f}%", end="\r", flush=True))
+        md = motiongfx.table_markdown(r["techniques"])
+        Path(args.out).with_suffix(".techniques.md").write_text("# 장면별 사용 기법\n\n" + md + "\n", encoding="utf-8")
+        print(f"\n{r['video']}  {r['seconds']:.0f}초 {r['bpm']}BPM  루프 차이 {r['loop_diff']}/255")
+        print(md)
+        return 0
     if args.command == "coupang-check":
         from .studio import coupang
         r = coupang.check()
