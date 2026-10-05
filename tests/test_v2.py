@@ -3039,3 +3039,65 @@ def test_daily_api_form_fields_and_ui_selector(tmp_path):
     r = c.post("/api/v2/jobs", data={"name": "텀블러", "content_type": "DAILY", "daily_notes": "출근길\n\n퇴근 후", "preview": "1", "mode": "FAST", "video_style": "FAST_COMMERCE"},
                files=[("photos", ("a.jpg", open(ph, "rb"), "image/jpeg"))])
     assert r.status_code in (200, 202) and r.json().get("job_id")
+
+
+# ------------------------------------------------------------------ 상품 없는 일상 쇼츠 (VLOG)
+def test_vlog_script_maps_notes_to_media_in_order_without_sales_or_invention():
+    from shortsmaker.studio import daily
+    from shortsmaker.studio.product import ProductInput
+    from shortsmaker.studio.strategy import make_ctx
+    p = ProductInput.from_dict({"name": "", "content_type": "VLOG", "daily_notes": ["나무 터널 길", "자전거 옆 라이더", "스케이트보드 강아지"]})
+    ctx = make_ctx(p, "UGC_REVIEW", "PRO")
+    d = daily.vlog_data(p, ctx, 2, 1)
+    assert [b["beat"] for b in d["beats"]] == ["hook", "reveal", "demo", "cta"]                       # 자료 3개 = 장면 3개 + 마무리
+    assert [b["tts_line"] for b in d["beats"]] == ["나무 터널 길", "자전거 옆 라이더", "스케이트보드 강아지", "오늘은 여기까지"]
+    text = " ".join(b["tts_line"] + b["caption"] for b in d["beats"])
+    assert not re.search(r"링크|정보|구매|할인|후기|써봤|%|꼭", text)                                  # 판매/링크 안내/경험 주장 없음
+    few = daily.vlog_data(p, ctx, 1, 0)                                                              # 자료 1개여도 최소 2장면
+    assert [b["beat"] for b in few["beats"]] == ["hook", "reveal", "cta"]
+    none = daily.vlog_data(ProductInput.from_dict({"name": "", "content_type": "VLOG"}), ctx, 2, 1)   # 메모 없으면 중립 문구만
+    assert [b["tts_line"] for b in none["beats"][:3]] == ["오늘의 한 장면", "이어지는 장면", "그 순간"] and none["beats"][-1]["tts_line"] == "오늘은 여기까지"
+    many = daily.vlog_data(ProductInput.from_dict({"name": "", "daily_notes": [f"장면{i}" for i in range(4)]}), ctx, 1, 1)
+    assert [b["tts_line"] for b in many["beats"][:2]] == ["장면0", "장면1"]
+    s = daily.vlog_summary(p, d, 2, True)
+    assert any("AI 생성" in w for w in s["warnings"]) and any("워터마크" in w for w in s["warnings"])  # AI 자료 표시 안내, 워터마크는 지우지 않음
+
+
+def test_vlog_layouts_never_use_product_centric_layouts():
+    from shortsmaker.studio.storyboard import layouts as L
+    from types import SimpleNamespace as NS
+    mk = lambda t: NS(scene_type=t, visual_source={"path": "a.jpg"}, decisions={}, emphasis=[], main_caption="x", secondary_source="", layout="", layout_data={})
+    scenes = [mk("HOOK"), mk("PRODUCT_REVEAL"), mk("DEMO"), mk("CTA")]
+    L.select_layouts(scenes, L.LayoutContext(photos=[{"path": "a.jpg", "focus": True}], cutout_ok={"a.jpg"}, zoomable={"a.jpg"}, features=["a", "b", "c"], clip_paths=["v.mp4"], content_type="VLOG"))
+    got = [s.layout for s in scenes]
+    assert set(got) <= {"full_product", "lifestyle", "demo", "split_screen", "text_focus"}, got       # 카드/떠 있는 상품/콜아웃/혜택/CTA 카드 없음
+    assert all(a != b for a, b in zip(got, got[1:]))
+
+
+def test_vlog_pipeline_places_media_in_upload_order_with_no_ai_and_no_product_rules(tmp_path, monkeypatch):
+    from shortsmaker.studio.pipeline import run_job
+    monkeypatch.chdir(tmp_path)
+    v = _highlight_video(tmp_path / "walk.mp4", seconds=8)
+    base = _preview_base(tmp_path)
+    db = DB(tmp_path / "v.db")
+    r = run_job({**base, "name": "", "features": [], "problem": "", "content_type": "VLOG", "daily_notes": ["첫 장면", "둘째 장면", "셋째 장면", "넷째 장면"], "videos": [v], "preview": True},
+                "PRO", ["youtube"], out_root=tmp_path / "o", db=db, render=(270, 480, 10), router=_Offline(db=db, job_id="vl"))
+    assert r["status"] == "PREVIEW_READY", r.get("error")
+    sc = r["storyboard"]["scenes"]
+    assert r["daily"]["content_type"] == "VLOG" and r["daily"]["pattern"] == "DAILY_MOMENT" and "strategy" not in r
+    assert [s["narration"] for s in sc][:4] == ["첫 장면", "둘째 장면", "셋째 장면", "넷째 장면"] and sc[-1]["narration"] == "오늘은 여기까지"        # 메모가 장면 순서대로
+    kinds = [s["visual_source"].get("kind") for s in sc]
+    n_photos = len(base["photos"])
+    assert kinds[:n_photos] == ["user_photo"] * n_photos and kinds[n_photos] == "user_video" and kinds[-1] == "user_photo"                   # 사진 먼저, 영상은 그 다음 장면, 마무리는 사진
+    assert kinds.count("user_video") == 1 and not any(s["ai"] for s in sc) and all(s["source_type"] != "AI_PRODUCT_UGC" for s in sc)      # AI 영상 없음
+    assert not {"floating_product", "result", "cta", "three_benefits", "product_center", "feature_callout"} & {s["layout"] for s in sc}
+    assert r["storyboard"]["style"] == "UGC_REVIEW"
+    assert any("판매용 점수" in w for w in r["warnings"])
+
+
+def test_vlog_ui_and_api_accept_content_type(tmp_path):
+    from fastapi.testclient import TestClient
+    from shortsmaker.web.app import create_app
+    c = TestClient(create_app({}, tmp_path / "o", tmp_path / "u"))
+    html = c.get("/").text
+    assert 'value="VLOG"' in html and "상품 없는 일상" in html

@@ -62,7 +62,8 @@ def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str]
                      mode: str = "PRO", cutout_ok=None, post_layout=None, pattern_guide: dict | None = None) -> Storyboard:
     facts = grounding.allowed_facts(product, vision)
     warnings: list[str] = []
-    director = SceneDirector(identity, product, facts, clip_paths)
+    vlog = getattr(product, "content_type", "PRODUCT") == "VLOG"
+    director = SceneDirector(identity, product, facts, [] if vlog else clip_paths)       # 상품 없는 일상: 영상은 업로드 순서대로 따로 배치 (판매용 사용 장면 우선 규칙을 쓰지 않음)
     scenes = [director.from_legacy(sc, i) for i, sc in enumerate(plan.scenes)]
     total = sum(s.duration for s in scenes)
     cls, rng = duration_class(total)
