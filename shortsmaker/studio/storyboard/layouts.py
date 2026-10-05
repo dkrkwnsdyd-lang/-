@@ -59,6 +59,8 @@ class LayoutContext:
 
 
 def availability(layout: str, scene, ctx: LayoutContext) -> tuple[bool, str]:
+    if ctx.content_type == "VLOG" and layout not in ("full_product", "lifestyle", "demo", "split_screen", "text_focus"):
+        return False, "상품 없는 일상에서는 상품 중심 레이아웃을 쓰지 않음"
     path = scene.visual_source.get("path")
     t = scene.scene_type
     if layout == "before_after":
@@ -72,6 +74,8 @@ def availability(layout: str, scene, ctx: LayoutContext) -> tuple[bool, str]:
     if layout == "demo":
         return bool(ctx.clip_paths), "실제 시연 영상이 없어서 사용 불가 (정지 사진을 '시연'이라고 표시하지 않음)"
     if layout == "lifestyle":
+        if ctx.content_type == "VLOG":
+            return True, ""                                   # 일상 사진 자체가 장면
         return bool(ctx.clip_paths or ctx.usage_path), "사용 장면(영상/사용 사진)이 없어서 사용 불가"
     if layout == "close_up":
         return path in ctx.zoomable, "확대할 수 없는 사진 (해상도 부족/제품 위치 미상)"
@@ -92,7 +96,15 @@ DAILY_ADJUST = {"lifestyle": 3.0, "demo": 2.0, "full_product": 2.0, "close_up": 
 DAILY_EXTRA = {"HOOK": {"lifestyle": 7}, "PRODUCT_REVEAL": {"lifestyle": 8}, "FEATURE": {"lifestyle": 6}}      # 일상 모드에서만 추가로 허용되는 조합
 
 
+# 상품 없는 일상(VLOG): 상품 중심 레이아웃(카드/떠 있는 상품/콜아웃/혜택/CTA 카드 등)은 쓰지 않고 사진/영상을 꽉 채우는 구성 위주
+VLOG_FIT = {"HOOK": {"full_product": 9, "lifestyle": 8, "text_focus": 3}, "PRODUCT_REVEAL": {"full_product": 8, "lifestyle": 8, "split_screen": 4},
+            "FEATURE": {"lifestyle": 8, "full_product": 7, "split_screen": 5}, "DEMO": {"demo": 9, "lifestyle": 8, "full_product": 6},
+            "BENEFIT": {"lifestyle": 8, "full_product": 7}, "CTA": {"full_product": 7, "lifestyle": 7}}
+
+
 def fit(layout: str, scene, ctx: LayoutContext) -> float:
+    if ctx.content_type == "VLOG":
+        return VLOG_FIT.get(scene.scene_type, {}).get(layout, 0)
     base = FITNESS.get(scene.scene_type, {}).get(layout, 0)
     if ctx.content_type == "DAILY" and not base:
         base = DAILY_EXTRA.get(scene.scene_type, {}).get(layout, 0)

@@ -491,7 +491,9 @@ def direct_scenes(plan_data: dict, identity: ProductIdentity, p: ProductInput, m
         beats = beats[:max_scenes - 1] + [beats[-1]]
 
     daily_pool = None
-    if getattr(p, "content_type", "PRODUCT") == "DAILY":        # 일상(배경 있는) 사진을 먼저, 부족하면 나머지 사진을 섞어 같은 사진이 반복되지 않게
+    if getattr(p, "content_type", "PRODUCT") == "VLOG":          # 상품 없는 일상: 올린 사진을 순서대로 돌려 쓴다
+        daily_pool = [ph["path"] for ph in identity.photos] or None
+    elif getattr(p, "content_type", "PRODUCT") == "DAILY":        # 일상(배경 있는) 사진을 먼저, 부족하면 나머지 사진을 섞어 같은 사진이 반복되지 않게
         life = [ph["path"] for ph in identity.photos if ph.get("background") == "busy"]
         daily_pool = (life + [ph["path"] for ph in identity.photos if ph["path"] not in life]) if life else None
     scenes: list[Scene] = []

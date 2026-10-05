@@ -225,8 +225,11 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
     router.db, router.job_id = db, job_id
     job = Job(db, job_id, progress_cb)
     p = ProductInput.from_dict(inputs)
-    if p.content_type == "DAILY":                  # 일상 속 상품은 자연스러운 UGC 스타일(컷/음악)을 쓴다
+    if p.content_type in ("DAILY", "VLOG"):        # 일상 유형은 자연스러운 UGC 스타일(컷/음악)을 쓴다
         p.video_style = "UGC_REVIEW"
+    if p.content_type == "VLOG":                   # 상품 없는 일상: 사진 보정/제품 중심 처리는 하지 않고 원본 그대로
+        p.enhance = False
+        p.name = p.name.strip() or "일상 한 컷"
     db.create_job(job_id, mode, p.name, inputs)
     db.update_job(job_id, "RUNNING")
     result: dict = {"job_id": job_id, "mode": mode, "status": "RUNNING"}
@@ -383,6 +386,12 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 p.director_data = daily_mod.director_data(p, ctx_d)
                 result["daily"] = daily_mod.summary(p, p.director_data, identity, bool(video_paths))
                 result.setdefault("warnings", []).extend(result["daily"]["warnings"])
+            if p.content_type == "VLOG" and not p.director_data:
+                from . import daily as daily_mod
+                ctx_v = strategy_mod.make_ctx(p, "UGC_REVIEW", mode, identity, result.get("vision"), has_clip=bool(video_paths))
+                p.director_data = daily_mod.vlog_data(p, ctx_v)
+                result["daily"] = daily_mod.vlog_summary(p, p.director_data, len(identity.photos), bool(video_paths))
+                result.setdefault("warnings", []).extend(result["daily"]["warnings"])
             pattern_guide = None
             if p.reference_patterns:      # REFERENCE_VIDEO_ENGINE: 라이브러리 패턴(들)을 섞어 현재 상품용 연출 가이드로 (내용 복사 없음, 구조만)
                 from .reference_engine import build_guide, library as ref_lib, mix as ref_mix
@@ -511,7 +520,7 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
         label = "광고" if p.affiliate != "NONE" else ""
 
         # 7 EDIT -> RENDER -> FINAL QA (repair loop) ---------------------------
-        max_final = 0 if mode == "FAST" else core["retry"]["MAX_FINAL_RETRY"]
+        max_final = 0 if (mode == "FAST" or p.content_type == "VLOG") else core["retry"]["MAX_FINAL_RETRY"]     # 일상 쇼츠는 상품 점수로 자동 수정하지 않는다
         history = []
         profiles = adapter.profiles()
         for version in range(1, max_final + 2):
@@ -528,7 +537,7 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 ref_photo = identity.photos[0]["path"] if identity.photos else None
                 sb = build_storyboard(plan, identity, p, result.get("vision"), clip_paths, style=p.video_style, mode=mode, cutout_ok=cutout_ok, pattern_guide=pattern_guide,
                                       post_layout=lambda scs: presenter_mod.plan_production(
-                                          scs, ctx=sctx, actor_mode=actor_mode, cost_mode=cost_mode, style=p.video_style, infos=use_infos, router=router,
+                                          scs, ctx=sctx, actor_mode=actor_mode, cost_mode=cost_mode, style=p.video_style, infos=use_infos, router=(None if p.content_type == "VLOG" else router),
                                           work_dir=out_dir / "real", reference_image=ref_photo))
                 sb.production["budget"] = budget_info
                 if sb.production.get("reference"):
@@ -672,6 +681,8 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
         result["exports"] = exports
         renderer.close_clips()
         result["status"] = qa["verdict"]      # COMPLETE | QUALITY_FAIL | NEEDS_REVIEW (Vision 평가 없음)
+        if p.content_type == "VLOG":          # 상품 기준 판정(Product Accuracy 등)은 일상 쇼츠에 해당 없음 → 사람이 확인하는 상태로
+            result["status"] = "NEEDS_REVIEW"
         result["cost"] = db.job_cost(job_id)
         result["router_trace"] = router.trace
         result["log"] = job.log

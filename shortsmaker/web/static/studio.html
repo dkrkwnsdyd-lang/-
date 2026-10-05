@@ -172,9 +172,10 @@
 
 
     <label class="f">콘텐츠 유형</label>
-    <div class="seg grid" id="ctypeSeg" style="grid-template-columns:1fr 1fr">
+    <div class="seg grid" id="ctypeSeg" style="grid-template-columns:1fr 1fr 1fr">
       <label><input type="radio" name="ctype" value="PRODUCT" checked><span>상품 쇼츠<small>상품을 중심으로 파는 쇼츠</small></span></label>
       <label><input type="radio" name="ctype" value="DAILY"><span>일상 속 상품<small>일상 장면에 상품이 자연스럽게</small></span></label>
+      <label><input type="radio" name="ctype" value="VLOG"><span>상품 없는 일상<small>사진·영상을 짧은 이야기로 (판매 없음)</small></span></label>
     </div>
     <div id="dailyBox" style="display:none">
       <label class="f" for="dailyNotes">일상 장면 메모 (선택 · 한 줄에 하나)</label>
@@ -409,7 +410,7 @@ function drawVideos() {
   });
 }
 $("vidBtn").onclick = () => $("vid").click();
-document.querySelectorAll("input[name=ctype]").forEach(r => r.onchange = () => { $("dailyBox").style.display = document.querySelector("input[name=ctype]:checked").value === "DAILY" ? "block" : "none"; });
+document.querySelectorAll("input[name=ctype]").forEach(r => r.onchange = () => { $("dailyBox").style.display = ["DAILY", "VLOG"].includes(document.querySelector("input[name=ctype]:checked").value) ? "block" : "none"; });
 $("highlightOn").onchange = () => { $("hlRow").style.display = $("highlightOn").checked ? "flex" : "none"; if (!$("highlightOn").checked) $("hlOut").innerHTML = ""; };
 $("hlPreview").onclick = async () => {
   if (!videos.length) { $("hlOut").innerHTML = '<p class="note warn">먼저 영상을 추가하세요</p>'; return; }
@@ -503,7 +504,7 @@ $("go").onclick = async () => {
   if ($("highlightOn").checked) fd.append("highlight_mode", "1");
   const ctype = document.querySelector("input[name=ctype]:checked").value;
   fd.append("content_type", ctype);
-  if (ctype === "DAILY") fd.append("daily_notes", $("dailyNotes").value);
+  if (ctype !== "PRODUCT") fd.append("daily_notes", $("dailyNotes").value);
   fd.append("actor_mode", document.querySelector("input[name=actor]:checked").value);
   fd.append("cost_mode", $("costMode").value);
   fd.append("monthly_budget", $("monthlyBudget").value || "");
