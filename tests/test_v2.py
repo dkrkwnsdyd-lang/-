@@ -40,7 +40,8 @@ def test_brain_sections_load():
         assert brain.system(name)
     for pf in ["youtube", "instagram", "tiktok", "threads", "korea", "common"]:
         assert brain.policy(pf)
-    assert len(brain.system("story_patterns")["patterns"]) == 10
+    pats = brain.system("story_patterns")["patterns"]
+    assert len(pats) == 11 and "DAILY_MOMENT" in pats and pats["DAILY_MOMENT"]["beats"][0] == "hook" and pats["DAILY_MOMENT"]["beats"][-1] == "cta"     # 10개 판매 패턴 + 일상 패턴
 
 
 def test_learned_knowledge_rejects_unverified(tmp_path):
