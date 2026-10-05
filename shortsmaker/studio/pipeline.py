@@ -229,6 +229,7 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
         p.video_style = "UGC_REVIEW"
     if p.content_type == "VLOG":                   # 상품 없는 일상: 사진 보정/제품 중심 처리는 하지 않고 원본 그대로
         p.enhance = False
+        p.actor_mode = "REAL_UGC"                  # 올린 사진/영상만 사용 (AI 영상 없음, 비용 0)
         p.name = p.name.strip() or "일상 한 컷"
     db.create_job(job_id, mode, p.name, inputs)
     db.update_job(job_id, "RUNNING")
@@ -389,7 +390,7 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
             if p.content_type == "VLOG" and not p.director_data:
                 from . import daily as daily_mod
                 ctx_v = strategy_mod.make_ctx(p, "UGC_REVIEW", mode, identity, result.get("vision"), has_clip=bool(video_paths))
-                p.director_data = daily_mod.vlog_data(p, ctx_v)
+                p.director_data = daily_mod.vlog_data(p, ctx_v, len(identity.photos), len(video_paths))
                 result["daily"] = daily_mod.vlog_summary(p, p.director_data, len(identity.photos), bool(video_paths))
                 result.setdefault("warnings", []).extend(result["daily"]["warnings"])
             pattern_guide = None
@@ -538,6 +539,7 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 sb = build_storyboard(plan, identity, p, result.get("vision"), clip_paths, style=p.video_style, mode=mode, cutout_ok=cutout_ok, pattern_guide=pattern_guide,
                                       post_layout=lambda scs: presenter_mod.plan_production(
                                           scs, ctx=sctx, actor_mode=actor_mode, cost_mode=cost_mode, style=p.video_style, infos=use_infos, router=(None if p.content_type == "VLOG" else router),
+                                          vlog_photos=(len(identity.photos) if p.content_type == "VLOG" else None),
                                           work_dir=out_dir / "real", reference_image=ref_photo))
                 sb.production["budget"] = budget_info
                 if sb.production.get("reference"):
@@ -588,7 +590,7 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                     if p.polish:                      # SNS 마감 (선택·기본 OFF): 컷 안에 시청 유지용 펀치 줌 + 진행 막대. 내용/길이는 그대로
                         from . import polish as polish_mod
                         result["polish"] = polish_mod.apply(edl, sb.style)
-            clip_report = clips_mod.assign(edl["shots"], plan.scenes, use_infos) if not p.legacy_render else clips_mod.assign(edl["shots"], plan.scenes, clip_infos)
+            clip_report = [] if p.content_type == "VLOG" else (clips_mod.assign(edl["shots"], plan.scenes, use_infos) if not p.legacy_render else clips_mod.assign(edl["shots"], plan.scenes, clip_infos))
             if video_paths:
                 result["clips"] = {"provided": len(video_paths), "usable": len(clip_infos), "used": (sb.production.get("real_scenes") or []) + clip_report}
             if p.preview:

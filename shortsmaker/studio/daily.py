@@ -97,26 +97,28 @@ def _emph_last(text: str) -> str:
     return text if not w else " ".join(w[:-1] + [f"[[{w[-1]}]]"])
 
 
-def vlog_data(p, ctx) -> dict:
-    """상품 없는 일상 쇼츠 대본: 장면 한 줄씩 (사용자 메모 그대로) + 가벼운 마무리. 판매/링크 안내/상품 주장 없음.
-    메모가 없으면 구체적 상황을 지어내지 않는 중립 문구만 쓴다."""
+def vlog_data(p, ctx, n_photos: int = 2, n_videos: int = 0) -> dict:
+    """상품 없는 일상 쇼츠 대본: 올린 자료 한 개 = 장면 하나 (사진 먼저, 영상은 그 다음 순서), 메모는 같은 순서의 장면 문구로 그대로 쓰고 마지막은 가벼운 마무리.
+    판매/링크 안내/상품 주장 없음. 메모가 없으면 구체적 상황을 지어내지 않는 중립 문구만 쓴다."""
     notes = notes_of(p)
     take = clean_sentence(getattr(p, "my_take", "") or "")
-    neutral = ["오늘의 한 장면", "이어지는 장면", "그 순간", "조금 더 가까이"]
-    texts = [notes[i] if i < len(notes) else neutral[i] for i in range(4)]
-    texts.append(take or "오늘의 하루")
+    k = max(2, min(5, n_photos + n_videos))                 # 자료 수만큼 장면 (2~5개) + 마무리 1개
+    names = ["hook", "reveal", "demo", "detail", "benefit"][:k] + ["cta"]
+    neutral = ["오늘의 한 장면", "이어지는 장면", "그 순간", "조금 더 가까이", "오늘의 하루"]
+    texts = [notes[i] if i < len(notes) else neutral[i] for i in range(k)]
+    if take:
+        texts[-1] = take                                      # 직접 써본 느낌은 사용자가 줬을 때만 마지막 장면 문구로
     texts.append("오늘은 여기까지")
-    names = ["hook", "reveal", "demo", "detail", "benefit", "cta"]
     fixed, beats = [], []
     for i, (name, t) in enumerate(zip(names, texts)):
-        fallback = neutral[i] if i < 4 else ("오늘의 하루" if name == "benefit" else "오늘은 여기까지")
+        fallback = neutral[i] if i < k else "오늘은 여기까지"
         tts, cap, replaced = _safe(ctx, t, _emph_last(t), (fallback, _emph_last(fallback)))
         if replaced:
             fixed.append(name)
         beats.append({"beat": name, "story_role": name, "tts_line": tts, "caption": cap, "feature": None})
     return {"angles": [], "best_angle": "design", "story_pattern": PATTERN, "hook_candidates": [{"type": "daily_moment", "text": beats[0]["tts_line"], "caption": beats[0]["caption"]}],
             "beats": beats, "tension": "", "payoff": "", "_director": "vlog_moment_v1",
-            "_grounding": {"final": "vlog_moment", "notes_used": notes, "lines_replaced_for_safety": fixed}}
+            "_grounding": {"final": "vlog_moment", "notes_used": notes[:k], "lines_replaced_for_safety": fixed, "media": {"photos": n_photos, "videos": n_videos}}}
 
 
 def vlog_summary(p, data: dict, n_photos: int, has_clip: bool) -> dict:
@@ -124,5 +126,7 @@ def vlog_summary(p, data: dict, n_photos: int, has_clip: bool) -> dict:
                 "AI로 만든 사진/영상이 섞여 있다면 업로드할 때 플랫폼의 'AI 생성·합성 콘텐츠' 표시를 켜세요 (영상에 박힌 워터마크는 지우지 않아요)"]
     if not notes_of(p):
         warnings.append("장면 메모가 없어 '오늘의 한 장면' 같은 중립 문구로 만들었어요. 장면마다 한 줄씩 적으면 자막에 그대로 쓰여요")
-    return {"content_type": "VLOG", "pattern": PATTERN, "notes_used": notes_of(p), "photos": n_photos, "has_video": has_clip,
+    if len(notes_of(p)) > data["_grounding"]["media"]["photos"] + data["_grounding"]["media"]["videos"]:
+        warnings.append("메모가 자료 수보다 많아 앞에서부터 자료 수만큼만 썼어요 (올린 순서대로 N번째 자료 = N번째 메모)")
+    return {"content_type": "VLOG", "pattern": PATTERN, "notes_used": data["_grounding"]["notes_used"], "photos": n_photos, "has_video": has_clip,
             "lines_replaced_for_safety": data["_grounding"]["lines_replaced_for_safety"], "warnings": warnings}

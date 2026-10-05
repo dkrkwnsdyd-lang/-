@@ -103,6 +103,35 @@ def place(scenes: list, infos: list[dict], router=None, work_dir: Path | None = 
     return report
 
 
+def place_sequence(scenes: list, infos: list[dict], n_photos: int) -> list[dict]:
+    """상품 없는 일상(VLOG): 올린 순서대로 N번째 자료 = N번째 장면. 사진이 앞 장면(0..n_photos-1), 영상은 그 다음 장면에 차례로 배치.
+    장면 종류/제품 노출 같은 판매용 규칙은 쓰지 않고, 영상 안에서는 가장 좋은 구간(하이라이트 신호가 있으면 반영)만 고른다."""
+    used: dict[int, list[tuple[float, float]]] = {i["index"]: [] for i in infos}
+    report = []
+    for j, info in enumerate(infos):
+        idx = n_photos + j
+        if idx >= len(scenes) - 1:                       # 마지막(마무리) 장면은 사진 유지
+            break
+        sc = scenes[idx]
+        ws = candidate_windows_avoid(info, max(1.4, sc.duration), used[info["index"]], n=1, beat="demo")
+        if not ws:
+            continue
+        w = ws[0]
+        used[info["index"]].append((w["start"], w["start"] + w["dur"]))
+        sc.source_type = "REAL_UGC"
+        sc.layout = "lifestyle"
+        sc.visual_source = {"kind": "user_video", "path": info["path"], "tier": 1, "clip_start": w["start"], "clip_aspect": info["aspect"], "window_dur": w["dur"], "tag": {},
+                            "reason": "올린 순서대로 N번째 자료 = N번째 장면", "fallback_path": sc.visual_source.get("fallback_path") or sc.visual_source.get("path")}
+        sc.duration = round(min(sc.duration, w["dur"]), 2) if w["dur"] >= 1.2 else sc.duration
+        sc.ai = {}
+        entry = {"scene_id": sc.scene_id, "scene_type": sc.scene_type, "clip": Path(info["path"]).name, "start": w["start"], "dur": w["dur"], "score": w["score"], "tag": "", "action": None}
+        if info.get("sig"):
+            from .. import highlights
+            entry["reasons"] = highlights.explain(info, w["start"], w["dur"], "demo")
+        report.append(entry)
+    return report
+
+
 def candidate_windows_avoid(info: dict, dur: float, avoid: list, n: int = 2, beat: str | None = None) -> list[dict]:
     out, used = [], list(avoid)
     for _ in range(n):

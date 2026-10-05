@@ -72,7 +72,7 @@ def _candidates(actor_mode: str, ctx, scenes: list, style: str, cost_mode: str, 
 
 
 def plan_production(scenes: list, *, ctx, actor_mode: str, cost_mode: str, style: str, infos: list[dict], router=None,
-                    work_dir=None, reference_image: str | None = None) -> dict:
+                    work_dir=None, reference_image: str | None = None, vlog_photos: int | None = None) -> dict:
     """장면에 source_type 을 정한다. REAL_UGC 는 바로 배치(비용 0), AI 는 PLANNED 로 표시만 (호출 없음). 요약 dict 반환."""
     notes: list[str] = []
     actor_mode = actor_mode if actor_mode in ACTOR_MODES else "AUTO"
@@ -84,6 +84,11 @@ def plan_production(scenes: list, *, ctx, actor_mode: str, cost_mode: str, style
     summary = {"actor_mode": actor_mode, "cost_mode": cost_eff, "requested_cost_mode": cost_mode, "ai_seconds_cap": cap, "real_scenes": [], "ai_scenes": [],
                "notes": notes}
     real_report: list[dict] = []
+    if vlog_photos is not None:                       # 상품 없는 일상: 올린 순서대로 배치, AI 영상/상품 전용 연출 없음
+        real_report = real_mod.place_sequence(scenes, infos, vlog_photos)
+        summary["real_scenes"] = real_report
+        summary["ai_seconds"] = 0.0
+        return summary
     if uses_real_clips(actor_mode):
         real_report = real_mod.place(scenes, infos, router, work_dir)
         summary["real_scenes"] = real_report
