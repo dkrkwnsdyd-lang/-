@@ -40,6 +40,8 @@ class ProductInput:
     reference_patterns: list[str] = field(default_factory=list)   # Pattern Library id (REFERENCE_VIDEO_ENGINE): 구조만 적용, 내용 복사 없음
     reference_picks: dict | None = None                           # 영역별 수동 선택 {"hook": id, "story": id, "tempo": id, "cta": id} (없으면 AUTO MIX)
     ugc_session: str = ""             # UGC Reference Mode 세션 id (선택). 있으면 그 스토리보드/프롬프트 패키지로 대본·장면을 구성하고 기존 렌더/Preview 를 그대로 쓴다
+    content_type: str = "PRODUCT"     # PRODUCT(상품 쇼츠) | DAILY(일상 속 상품: 일상 장면에 상품이 자연스럽게 나오는 쇼츠, 판매 전략 엔진 대신 일상 구성)
+    daily_notes: list[str] = field(default_factory=list)   # 일상 장면 메모(장소/시간대, 사용자가 직접 입력한 것만 사용)
     highlight: bool = False           # 하이라이트 구간 자동 선택(동작/소리/제품·사용 신호, 선택·기본 OFF)
     polish: bool = False              # SNS 마감(시청 유지 리듬/진행 막대/실측 리포트, 선택·기본 OFF)
     flow3: bool = False               # 3-Scene Flow Mode (선택, 기본 OFF): AI_PRODUCT_UGC 장면에 Scene 1~3 프롬프트 적용

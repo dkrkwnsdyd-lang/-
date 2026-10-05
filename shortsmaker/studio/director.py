@@ -459,8 +459,10 @@ def _pick_shot(beat: str, prev: str | None, index: int) -> str:
     return options[0]
 
 
-def _ref_for(beat: str, shot: str, identity: ProductIdentity, index: int) -> str | None:
+def _ref_for(beat: str, shot: str, identity: ProductIdentity, index: int, pool: list[str] | None = None) -> str | None:
     photos = [ph["path"] for ph in identity.photos]
+    if pool and beat in ("hook", "reveal", "demo", "detail", "benefit"):     # 일상 속 상품: 일상(배경이 있는) 사진을 돌려 쓴다
+        return pool[index % len(pool)]
     if shot in ("macro", "detail_pan"):
         return identity.detail_reference or identity.front_reference
     if beat in ("benefit",) and identity.usage_reference:
@@ -488,6 +490,10 @@ def direct_scenes(plan_data: dict, identity: ProductIdentity, p: ProductInput, m
     if len(beats) > max_scenes:
         beats = beats[:max_scenes - 1] + [beats[-1]]
 
+    daily_pool = None
+    if getattr(p, "content_type", "PRODUCT") == "DAILY":        # 일상(배경 있는) 사진을 먼저, 부족하면 나머지 사진을 섞어 같은 사진이 반복되지 않게
+        life = [ph["path"] for ph in identity.photos if ph.get("background") == "busy"]
+        daily_pool = (life + [ph["path"] for ph in identity.photos if ph["path"] not in life]) if life else None
     scenes: list[Scene] = []
     feature_photos = getattr(p, "feature_photos", {}) or {}   # pipeline 이 저장된 사진 경로로 변환해 둔 값
     prev_shot = None
@@ -500,7 +506,7 @@ def direct_scenes(plan_data: dict, identity: ProductIdentity, p: ProductInput, m
         hinted = b.get("shot")
         shot = hinted if hinted in brain.system("camera_patterns")["shots"] and hinted != prev_shot \
             else _pick_shot(beat, prev_shot, i)
-        ref = _ref_for(beat, shot, identity, i)
+        ref = _ref_for(beat, shot, identity, i, daily_pool)
         locked = False
         linked = _linked_photo(b, feature_photos)
         if linked:

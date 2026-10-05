@@ -52,6 +52,7 @@ class LayoutContext:
     review_quotes: list[str] = field(default_factory=list)  # 사용자가 준 실제 후기 문구
     before_after: tuple[str, str] | None = None             # (before 사진, after 사진)
     comparison: list[dict] | None = None                    # [{"label","ours","other"}] 사용자가 준 비교 데이터
+    content_type: str = "PRODUCT"                           # DAILY 면 일상 장면(lifestyle/demo/전면) 위주로 고른다
 
     def box_known(self, path: str | None) -> bool:
         return any(p["path"] == path and p.get("focus") for p in self.photos)
@@ -85,8 +86,23 @@ def availability(layout: str, scene, ctx: LayoutContext) -> tuple[bool, str]:
     return True, ""
 
 
+# 일상 속 상품: 광택 있는 상품 히어로(떠 있는 상품/결과 강조)보다 일상 장면 위주
+DAILY_ADJUST = {"lifestyle": 3.0, "demo": 2.0, "full_product": 2.0, "close_up": 1.0, "floating_product": -3.0, "result": -3.0, "product_center": -2.0,
+                "three_benefits": -2.0, "feature_callout": -1.0, "text_focus": -1.0}
+DAILY_EXTRA = {"HOOK": {"lifestyle": 7}, "PRODUCT_REVEAL": {"lifestyle": 8}, "FEATURE": {"lifestyle": 6}}      # 일상 모드에서만 추가로 허용되는 조합
+
+
+def fit(layout: str, scene, ctx: LayoutContext) -> float:
+    base = FITNESS.get(scene.scene_type, {}).get(layout, 0)
+    if ctx.content_type == "DAILY" and not base:
+        base = DAILY_EXTRA.get(scene.scene_type, {}).get(layout, 0)
+    return base
+
+
 def _score(layout: str, scene, prev: str | None, used: dict, ctx: LayoutContext, next_is_cta: bool) -> float:
-    base = FITNESS.get(scene.scene_type, {}).get(layout, 1.0)
+    base = fit(layout, scene, ctx) or 1.0
+    if ctx.content_type == "DAILY":
+        base += DAILY_ADJUST.get(layout, 0.0)
     s = base - 3.0 * used.get(layout, 0)
     if prev and FAMILY[layout] == FAMILY[prev]:
         s -= 2.0                                       # 같은 계열 연속 = 슬라이드쇼 느낌
@@ -130,7 +146,7 @@ def select_layouts(scenes: list, ctx: LayoutContext) -> None:
         cands = []
         for l in LAYOUTS:
             ok, _ = availability(l, sc, ctx)
-            if ok and l != prev and FITNESS.get(sc.scene_type, {}).get(l, 0) > 0:
+            if ok and l != prev and fit(l, sc, ctx) > 0:
                 cands.append((_score(l, sc, prev, used, ctx, nxt_cta), -((LAYOUTS.index(l) - i) % len(LAYOUTS)), l))
         if not cands:                                   # 안전망: 어떤 장면도 비지 않게
             cands = [(0.0, 0, "product_center" if prev != "product_center" else "text_focus")]
@@ -149,14 +165,15 @@ def select_layouts(scenes: list, ctx: LayoutContext) -> None:
 
 def _ensure_off_center(scenes: list, ctx: LayoutContext, used: dict) -> None:
     """상품이 항상 정중앙에만 있는 구성 금지: 4장면 이상이면 비중앙 레이아웃을 최소 1/3."""
+    off = OFF_CENTER | ({"lifestyle", "demo"} if ctx.content_type == "DAILY" else set())     # 일상 장면 사진은 자연스러운 구도라 비중앙으로 인정
     n = len(scenes)
     if n < 4:
         return
     need = math.ceil(n / 3)
-    have = sum(1 for s in scenes if s.layout in OFF_CENTER)
+    have = sum(1 for s in scenes if s.layout in off)
     if have >= need:
         return
-    swap_order = [i for i, s in enumerate(scenes) if s.scene_type not in ("HOOK", "CTA") and s.layout not in OFF_CENTER]
+    swap_order = [i for i, s in enumerate(scenes) if s.scene_type not in ("HOOK", "CTA") and s.layout not in off]
     for i in swap_order:
         if have >= need:
             break
@@ -164,7 +181,7 @@ def _ensure_off_center(scenes: list, ctx: LayoutContext, used: dict) -> None:
         prev = scenes[i - 1].layout if i else None
         nxt = scenes[i + 1].layout if i + 1 < n else None
         best = None
-        for l in OFF_CENTER:
+        for l in off:
             ok, _ = availability(l, sc, ctx)
             if ok and l not in (prev, nxt) and FITNESS.get(sc.scene_type, {}).get(l, 0) > 0:
                 sco = FITNESS[sc.scene_type][l] - 3.0 * used.get(l, 0)

@@ -54,7 +54,8 @@ def layout_context(identity, product, clip_paths, cutout_ok=None) -> layout_engi
         photos=list(identity.photos), usage_path=identity.usage_reference, clip_paths=list(clip_paths or []),
         cutout_ok=set(cutout_ok or ()), zoomable={ph["path"] for ph in identity.photos if zoomable(identity, ph["path"])},
         features=[f for f in product.features if f], review_quotes=list(getattr(product, "review_quotes", []) or []),
-        before_after=ba, comparison=(list(getattr(product, "comparison", []) or []) or None))
+        before_after=ba, comparison=(list(getattr(product, "comparison", []) or []) or None),
+        content_type=getattr(product, "content_type", "PRODUCT") or "PRODUCT")
 
 
 def build_storyboard(plan, identity, product, vision=None, clip_paths: list[str] | None = None, style: str = "STANDARD",

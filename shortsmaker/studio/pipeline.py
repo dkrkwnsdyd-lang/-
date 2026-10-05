@@ -225,6 +225,8 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
     router.db, router.job_id = db, job_id
     job = Job(db, job_id, progress_cb)
     p = ProductInput.from_dict(inputs)
+    if p.content_type == "DAILY":                  # 일상 속 상품은 자연스러운 UGC 스타일(컷/음악)을 쓴다
+        p.video_style = "UGC_REVIEW"
     db.create_job(job_id, mode, p.name, inputs)
     db.update_job(job_id, "RUNNING")
     result: dict = {"job_id": job_id, "mode": mode, "status": "RUNNING"}
@@ -374,6 +376,13 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                                                "adopted": [{"aspect": a["aspect"], "from": a["from"]} for a in (us["mixer"] or {}).get("adopted", [])]}
                 else:
                     result.setdefault("warnings", []).append("선택한 UGC 세션을 찾을 수 없어 기본 구성으로 만들었어요")
+            if p.content_type == "DAILY" and not p.director_data:      # 일상 속 상품(선택·기본 PRODUCT): 일상 구성 대본을 기존 대본 입력(director_data)으로 연결, 판매 전략 엔진은 건너뜀
+                from . import daily as daily_mod
+                p.video_style = "UGC_REVIEW"                          # 자연스러운 컷/부드러운 음악 (스타일 프로필 재사용)
+                ctx_d = strategy_mod.make_ctx(p, "UGC_REVIEW", mode, identity, result.get("vision"), has_clip=bool(video_paths))
+                p.director_data = daily_mod.director_data(p, ctx_d)
+                result["daily"] = daily_mod.summary(p, p.director_data, identity, bool(video_paths))
+                result.setdefault("warnings", []).extend(result["daily"]["warnings"])
             pattern_guide = None
             if p.reference_patterns:      # REFERENCE_VIDEO_ENGINE: 라이브러리 패턴(들)을 섞어 현재 상품용 연출 가이드로 (내용 복사 없음, 구조만)
                 from .reference_engine import build_guide, library as ref_lib, mix as ref_mix

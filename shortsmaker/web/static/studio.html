@@ -51,6 +51,7 @@
   .seg.grid { display:grid; grid-template-columns:1fr 1fr; gap:0; }
   .seg.grid label { border:1px solid var(--line); margin:-.5px; text-align:left; padding:10px 12px; }
   .seg.grid label:first-child { grid-column:1 / -1; }
+  #ctypeSeg label:first-child { grid-column:auto; }
   .seg.grid small { line-height:1.35; }
   .adv { margin-top:16px; border:1px solid var(--line); border-radius:14px; padding:2px 14px 12px; }
   .adv > summary { margin:0; padding:14px 0; font-weight:700; color:var(--text); list-style:none; }
@@ -168,6 +169,18 @@
     <p class="note" id="vidHint">💡 직접 찍은 <b>사용 장면 영상</b>(3~10초)을 넣으면 사진 대신 실제 움직임이 쓰여요. 가장 선명한 구간을 자동으로 고르고, <b>원본 소리는 쓰지 않아요</b>. 사진은 꼭 1장 이상 필요해요.</p>
     <p class="note warn" id="fewHint" style="display:none">⚠ 사진이 3장보다 적어요. 한 장으로는 같은 화면이 반복돼 품질이 낮아져요 (실측: 1장 61점, 2장 67점). <b>정면 · 옆 · 디테일 · 사용 장면</b> 3~4장이면 훨씬 좋아요.</p>
     <p class="note" id="boxHint" style="display:none">💡 사진을 누르면 <b>제품 위치</b>를 표시할 수 있어요. 배경이 복잡한 사진(야외·소품 많음)은 표시해야 확대 컷이 제품에 정확히 맞아요.</p>
+
+
+    <label class="f">콘텐츠 유형</label>
+    <div class="seg grid" id="ctypeSeg" style="grid-template-columns:1fr 1fr">
+      <label><input type="radio" name="ctype" value="PRODUCT" checked><span>상품 쇼츠<small>상품을 중심으로 파는 쇼츠</small></span></label>
+      <label><input type="radio" name="ctype" value="DAILY"><span>일상 속 상품<small>일상 장면에 상품이 자연스럽게</small></span></label>
+    </div>
+    <div id="dailyBox" style="display:none">
+      <label class="f" for="dailyNotes">일상 장면 메모 (선택 · 한 줄에 하나)</label>
+      <textarea id="dailyNotes" rows="3" placeholder="출근길 아침&#10;퇴근 후 거실&#10;주말 오후 책상"></textarea>
+      <p class="note">내가 찍은 <b>일상 사진·영상</b>을 올리면 그걸 중심으로 만들어요 (AI 영상 없음). 적은 장소/시간대만 자막에 쓰고, 없는 상황이나 후기는 지어내지 않아요. 판매 전략 점검 대신 일상 구성으로 만들고, 컷은 자연스러운 UGC 스타일이에요.</p>
+    </div>
 
     <details>
       <summary>상품 정보 입력 (선택 · 입력할수록 대본이 좋아져요)</summary>
@@ -396,6 +409,7 @@ function drawVideos() {
   });
 }
 $("vidBtn").onclick = () => $("vid").click();
+document.querySelectorAll("input[name=ctype]").forEach(r => r.onchange = () => { $("dailyBox").style.display = document.querySelector("input[name=ctype]:checked").value === "DAILY" ? "block" : "none"; });
 $("highlightOn").onchange = () => { $("hlRow").style.display = $("highlightOn").checked ? "flex" : "none"; if (!$("highlightOn").checked) $("hlOut").innerHTML = ""; };
 $("hlPreview").onclick = async () => {
   if (!videos.length) { $("hlOut").innerHTML = '<p class="note warn">먼저 영상을 추가하세요</p>'; return; }
@@ -487,6 +501,9 @@ $("go").onclick = async () => {
   if ($("flow3On").checked) fd.append("flow3_mode", "1");
   if ($("polishOn").checked) fd.append("polish_mode", "1");
   if ($("highlightOn").checked) fd.append("highlight_mode", "1");
+  const ctype = document.querySelector("input[name=ctype]:checked").value;
+  fd.append("content_type", ctype);
+  if (ctype === "DAILY") fd.append("daily_notes", $("dailyNotes").value);
   fd.append("actor_mode", document.querySelector("input[name=actor]:checked").value);
   fd.append("cost_mode", $("costMode").value);
   fd.append("monthly_budget", $("monthlyBudget").value || "");

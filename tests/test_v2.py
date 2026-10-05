@@ -2961,3 +2961,80 @@ def test_caption_auto_zone_moves_only_when_preferred_band_is_clearly_busier():
     r5 = renderer(lambda: called.append(1) or img(top_noise=True)); assert r5.auto_zone(s5, 0) == "top" and not called           # 영상 클립은 프레임을 건드리지 않고 그대로
     r1 = renderer(lambda: img(top_noise=True)); s6 = mk(); r1.auto_zone(s6, 0); n = []
     r1.frame = lambda *a: n.append(1) or img(); assert r1.auto_zone(s6, 0) == "bottom" and not n                                  # 한 컷은 한 번만 결정(캐시)
+
+
+# ------------------------------------------------------------------ 일상 속 상품 (콘텐츠 유형 DAILY)
+def _daily_ctx(**kw):
+    from shortsmaker.studio import daily
+    from shortsmaker.studio.product import ProductInput
+    from shortsmaker.studio.strategy import make_ctx
+    base = {"name": "보온보냉 스텐 텀블러", "features": ["원터치 뚜껑", "컵홀더에 쏙 들어가는 슬림형"], "problem": "", "target": "출퇴근 직장인", "daily_notes": ["출근길 아침", "퇴근 후 거실", "주말 오후 책상"], "content_type": "DAILY"}
+    base.update(kw)
+    p = ProductInput.from_dict(base)
+    return daily, p, make_ctx(p, "UGC_REVIEW", "PRO")
+
+
+def test_daily_script_uses_only_user_notes_and_never_invents_experience_or_claims():
+    daily, p, ctx = _daily_ctx()
+    d = daily.director_data(p, ctx)
+    assert d["story_pattern"] == "DAILY_MOMENT" and [b["beat"] for b in d["beats"]] == ["hook", "reveal", "demo", "detail", "benefit", "cta"]
+    text = " ".join(b["tts_line"] + " " + b["caption"] for b in d["beats"])
+    assert "출근길 아침" in d["beats"][0]["tts_line"] and "퇴근 후 거실" in d["beats"][1]["tts_line"] and "원터치 뚜껑" in d["beats"][2]["tts_line"]
+    assert not re.search(r"써봤|써 보니|직접 써|후기|리뷰|할인|판매량|품절|꼭 |대박|%", text)                  # 경험/후기/가격/상투구 없음
+    assert d["_grounding"]["notes_used"] == ["출근길 아침", "퇴근 후 거실", "주말 오후 책상"] and d["_grounding"]["lines_replaced_for_safety"] == []
+    d2 = daily.director_data(*_daily_ctx(daily_notes=[], target="")[1:])                                   # 메모/타깃 없음 → 상황을 지어내지 않는다
+    assert "출근" not in " ".join(b["tts_line"] for b in d2["beats"]) and d2["beats"][0]["tts_line"].endswith("하루의 한 장면")
+    d3 = daily.director_data(*_daily_ctx(my_take="책상 위에 올려두니 분위기가 달라졌어요")[1:])            # 직접 써본 느낌은 사용자가 줬을 때만 여운 문장으로
+    assert d3["beats"][4]["tts_line"] == "책상 위에 올려두니 분위기가 달라졌어요"
+    _, p4, c4 = _daily_ctx(daily_notes=["오늘 완판된 제품 후기 폭발"])                                      # 부적합한 메모는 안전 검사로 중립 문구 대체
+    d4 = daily.director_data(p4, c4)
+    assert d4["_grounding"]["lines_replaced_for_safety"] and "완판" not in " ".join(b["tts_line"] for b in d4["beats"])
+    assert daily.notes_of(type("P", (), {"daily_notes": ["a"] * 9 + ["b" * 40]})()) == ["a", "b" * 16] and len(daily.notes_of(type("P", (), {"daily_notes": [f"장면{i}" for i in range(9)]})())) == 4
+
+
+def test_daily_layouts_prefer_daily_scenes_while_product_type_is_unchanged():
+    from shortsmaker.studio.storyboard import layouts as L
+    from types import SimpleNamespace as NS
+    mk = lambda t: NS(scene_type=t, visual_source={"path": "a.jpg"}, decisions={}, emphasis=[], main_caption="x", secondary_source="", layout="", layout_data={})
+    scenes = lambda: [mk("HOOK"), mk("PRODUCT_REVEAL"), mk("DEMO"), mk("FEATURE"), mk("BENEFIT"), mk("CTA")]
+    base = dict(photos=[{"path": "a.jpg", "focus": True}], usage_path="u.jpg", clip_paths=[], cutout_ok={"a.jpg"}, zoomable={"a.jpg"}, features=["a", "b"])
+    s_p, s_d = scenes(), scenes()
+    L.select_layouts(s_p, L.LayoutContext(**base))
+    L.select_layouts(s_d, L.LayoutContext(**base, content_type="DAILY"))
+    p_layouts, d_layouts = [s.layout for s in s_p], [s.layout for s in s_d]
+    assert d_layouts.count("lifestyle") >= 2 and d_layouts.count("lifestyle") > p_layouts.count("lifestyle")        # 일상 장면 위주
+    assert not {"floating_product", "result"} & set(d_layouts[:-1])                                                  # 상품 히어로 연출은 줄임
+    assert all(a != b for a, b in zip(d_layouts, d_layouts[1:]))                                                      # 연속 반복 금지 규칙은 그대로
+    assert p_layouts == [s.layout for s in (lambda x: (L.select_layouts(x, L.LayoutContext(**base)), x)[1])(scenes())]  # 기본 유형은 결정적이고 DAILY 보정의 영향을 받지 않음
+
+
+def test_daily_pipeline_preview_uses_daily_story_notes_lifestyle_photos_and_skips_sales_strategy(tmp_path):
+    from shortsmaker.studio.pipeline import run_job
+    base = _preview_base(tmp_path)
+    off = run_job({**base, "preview": True}, "PRO", ["youtube"], out_root=tmp_path / "o0", db=DB(tmp_path / "a.db"), render=(270, 480, 10), router=_Offline(db=DB(tmp_path / "a.db"), job_id="d0"))
+    assert "daily" not in off and off["status"] == "PREVIEW_READY"                                     # 기본 유형: 기존 동작
+    r = run_job({**base, "preview": True, "content_type": "DAILY", "daily_notes": ["출근길 아침", "퇴근 후 거실"]}, "PRO", ["youtube"], out_root=tmp_path / "o1",
+                db=DB(tmp_path / "b.db"), render=(270, 480, 10), router=_Offline(db=DB(tmp_path / "b.db"), job_id="d1"))
+    assert r["status"] == "PREVIEW_READY", r.get("error")
+    assert r["daily"]["pattern"] == "DAILY_MOMENT" and r["daily"]["notes_used"] == ["출근길 아침", "퇴근 후 거실"] and "strategy" not in r      # 판매 전략 엔진은 건너뜀
+    assert r["plan"]["story_pattern"] == "DAILY_MOMENT" and r["director_data"]["_director"] == "daily_moment_v1"
+    caps = " ".join(s["main_caption"] + " " + s["narration"] for s in r["storyboard"]["scenes"])
+    assert "출근길 아침" in caps and "퇴근 후 거실" in caps
+    assert r["storyboard"]["style"] == "UGC_REVIEW"                                                    # 자연스러운 컷/음악 스타일
+    lifestyle = [ph["path"] for ph in r["identity"]["photos"] if ph.get("background") == "busy"] if r.get("identity") else []
+    assert isinstance(r["daily"]["lifestyle_photos"], int) and r["daily"]["has_video"] is False
+    if not r["daily"]["lifestyle_photos"]:
+        assert any("일상 장면 사진/영상이 없어" in w for w in r["warnings"])                              # 일상 소스가 없으면 솔직히 알림
+
+
+def test_daily_api_form_fields_and_ui_selector(tmp_path):
+    from fastapi.testclient import TestClient
+    from shortsmaker.web.app import create_app
+    c = TestClient(create_app({}, tmp_path / "o", tmp_path / "u"))
+    html = c.get("/").text
+    assert 'name="ctype"' in html and 'id="dailyNotes"' in html and 'content_type' in html
+    from product_fixtures import make_photos
+    ph = make_photos("kitchen_tumbler", tmp_path / "p", 1)[0]
+    r = c.post("/api/v2/jobs", data={"name": "텀블러", "content_type": "DAILY", "daily_notes": "출근길\n\n퇴근 후", "preview": "1", "mode": "FAST", "video_style": "FAST_COMMERCE"},
+               files=[("photos", ("a.jpg", open(ph, "rb"), "image/jpeg"))])
+    assert r.status_code in (200, 202) and r.json().get("job_id")
