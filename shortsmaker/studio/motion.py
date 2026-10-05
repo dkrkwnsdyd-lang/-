@@ -519,6 +519,43 @@ class MotionRenderer:
         self._sweep = None
         self._label_cache: dict[str, Image.Image] = {}
         self._clips: dict[tuple, "ClipReader"] = {}
+        self._zone: dict[int, str] = {}
+
+    ZONE_BANDS = {"top": (0.12, 0.30), "bottom": (0.62, 0.78)}      # QA(caption_band_busy)와 같은 자막 영역
+    ZONE_RATIO, ZONE_MIN_GAP = 1.35, 1.0                            # 선호 영역이 이만큼 이상 복잡할 때만 반대쪽으로 옮긴다
+
+    @staticmethod
+    def _band_busy(frame: Image.Image, zone: str) -> float:
+        g = np.asarray(frame.convert("L").resize((270, 480), Image.BILINEAR)).astype(np.float32)
+        gy, gx = np.gradient(g)
+        e = np.hypot(gx, gy)
+        a, b = MotionRenderer.ZONE_BANDS[zone]
+        return float(e[int(480 * a):int(480 * b)].mean())
+
+    def auto_zone(self, shot: Shot, index: int) -> str:
+        """자막 위치 자동 선택: 컷의 앞/중간/뒤 장면(자막 없이)에서 위·아래 자막 영역의 복잡도(엣지)를 재서,
+        선호 영역이 눈에 띄게 더 복잡하면(제품 윤곽/문양과 겹침) 반대쪽을 쓴다. 영상 클립/AI 영상 컷은 디코더를 건드리지 않으려고 건너뛴다."""
+        key = id(shot)
+        if key in self._zone:
+            return self._zone[key]
+        pref = shot.caption_zone if shot.caption_zone in self.ZONE_BANDS else "top"
+        zone = pref
+        is_video = shot.shot == "video_clip" or Path(str(shot.source)).suffix.lower() in {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".3gp"}
+        if shot.caption_words and not is_video:
+            from dataclasses import replace
+            probe = replace(shot, caption_words=[], label="", data={k: v for k, v in (shot.data or {}).items() if k != "progress"})
+            busy = {"top": [], "bottom": []}
+            for f in (0.25, 0.5, 0.8):
+                fr = self.frame(probe, f * shot.duration, index)
+                for z in busy:
+                    busy[z].append(self._band_busy(fr, z))
+            mean = {z: float(np.mean(v)) for z, v in busy.items()}
+            other = "bottom" if pref == "top" else "top"
+            if mean[pref] > mean[other] * self.ZONE_RATIO + self.ZONE_MIN_GAP:
+                zone = other
+        self._zone[key] = zone
+        shot.caption_zone = zone
+        return zone
 
     def _clip_frame(self, shot: Shot, t: float) -> Image.Image:
         from .clips import ClipReader
@@ -706,7 +743,7 @@ class MotionRenderer:
             if visible:
                 last = shot.caption_words[visible - 1]
                 pop = (t - last.start) / brain.system("caption_rules")["pop_seconds"]
-                res = self.captions.render(id(shot), shot.caption_words, visible, pop, shot.caption_zone)
+                res = self.captions.render(id(shot), shot.caption_words, visible, pop, self.auto_zone(shot, index))
                 if res:
                     layer, pos = res
                     frame = frame.copy()

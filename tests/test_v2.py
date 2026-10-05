@@ -2927,3 +2927,37 @@ def test_motiongfx_never_invents_numbers_and_handles_busy_photos(tmp_path):
     from shortsmaker.cli import build_parser
     a = build_parser().parse_args(["motiongfx", "p.jpg", "--name", "x", "--price", "9900"])
     assert a.command == "motiongfx" and a.price == 9900 and a.discount is None
+
+
+# ------------------------------------------------------------------ 자막 위치 자동 선택 (복잡한 영역 회피)
+def test_caption_auto_zone_moves_only_when_preferred_band_is_clearly_busier():
+    import numpy as np
+    from PIL import Image
+    from shortsmaker.studio import motion as M
+    from shortsmaker.studio.motion import Shot, CaptionWord
+
+    def renderer(frame_fn):
+        r = M.MotionRenderer.__new__(M.MotionRenderer)
+        r._zone = {}
+        r.frame = lambda shot, t, index: frame_fn()
+        return r
+
+    def img(top_noise=False, bottom_noise=False):
+        rng = np.random.default_rng(1)
+        a = np.full((480, 270, 3), 90, np.uint8)
+        if top_noise:
+            a[int(480 * .12):int(480 * .30)] = rng.integers(0, 255, (int(480 * .30) - int(480 * .12), 270, 3))
+        if bottom_noise:
+            a[int(480 * .62):int(480 * .78)] = rng.integers(0, 255, (int(480 * .78) - int(480 * .62), 270, 3))
+        return Image.fromarray(a)
+
+    mk = lambda **kw: Shot(scene_id="S", shot="hero_push", source="a.jpg", duration=3.0, caption_words=[CaptionWord("가나", 0.1)], **kw)
+    s1 = mk(); assert renderer(lambda: img(top_noise=True)).auto_zone(s1, 0) == "bottom" and s1.caption_zone == "bottom"        # 위가 어수선 → 아래로
+    s2 = mk(); assert renderer(lambda: img()).auto_zone(s2, 0) == "top"                                                         # 둘 다 조용하면 선호 유지
+    s3 = mk(); assert renderer(lambda: img(top_noise=True, bottom_noise=True)).auto_zone(s3, 0) == "top"                        # 둘 다 어수선하면 옮기지 않음
+    s4 = mk(caption_zone="bottom"); assert renderer(lambda: img(bottom_noise=True)).auto_zone(s4, 0) == "top"                   # 선호가 아래여도 같은 규칙
+    s5 = Shot(scene_id="S", shot="video_clip", source="u.mp4", duration=3.0, caption_words=[CaptionWord("가나", 0.1)])
+    called = []
+    r5 = renderer(lambda: called.append(1) or img(top_noise=True)); assert r5.auto_zone(s5, 0) == "top" and not called           # 영상 클립은 프레임을 건드리지 않고 그대로
+    r1 = renderer(lambda: img(top_noise=True)); s6 = mk(); r1.auto_zone(s6, 0); n = []
+    r1.frame = lambda *a: n.append(1) or img(); assert r1.auto_zone(s6, 0) == "bottom" and not n                                  # 한 컷은 한 번만 결정(캐시)
