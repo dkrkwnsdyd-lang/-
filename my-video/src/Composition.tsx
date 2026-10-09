@@ -1,4 +1,5 @@
-import { CalculateMetadataFunction, Composition } from "remotion";
+import { AbsoluteFill, CalculateMetadataFunction, Composition } from "remotion";
+import { FONT } from "./fonts";
 
 type Props = {};
 
@@ -21,5 +22,18 @@ export const MyComposition = () => {
 };
 
 export const MyComponent: React.FC<Props> = () => {
-  return null;
+  return (
+    <AbsoluteFill
+      style={{
+        backgroundColor: "white",
+        justifyContent: "center",
+        alignItems: "center",
+        fontFamily: FONT,
+        fontSize: 96,
+        fontWeight: 800,
+      }}
+    >
+      프리텐다드 폰트 테스트
+    </AbsoluteFill>
+  );
 };
