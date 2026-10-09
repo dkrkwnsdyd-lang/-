@@ -6,14 +6,14 @@
 
 - Remotion 프로젝트: `my-video/` (Remotion 4.0.534, React + TypeScript)
 - `my-video/src/index.ts`: `registerRoot` 진입점
-- `my-video/src/Root.tsx`: `<Composition>` 등록
-- `my-video/src/Scene.tsx`: 현재 장면 컴포넌트
+- `my-video/src/Root.tsx`: 예제마다 `<Composition>` 하나씩 등록 (id = 예제 이름)
+- `my-video/src/scenes/*.tsx`: 예제 하나당 파일 하나. 각 파일은 `export const Scene` 을 내보내고, Root 에서 `import {Scene as 이름}` 으로 가져온다
 - `my-video/src/font.ts`: Pretendard 폰트 로드, `FONT` 상수 export
 - `my-video/public/fonts/PretendardVariable.woff2`: 폰트 파일 (CDN 대신 로컬 파일 사용)
 
 ## 영상 제작 규칙
 
-- **폰트**: 항상 `import {FONT} from './font';` 를 쓰고 `fontFamily: FONT` 로 적용한다. Pretendard 가변 폰트라 `fontWeight` 45~920 모두 쓸 수 있다.
+- **폰트**: 항상 `import {FONT} from '../font';` 를 쓰고 `fontFamily: FONT` 로 적용한다. Pretendard 가변 폰트라 `fontWeight` 45~920 모두 쓸 수 있다.
 - **브랜드 표시**: 모든 예제 영상 오른쪽 아래에 `CONNECT AI LAB` 을 넣는다. 크기와 위치는 화면 너비에 비례하게 잡는다.
 
   ```tsx
@@ -42,11 +42,11 @@
 ```bash
 npx tsc --noEmit && npx eslint src        # 타입 검사와 lint
 npx remotion studio                         # 미리보기 (로컬 PC)
-npx remotion render Scene out/scene.mp4     # mp4 렌더
-npx remotion still Scene out/f90.png --frame=90   # 특정 프레임 이미지
+npx remotion render <id> out/<id>.mp4        # mp4 렌더 (id 예: Shapes, ProductAd)
+npx remotion still <id> out/f90.png --frame=90   # 특정 프레임 이미지
 ```
 
-**클라우드 세션(Claude Code on the web)에서 렌더할 때**: Remotion이 브라우저를 받는 주소(remotion.media)와 jsDelivr CDN이 막혀 있다. 미리 설치된 headless shell 을 지정한다.
+**클라우드 세션(Claude Code on the web)에서 렌더할 때**: Remotion이 브라우저를 받는 주소(remotion.media)와 jsDelivr CDN이 막혀 있다. 미리 설치된 headless shell 을 지정한다. 외부 이미지 주소(예: aicitybuilders.com)도 막혀 있으니, 확인용 렌더에는 임시 대체 이미지를 쓰고 커밋 전에 원래 코드로 되돌린다.
 
 ```bash
 --browser-executable=/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell

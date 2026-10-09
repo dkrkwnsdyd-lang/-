@@ -2,7 +2,7 @@
 import React from 'react';
 import {AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
 import {Arrow, Callout, Circle, Heart, Pie, Rect, Star, Triangle} from '@remotion/shapes';
-import {FONT} from './font';
+import {FONT} from '../font';
 
 const GOLD = '#FFC93C';
 
