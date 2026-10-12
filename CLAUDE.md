@@ -44,7 +44,10 @@ npx tsc --noEmit && npx eslint src        # 타입 검사와 lint
 npx remotion studio                         # 미리보기 (로컬 PC)
 npx remotion render <id> out/<id>.mp4        # mp4 렌더 (id 예: Shapes, ProductAd)
 npx remotion still <id> out/f90.png --frame=90   # 특정 프레임 이미지
+npx remotion render ShortsScript out/s.mp4 --props=대본.json   # 대본 JSON → 세로 숏츠
 ```
+
+`ShortsScript` 는 숏츠 분석기 대본 형식(`{title, scenes:[{time, narration, caption, visual, sfx, image?}], audio?}`)을 받는다. 길이는 각 장면 `time` 으로 자동 계산되고(읽을 수 없으면 장면당 4초), 예시는 `src/data/sampleScript.ts`.
 
 **클라우드 세션(Claude Code on the web)에서 렌더할 때**: Remotion이 브라우저를 받는 주소(remotion.media)와 jsDelivr CDN이 막혀 있다. 미리 설치된 headless shell 을 지정한다. 외부 이미지 주소(예: aicitybuilders.com)도 막혀 있으니, 확인용 렌더에는 임시 대체 이미지를 쓰고 커밋 전에 원래 코드로 되돌린다.
 
