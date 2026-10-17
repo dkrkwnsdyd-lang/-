@@ -95,6 +95,15 @@ if (extId) {
   await pp.goto(`chrome-extension://${extId}/popup/popup.html`);
   await pp.waitForTimeout(500);
   popup = {count: await pp.locator('#count').innerText(), first: await pp.locator('#saved li').first().innerText()};
+  // shortsmaker 서버 주소가 주어지면 팝업에서 보내기까지 확인
+  const server = process.argv[5];
+  if (server) {
+    await pp.fill('#serverUrl', server);
+    await pp.click('#send');
+    await pp.waitForFunction(() => /보냈어요|실패|없어요|권한/.test(document.querySelector('#sendStatus').textContent), null, {timeout: 10000});
+    popup.sendStatus = await pp.locator('#sendStatus').innerText();
+    popup.serverRows = await (await fetch(server + '/api/v2/trend-refs')).json();
+  }
   await pp.screenshot({path: path.join(outDir, 'popup.png'), fullPage: true});
 }
 

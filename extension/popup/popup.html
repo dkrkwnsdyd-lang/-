@@ -20,6 +20,17 @@
   </section>
 
   <section>
+    <h2>shortsmaker로 보내기</h2>
+    <label class="field">서버 주소 <input id="serverUrl" type="url" placeholder="http://127.0.0.1:8000"></label>
+    <label class="field">접속 암호 <input id="serverCode" type="password" placeholder="PC에서만 쓰면 비워 두세요" autocomplete="off"></label>
+    <div class="row">
+      <button id="send" class="primary">저장한 레퍼런스 보내기</button>
+      <a id="openTrends" href="#" target="_blank">shortsmaker에서 보기</a>
+    </div>
+    <p id="sendStatus" class="status"></p>
+  </section>
+
+  <section>
     <h2>지표 공식</h2>
     <ul class="formula">
       <li><b>성과배수</b> = 좋아요 ÷ 같은 목록의 좋아요 중앙값</li>
