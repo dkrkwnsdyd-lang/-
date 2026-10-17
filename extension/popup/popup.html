@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>레퍼런스 인사이트</h1>
+    <p>샤오홍슈 피드·검색 결과에서 배지와 오른쪽 패널로 보여 줍니다.</p>
+  </header>
+
+  <section>
+    <h2>저장한 레퍼런스 <span id="count">0</span>개</h2>
+    <ol id="saved"></ol>
+    <div class="row">
+      <button id="export" class="primary">CSV 내보내기</button>
+      <button id="clear">모두 지우기</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>지표 공식</h2>
+    <ul class="formula">
+      <li><b>성과배수</b> = 좋아요 ÷ 같은 목록의 좋아요 중앙값</li>
+      <li><b>반응점수</b>(0~100) = 성과배수 60점 (20배 만점) + 저장률 25점 (저장/좋아요 50% 만점) + 댓글률 15점 (댓글/좋아요 10% 만점). 모르는 항목은 절반 점수</li>
+      <li><b>시간당 좋아요</b> = 좋아요 ÷ 올린 뒤 지난 시간 (게시 시각을 알 때만)</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>등급 기준 <small>(배수 또는 점수 중 하나만 넘으면)</small></h2>
+    <table id="tiers"></table>
+    <div class="row">
+      <button id="saveTiers" class="primary">기준 저장</button>
+      <button id="resetTiers">기본값</button>
+    </div>
+  </section>
+
+  <footer>모든 계산과 저장은 이 브라우저 안에서만 합니다. · CONNECT AI LAB</footer>
+  <script src="../src/metrics.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

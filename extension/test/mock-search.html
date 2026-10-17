@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>小红书 - 测试用模拟页面</title>
+<style>
+  body{margin:0;font-family:sans-serif;background:#fff}
+  .feeds{display:grid;grid-template-columns:repeat(4,220px);gap:16px;padding:20px}
+  section.note-item{border-radius:12px;overflow:hidden;background:#fafafa}
+  .cover{display:block;height:260px;background:linear-gradient(135deg,#f7d6e0,#c9e4f6)}
+  .footer{padding:8px}
+  .title span{font-size:13px}
+  .author-wrapper{display:flex;justify-content:space-between;font-size:12px;color:#666;margin-top:6px}
+</style>
+<script>
+  // 서버가 HTML 에 넣어 주는 초기 상태 흉내 (첫 6개)
+  window.__INITIAL_STATE__ = {search: {feeds: {_value: FIRST_NOTES_PLACEHOLDER}}};
+</script>
+</head>
+<body>
+<div class="feeds" id="feeds"></div>
+<script>
+  const first = window.__INITIAL_STATE__.search.feeds._value;
+  const domOnly = DOM_ONLY_PLACEHOLDER; // 페이지 데이터 없이 화면 글자로만 보이는 카드
+  function card(id, title, author, likeText) {
+    const s = document.createElement('section');
+    s.className = 'note-item';
+    s.innerHTML = `<a class="cover" href="/search_result/${id}?xsec_token=tok_${id}"></a>
+      <div class="footer"><a class="title"><span></span></a>
+      <div class="author-wrapper"><a class="author"><span class="name"></span></a>
+      <span class="like-wrapper"><span class="count"></span></span></div></div>`;
+    s.querySelector('.title span').textContent = title;
+    s.querySelector('.name').textContent = author;
+    s.querySelector('.count').textContent = likeText;
+    return s;
+  }
+  const feeds = document.getElementById('feeds');
+  first.forEach((n) => feeds.appendChild(card(n.id, n.note_card.display_title, n.note_card.user.nickname, n.note_card.interact_info.liked_count)));
+  domOnly.forEach((n) => feeds.appendChild(card(n.id, n.title, n.author, n.likeText)));
+  // 스크롤하면 API 로 더 불러오는 것 흉내
+  setTimeout(async () => {
+    const r = await fetch('/api/sns/web/v1/search/notes', {method: 'POST', body: '{}', headers: {'content-type': 'application/json'}});
+    const j = await r.json();
+    j.data.items.forEach((it) => {
+      const c = it.note_card;
+      feeds.appendChild(card(it.id, c.display_title, c.user.nickname, c.interact_info.liked_count));
+    });
+  }, 800);
+</script>
+</body>
+</html>
