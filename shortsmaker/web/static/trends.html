@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>트렌드 레퍼런스 - Shorts Maker</title>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--ink:#111;--sub:#6b7280;--line:#e5e7eb;--gold:#FFC93C;--dark:#050914}
+  @media (prefers-color-scheme: dark){:root{--bg:#0b0f19;--card:#141a26;--ink:#f3f4f6;--sub:#9ca3af;--line:#232b3a}}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+  header{background:var(--dark);color:#fff;padding:14px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  header h1{margin:0;font-size:17px;color:var(--gold)}
+  header a{color:#fff;opacity:.8;font-size:13px}
+  main{max-width:960px;margin:0 auto;padding:16px}
+  .hint{color:var(--sub);font-size:13px;margin:0 0 12px}
+  .bar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+  select,button{font:inherit;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:5px 10px;cursor:pointer}
+  button.primary{background:var(--gold);color:var(--dark);border:0;font-weight:700}
+  .list{display:flex;flex-direction:column;gap:8px}
+  .item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;grid-template-columns:1fr auto;gap:4px 10px}
+  .item a{color:var(--ink);font-weight:600;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item .m{font-weight:800;text-align:right}
+  .item .meta{color:var(--sub);font-size:12px}
+  .item .act{display:flex;gap:6px;justify-content:flex-end}
+  .item .act button{padding:2px 8px;font-size:12px}
+  .tier{display:inline-block;border-radius:999px;padding:0 7px;font-size:11px;color:#fff;margin-right:6px}
+  .empty{color:var(--sub);padding:24px;text-align:center;background:var(--card);border-radius:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>트렌드 레퍼런스</h1>
+  <a href="/">스튜디오로</a>
+</header>
+<main>
+  <p class="hint">브라우저 확장 "레퍼런스 인사이트"에서 보낸 레퍼런스입니다. 링크와 공개 숫자만 저장되며, 영상·이미지·본문은 저장하지 않습니다.</p>
+  <div class="bar">
+    <select id="platform">
+      <option value="">전체 플랫폼</option>
+      <option value="xiaohongshu">샤오홍슈</option>
+      <option value="youtube">유튜브</option>
+      <option value="instagram">인스타그램</option>
+      <option value="tiktok">틱톡</option>
+      <option value="threads">쓰레드</option>
+    </select>
+    <span id="count" class="hint" style="margin:0"></span>
+    <span style="flex:1"></span>
+    <button id="csv" class="primary">CSV 내보내기</button>
+  </div>
+  <div id="list" class="list"></div>
+</main>
+<script>
+  const TIER_COLOR = {'폭발': '#7c3aed', '강력': '#ea580c', '우수': '#ca8a04', '보통': '#2563eb', '약함': '#6b7280'};
+  const PLATFORM_KO = {xiaohongshu: '샤오홍슈', youtube: '유튜브', instagram: '인스타그램', tiktok: '틱톡', threads: '쓰레드'};
+  const fmt = (n) => (n == null ? '—' : n >= 1e4 ? (n / 1e4).toFixed(1).replace(/\.0$/, '') + '만' : n.toLocaleString('ko-KR'));
+  let rows = [];
+
+  async function load() {
+    const p = document.getElementById('platform').value;
+    const r = await fetch('/api/v2/trend-refs' + (p ? '?platform=' + p : ''));
+    rows = r.ok ? await r.json() : [];
+    render();
+  }
+
+  function render() {
+    const list = document.getElementById('list');
+    list.replaceChildren();
+    document.getElementById('count').textContent = rows.length + '개';
+    if (!rows.length) {
+      const d = document.createElement('div');
+      d.className = 'empty';
+      d.textContent = '아직 받은 레퍼런스가 없어요. 확장 팝업의 "shortsmaker로 보내기"를 눌러 보세요.';
+      list.appendChild(d);
+      return;
+    }
+    rows.forEach((r) => {
+      const item = document.createElement('div');
+      item.className = 'item';
+      const title = document.createElement('div');
+      const tier = document.createElement('span');
+      tier.className = 'tier';
+      tier.style.background = TIER_COLOR[r.tier] || '#6b7280';
+      tier.textContent = r.tier || '-';
+      const a = document.createElement('a');
+      a.href = r.url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = r.title || r.source_id;
+      title.append(tier, a);
+      const m = document.createElement('div');
+      m.className = 'm';
+      m.textContent = r.mult != null ? r.mult.toFixed(1) + '배' : '—';
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = `${PLATFORM_KO[r.platform] || r.platform} · ${r.author || ''} · ❤ ${fmt(r.likes)} · ★ ${fmt(r.collects)} · 💬 ${fmt(r.comments)}` +
+        (r.score != null ? ` · 점수 ${r.score}` : '') + (r.context ? ` · ${r.context}` : '');
+      const act = document.createElement('div');
+      act.className = 'act';
+      const copy = document.createElement('button');
+      copy.textContent = '링크 복사';
+      copy.onclick = async () => {
+        await navigator.clipboard.writeText(r.url);
+        copy.textContent = '복사됨';
+      };
+      const del = document.createElement('button');
+      del.textContent = '삭제';
+      del.onclick = async () => {
+        if (!confirm('이 레퍼런스를 지울까요?')) return;
+        await fetch('/api/v2/trend-refs/' + encodeURIComponent(r.id), {method: 'DELETE'});
+        load();
+      };
+      act.append(copy, del);
+      item.append(title, m, meta, act);
+      list.appendChild(item);
+    });
+  }
+
+  document.getElementById('platform').onchange = load;
+  document.getElementById('csv').onclick = () => {
+    const head = ['플랫폼', '제목', '작성자', '좋아요', '저장', '댓글', '성과배수', '반응점수', '등급', '찾은 곳', '링크', '받은 시각'];
+    const esc = (v) => {
+      const s = v == null ? '' : String(v);
+      return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const body = rows.map((r) => [PLATFORM_KO[r.platform] || r.platform, r.title, r.author, r.likes, r.collects, r.comments, r.mult, r.score, r.tier, r.context, r.url, r.imported_at]);
+    const csv = '﻿' + [head, ...body].map((row) => row.map(esc).join(',')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv;charset=utf-8'}));
+    a.download = '트렌드_레퍼런스.csv';
+    a.click();
+  };
+  load();
+</script>
+</body>
+</html>

@@ -87,6 +87,9 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
     db = DB(Path(output_dir).resolve().parent / "data" / "shorts.db")
     live: dict[str, list[str]] = {}
 
+    from .trend_refs import register_trend_refs
+    register_trend_refs(app, db)      # 브라우저 확장이 보낸 트렌드 레퍼런스 (링크·공개 숫자만)
+
     def to_url(path: str | None) -> str | None:
         if not path:
             return None

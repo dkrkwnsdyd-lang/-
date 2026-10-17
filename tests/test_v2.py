@@ -115,16 +115,17 @@ def test_control_center_never_calls_paid_video(tmp_path):
 # ------------------------------------------------------------------ db
 def test_migration_up_down(tmp_path):
     db = DB(tmp_path / "x.db")
-    assert db.applied() == ["0001_v2_init", "0002_ai_generations", "0003_reference_patterns", "0004_ugc_reference"]
+    assert db.applied() == ["0001_v2_init", "0002_ai_generations", "0003_reference_patterns", "0004_ugc_reference", "0005_trend_refs"]
     db.create_job("j1", "PRO", "p", {})
-    assert db.rollback() == "0004_ugc_reference"                  # 가장 최근 것만 되돌린다 (기존 데이터는 그대로)
+    assert db.rollback() == "0005_trend_refs"                     # 가장 최근 것만 되돌린다 (기존 데이터는 그대로)
+    assert db.rollback() == "0004_ugc_reference"
     assert db.rollback() == "0003_reference_patterns"
     assert db.rollback() == "0002_ai_generations"
     assert db.applied() == ["0001_v2_init"] and db.job("j1")
     assert db.rollback() == "0001_v2_init"
     assert db.applied() == []
     db.migrate()
-    assert db.applied() == ["0001_v2_init", "0002_ai_generations", "0003_reference_patterns", "0004_ugc_reference"]
+    assert db.applied() == ["0001_v2_init", "0002_ai_generations", "0003_reference_patterns", "0004_ugc_reference", "0005_trend_refs"]
 
 
 # ------------------------------------------------------------------ director
