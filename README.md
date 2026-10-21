@@ -40,6 +40,24 @@ python -m shortsmaker studio 정면.jpg 옆.jpg 사용장면.jpg \
 - 웹 화면(드래그&드롭) 또는 명령줄 둘 다 지원
 - 결과물은 H.264/AAC mp4 → 4개 플랫폼 업로드 규격을 모두 만족
 
+## 🎨 MOSS-Image 배경/썸네일 스튜디오 (유료 호출 기본 OFF)
+
+상품 사진은 원본 그대로 유지하고, MOSS-Image-SFT가 생성한 배경에 사진 카드를 합성합니다. 웹 `/moss` 또는 CLI에서 이용할 수 있습니다.
+
+```bash
+python -m shortsmaker moss-image --from-job output/v2/작업ID/result.json
+```
+
+기본값은 **무료 기획만** 실행하며, 실제 API 생성은 `--generate --approve-paid`와 서버 `.env`의 `MOSS_API_KEY`가 있어야 가능합니다. 새 이미지는 기존 MP4 제작/게시에 자동 반영되지 않습니다. [설치·사용·Codex 검증 안내](MOSS_INTEGRATION.md)
+## 🎬 Hypit 영상 편집 연결 (선택)
+
+기존 V2 렌더러를 바꾸지 않고, SHOP SHORTS AI의 `result.json`에서 **Hypit Agent용 장면 계획·상품 고정 지시서**를 만듭니다. Hypit 영상 렌더와 유료 모델 호출은 자동 실행되지 않습니다.
+
+```bash
+python -m shortsmaker hypit-prepare output/v2/작업ID/result.json
+```
+
+생성된 `output/v2/작업ID/hypit/SHOP_SHORTS_HYPIT_BRIEF.md`를 Claude Code/Codex에서 열어 `/hypit`으로 후속 제작할 수 있습니다. 자세한 설치·라이선스·QA 주의사항: [HYPIT_INTEGRATION.md](HYPIT_INTEGRATION.md)
 ## 1. 설치
 
 Python 3.10 이상이 필요합니다. ffmpeg 는 `imageio-ffmpeg` 가 자동으로 받아오므로 따로 설치하지 않아도 됩니다.
