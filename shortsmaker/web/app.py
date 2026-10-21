@@ -97,6 +97,9 @@ def create_app(cfg: dict | None = None, output_dir: str | Path = "output",
     from .studio_api import register_studio
     register_studio(app, cfg, output_dir, upload_dir)
 
+    from .sales_story_api import register_sales_story
+    register_sales_story(app)
+
     from .moss_api import register_moss
     register_moss(app, output_dir)
 
