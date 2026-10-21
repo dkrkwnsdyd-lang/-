@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MOSS 이미지 스튜디오 | SHOP SHORTS AI</title>
+<style>
+:root{color-scheme:light dark;font-family:system-ui,"Malgun Gothic",sans-serif}
+body{margin:0;background:#11131a;color:#f4f5fa}
+main{max-width:750px;margin:auto;padding:20px 16px 50px}
+a{color:#92bdff}h1{font-size:25px;margin:14px 0}
+.card{background:#1d202b;border:1px solid #353946;border-radius:16px;margin:15px 0;padding:18px}
+label{display:block;font-size:14px;margin:14px 0 5px}
+input,textarea,select,button{font:inherit}
+input:not([type=checkbox]):not([type=file]),textarea,select{width:100%;box-sizing:border-box;padding:11px;border-radius:8px;background:#11131a;color:inherit;border:1px solid #565a68}
+input[type=file]{width:100%;margin:8px 0}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:550px){.row{grid-template-columns:1fr}}
+button{background:#555dff;color:white;border:0;border-radius:10px;padding:13px 17px;cursor:pointer}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.secondary{background:#414653}
+small,.note{color:#b7bccb;line-height:1.5}
+pre{overflow:auto;white-space:pre-wrap;word-break:break-all;background:#101118;padding:15px;border-radius:10px;font-size:12px;max-height:350px}
+img{max-width:100%;max-height:640px;border-radius:10px}
+#result{display:none}#busy{display:none}
+</style>
+</head>
+<body><main>
+<a href="/">← SHOP SHORTS AI 메인으로</a>
+<h1>🎨 MOSS-Image 광고 배경 스튜디오</h1>
+<p class="note">제품 사진을 AI로 다시 그리지 않습니다. MOSS는 <b>배경만</b> 생성하고, 실제 사진을 위에 놓습니다. 결과물은 게시 전 사람의 검수가 필요합니다.</p>
+<div class="card">
+  <form id="form">
+  <div class="row"><div>
+    <label for="product_name">상품명 (확인된 사실)</label>
+    <input id="product_name" name="product_name" maxlength="120" placeholder="접이식 핸드폰 거치대">
+  </div><div>
+    <label for="headline">썸네일 문구 (직접 입력)</label>
+    <input id="headline" name="headline" maxlength="90" placeholder="책상 정리, 이거 하나">
+  </div></div>
+  <label for="product_photo">상품 원본 사진 (선택, JPG·PNG·WEBP 20MB 이하)</label>
+  <input id="product_photo" type="file" name="product_photo" accept="image/jpeg,image/png,image/webp">
+  <div class="row">
+    <div><label for="style">배경 스타일</label>
+    <select name="style" id="style"><option value="lifestyle">거실 · 라이프스타일</option><option value="kitchen">주방</option><option value="tech">테크 · 스튜디오</option><option value="beauty">뷰티</option></select></div>
+    <div><label for="model">AI 모델</label>
+    <select name="model" id="model"><option value="moss-image-sft-1.0">MOSS-Image-SFT</option><option value="moss-image-base-1.0">MOSS-Image-Base</option></select></div>
+  </div>
+  <label for="scene">원하는 배경 분위기 (상품 성능 주장은 적지 마세요)</label>
+  <textarea name="scene" id="scene" rows="3" maxlength="1300" placeholder="햇살 드는 밝은 거실, 비어 있는 나무 테이블"></textarea>
+  <input type="hidden" name="size" value="720x1280">
+  <p class="note">9:16 이미지(720×1280). 기본 배경 기획은 무료입니다. 실제 이미지 API 생성은 요금이 발생할 수 있습니다.</p>
+  <button class="secondary" type="button" id="plan">무료 기획 확인</button>
+  <label><input type="checkbox" id="approval" name="approve_paid" value="true"> MOSI API 이미지 생성에 비용이 발생할 수 있음을 확인했고, 이번 1회 호출에 동의합니다.</label>
+  <button type="submit" id="generate">동의하고 이미지 1장 생성</button>
+  </form>
+  <p class="note" id="busy" role="status">이미지 생성 요청을 실행했습니다. 현재 요청 결과를 확인하고 있습니다.</p>
+  <p id="message" role="status" aria-live="polite"></p>
+</div>
+<div class="card" id="preview" style="display:none">
+<h2>생성 전 계획 (과금 없음)</h2><pre id="planContent"></pre></div>
+<div class="card" id="result"><h2>완료 · 검수 필요</h2><img id="image" alt="MOSS-Image 광고 이미지 결과"><p><a id="save" target="_blank" rel="noopener">결과 이미지 열기</a></p><p class="note">상품 일치 여부 · 자막 내용 · 제휴 고지 · 저작권 확인 후 사용하세요. 자동 게시하지 않습니다.</p></div>
+</main>
+<script>
+const $ = id => document.getElementById(id), form=$('form');
+function values(){const f=new FormData(form);return {scene:String(f.get('scene')||''),style:String(f.get('style')||''),model:String(f.get('model')||''),size:'720x1280',headline:String(f.get('headline')||''),product_name:String(f.get('product_name')||'')}}
+async function response(r){const t=await r.json();if(!r.ok)throw new Error(t.detail||'요청 실패');return t}
+$('plan').onclick=async()=>{try{$('message').textContent='';let j=await response(await fetch('/api/moss/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values())}));$('preview').style.display='block';$('planContent').textContent=JSON.stringify(j,null,2)}catch(e){$('message').textContent=e.message}};
+form.onsubmit=async e=>{e.preventDefault();if(!$('approval').checked){$('message').textContent='유료 API 호출 승인 체크가 필요합니다.';return}
+if(!confirm('MOSS API 이미지를 1회 생성합니다. 요금이 발생할 수 있습니다. 진행할까요?'))return;
+$('generate').disabled=true;$('busy').style.display='block';$('message').textContent='';
+try{let j=await response(await fetch('/api/moss/generate',{method:'POST',body:new FormData(form)}));$('image').src=j.cover+'?t='+Date.now();$('save').href=j.cover;$('result').style.display='block';$('message').textContent='이미지를 생성했습니다. 품질 및 권리 검수가 필요합니다.'}
+catch(err){$('message').textContent=err.message}
+finally{$('generate').disabled=false;$('busy').style.display='none'}};
+</script></body></html>
