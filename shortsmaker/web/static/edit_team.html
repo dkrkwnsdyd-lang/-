@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#141926">
+<title>영상 편집팀 | SHOP SHORTS AI</title>
+<style>
+:root{color-scheme:dark;--bg:#0d1320;--surface:#182236;--line:#2d3a51;--text:#f3f6ff;--muted:#9fb0cc;--accent:#799bff;--good:#55d8aa}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Malgun Gothic","Noto Sans KR",sans-serif}
+.shell{max-width:1080px;margin:auto;padding:20px 16px 50px}header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px}
+header strong{font-size:20px}a{color:#acc4ff}header a{font-size:13px;text-decoration:none}h1{font-size:28px;line-height:1.28;margin:0 0 8px}p{margin:0;color:var(--muted)}
+.hero{padding:10px 0 24px}.grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(280px,0.7fr);gap:16px}
+.card{border:1px solid var(--line);border-radius:16px;padding:20px;background:var(--surface);margin-bottom:14px}
+.card h2{font-size:17px;margin:0 0 16px}.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+label{display:block;margin:12px 0 5px;color:#c3d3f0;font-weight:600;font-size:13px}
+input[type=text],textarea,input[type=file]{display:block;width:100%;padding:11px;background:#111a2b;color:var(--text);border:1px solid #43516a;border-radius:9px;font:inherit}
+textarea{resize:vertical;min-height:60px}input[type=file]{font-size:12px}.note{font-size:12px;color:var(--muted);line-height:1.6}
+.scene{display:grid;grid-template-columns:74px 1fr;gap:10px;align-items:center;margin:10px 0}.scene label{margin:0}.scene small{display:block;font-size:11px;color:var(--muted)}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}
+button{min-height:48px;border-radius:10px;padding:9px 12px;border:1px solid #657697;color:#fff;background:#314363;font:inherit;font-weight:700;cursor:pointer}
+button.primary{border:0;background:linear-gradient(115deg,#577df3,#805bdd)}button:disabled{opacity:.45;cursor:not-allowed}
+#status{min-height:45px;color:#dce6ff;white-space:pre-wrap}.bar{height:9px;background:#2a3853;border-radius:20px;overflow:hidden;margin:14px 0}.bar>div{height:100%;width:0;background:var(--accent);transition:width .25s}
+video{width:100%;aspect-ratio:9/16;max-height:410px;background:#07090f;border-radius:10px;display:none;margin:12px 0}
+.download{display:none;text-align:center;background:#236653;color:#fff;padding:12px;border-radius:10px;text-decoration:none;font-weight:700}
+.step{padding:9px 0;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+.step b{color:#c7d6f4}.err{color:#ffb9af!important}
+@media(max-width:740px){.grid{grid-template-columns:1fr}.card{padding:16px}h1{font-size:23px}}
+</style>
+</head>
+<body><div class="shell">
+<header><strong>🎬 SHOP SHORTS AI 편집팀</strong><a href="/">← SHOP SHORTS AI 스튜디오</a></header>
+<div class="hero"><h1>사진 2장으로 20초 쇼츠 제작</h1><p>기존 앱의 FFmpeg 렌더러와 로그인 보호를 사용합니다. 원본 기능은 그대로 유지됩니다.</p></div>
+<div class="grid"><main>
+<div class="card"><h2>1. 제품과 사진</h2><form id="job-form">
+<div class="cols"><div><label for="photo1">제품 사진 1</label><input type="file" id="photo1" name="photo1" accept="image/jpeg,image/png,image/webp" required></div>
+<div><label for="photo2">제품 사진 2</label><input type="file" id="photo2" name="photo2" accept="image/jpeg,image/png,image/webp" required></div></div>
+<p class="note">각 15MB 이하 JPG, PNG, WebP만 가능합니다. 직접 사용할 권리가 있는 사진을 선택하세요.</p>
+<label for="product_name">상품명</label><input type="text" name="product_name" id="product_name" maxlength="45" required placeholder="예: 접이식 휴대폰 거치대">
+<h2 style="margin-top:26px">2. 장면별 멘트</h2><p class="note">각 4초, 총 5장면입니다. 빈칸에는 근거 없는 광고 주장을 피하는 중립 문구가 들어갑니다.</p>
+<div class="scene"><label for="hook">HOOK<small>0–4초</small></label><input type="text" name="hook" id="hook" maxlength="120" placeholder="3초 안에 시선을 끄는 첫 문장"></div>
+<div class="scene"><label for="problem">문제<small>4–8초</small></label><input type="text" name="problem" id="problem" maxlength="120" placeholder="사용자가 겪는 불편"></div>
+<div class="scene"><label for="solution">해결<small>8–12초</small></label><input type="text" name="solution" id="solution" maxlength="120" placeholder="확인된 제품 기능"></div>
+<div class="scene"><label for="proof">근거<small>12–16초</small></label><input type="text" name="proof" id="proof" maxlength="120" placeholder="사진·상세페이지에서 확인 가능한 사실"></div>
+<div class="scene"><label for="cta">CTA<small>16–20초</small></label><input type="text" name="cta" id="cta" maxlength="120" placeholder="설명란 링크 확인 유도"></div>
+<h2 style="margin-top:26px">3. 광고 고지 및 음성</h2>
+<label for="disclosure">제휴 광고 고지 (필수)</label><textarea name="disclosure" id="disclosure" maxlength="80" required>이 콘텐츠는 제휴활동으로 수수료를 제공받을 수 있습니다.</textarea>
+<label for="voice">음성 파일 (선택)</label><input type="file" name="voice" id="voice" accept="audio/*">
+<p class="note">WAV/MP3/M4A 등 30MB 이하 음성 파일을 합성합니다. 자동 TTS 생성이나 자동 게시 기능은 없습니다.</p>
+<div class="actions"><button class="primary" type="button" id="preview">▶ 영상 편집팀 발동</button><button type="button" id="final">1080p 최종 제작</button></div>
+</form></div>
+</main><aside>
+<div class="card"><h2>⚡ 진행 상태</h2><div class="step"><b>1</b> 사진 2장·5개 대본 확인</div><div class="step"><b>2</b> 4초씩 5장면 구성</div><div class="step"><b>3</b> 영상/자막/선택 음성 합성</div><div class="step"><b>4</b> 미리보기 및 MP4 저장</div>
+<div class="bar"><div id="progressbar"></div></div><div id="status" role="status" aria-live="polite">사진 2장을 선택해 주세요.</div>
+<video id="player" controls playsinline preload="metadata"></video>
+<a class="download" id="download" href="#">MP4 다운로드</a></div>
+<div class="card"><h2>📋 이번 버전</h2><p class="note">미리보기: 360×640 / 15fps<br>최종: 1080×1920 / 30fps<br>20초 영상 · 한글 자막 · 제휴고지 표시<br>기존 SHOP SHORTS AI와 같은 주소/로그인 사용</p>
+<p class="note" style="margin-top:14px">상품 분석·전략 엔진은 기존 스튜디오에서 이용하세요. 편집팀은 검수된 멘트를 입력받아 제작합니다.</p></div>
+</aside></div></div>
+<script>
+(()=>{const form=document.getElementById("job-form"),preview=document.getElementById("preview"),final=document.getElementById("final"),status=document.getElementById("status"),bar=document.getElementById("progressbar"),player=document.getElementById("player"),download=document.getElementById("download");
+let job=null,timer=null;function busy(v){preview.disabled=v;final.disabled=v}
+function showError(msg){status.className="err";status.textContent="⚠ "+msg;busy(false)}
+async function poll(){if(!job)return;try{const res=await fetch("/api/edit-team/jobs/"+job);const d=await res.json();if(!res.ok)throw Error(d.detail||"상태 조회 실패");status.className="";status.textContent=d.stage||d.status;bar.style.width=(d.progress||0)+"%";
+if(d.status==="completed"){clearInterval(timer);timer=null;busy(false);status.textContent="✅ 영상 생성 완료";player.style.display="block";player.src=d.download_url;download.style.display="block";download.href=d.download_url}
+else if(d.status==="failed"){clearInterval(timer);timer=null;showError(d.error||"영상 제작 실패")}}catch(e){if(timer)clearInterval(timer);timer=null;showError(e.message)}}
+async function submit(mode){if(!form.reportValidity())return;busy(true);job=null;player.style.display="none";player.removeAttribute("src");player.load();download.style.display="none";status.className="";status.textContent="편집 작업 등록 중";bar.style.width="5%";
+try{const data=new FormData(form);data.set("mode",mode);const r=await fetch("/api/edit-team/jobs",{method:"POST",body:data});const d=await r.json();if(!r.ok)throw Error(typeof d.detail==="string"?d.detail:"작업 등록 실패");job=d.id;status.textContent=d.stage||"대기 중";if(timer)clearInterval(timer);timer=setInterval(poll,1700);await poll()}catch(e){showError(e.message)}}
+preview.onclick=()=>submit("preview");final.onclick=()=>submit("final")})();
+</script></body></html>
