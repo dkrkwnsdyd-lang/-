@@ -101,6 +101,19 @@ def build_parser() -> argparse.ArgumentParser:
     hp.add_argument("--out", help="Hypit 준비 폴더 (기본 작업 폴더/hypit)")
     hp.add_argument("--no-copy", action="store_true", help="상품 사진 복사 없이 원래 경로 참조")
 
+    moss = sub.add_parser("moss-image", help="MOSS-Image 쇼츠 배경/커버 제작 (기본은 무료 기획만, 유료 호출은 승인 필요)")
+    moss.add_argument("--from-job", default="", help="기존 V2 result.json (제품 이름/원본 사진 활용)")
+    moss.add_argument("--name", default="", help="실제 상품명 (AI가 상품을 그리지 않음)")
+    moss.add_argument("--photo", default="", help="사용 권한이 있는 실제 상품 사진. 원본은 유지")
+    moss.add_argument("--headline", default="", help="썸네일 제목 (근거 있는 문구만)")
+    moss.add_argument("--scene", default="", help="광고 배경 분위기 설명")
+    moss.add_argument("--style", choices=["lifestyle", "kitchen", "tech", "beauty"], default="lifestyle")
+    moss.add_argument("--size", default="720x1280", help="16배수 해상도 (기본 9:16)")
+    moss.add_argument("--model", choices=["moss-image-sft-1.0", "moss-image-base-1.0"], default="moss-image-sft-1.0")
+    moss.add_argument("--out", default="output/moss", help="저장 디렉터리")
+    moss.add_argument("--generate", action="store_true", help="실제 MOSS API 요청 시작")
+    moss.add_argument("--approve-paid", action="store_true", help="유료 API 호출에 대한 명시적 승인")
+
     mg = sub.add_parser("motiongfx", help="모션그래픽 21기법 영상 (상품 사진 1장 → 18초 루프 모션그래픽 MP4 + 기법 표)")
     mg.add_argument("photo", help="상품 사진 (배경이 단순하면 배경을 지워 쓰고, 아니면 사진 카드로 사용)")
     mg.add_argument("--name", required=True)
@@ -228,6 +241,44 @@ def _run(args, cfg) -> int:
                         yt.get("token_file", "youtube_token.json"), interactive=True)
         print("YouTube 로그인 완료")
         return 0
+    if args.command == "moss-image":
+        import json
+        from .studio.moss_image import make_plan, plan_from_job, generate_background, compose_cover
+        if args.approve_paid and not args.generate:
+            raise ValueError("--approve-paid는 --generate와 함께 사용해야 합니다.")
+        if args.generate and not args.approve_paid:
+            raise ValueError("유료 호출은 --generate --approve-paid 두 옵션이 모두 필요합니다.")
+        if args.from_job:
+            custom = {"scene": args.scene, "style": args.style, "size": args.size, "model": args.model}
+            if args.headline:
+                custom["headline"] = args.headline
+            if args.name:
+                custom["product_name"] = args.name
+            plan, image = plan_from_job(args.from_job, **custom)
+        else:
+            plan = make_plan(args.scene, style=args.style, size=args.size,
+                             model=args.model, headline=args.headline, product_name=args.name)
+            image = None
+        if args.photo:
+            image = Path(args.photo)
+            if not image.is_file():
+                raise ValueError("원본 상품 사진을 찾을 수 없습니다.")
+        out = Path(args.out)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "moss-plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"MOSS 이미지 제작 계획 저장: {out / 'moss-plan.json'}")
+        if not args.generate:
+            print("기획 모드: API 호출·과금·이미지 생성 없음")
+            return 0
+        report = generate_background(plan, out / "background.png", approve_paid=True)
+        cover = compose_cover(report["file"], image, plan["headline"] or plan["product_name"], out / "cover.png")
+        (out / "moss-result.json").write_text(
+            json.dumps({**report, "cover": str(cover), "source_photo": str(image) if image else None,
+                        "qa": "NEEDS_REVIEW", "publishable": False}, ensure_ascii=False, indent=2),
+            encoding="utf-8")
+        print(f"커버 생성: {cover} (게시 전 제품/문구/권리 QA 필수)")
+        return 0
+
     if args.command == "hypit-prepare":
         from .hypit_bridge import prepare_hypit
         brief = prepare_hypit(args.result_json, args.out, copy_images=not args.no_copy)

@@ -97,6 +97,9 @@ def create_app(cfg: dict | None = None, output_dir: str | Path = "output",
     from .studio_api import register_studio
     register_studio(app, cfg, output_dir, upload_dir)
 
+    from .moss_api import register_moss
+    register_moss(app, output_dir)
+
     @app.get("/api/platforms")
     def platforms():
         return platform_status(cfg)
