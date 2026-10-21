@@ -97,6 +97,13 @@ def create_app(cfg: dict | None = None, output_dir: str | Path = "output",
     from .studio_api import register_studio
     register_studio(app, cfg, output_dir, upload_dir)
 
+    from .edit_team import register_edit_team
+    register_edit_team(app, output_dir)
+
+    @app.get("/edit-team")
+    def edit_team_page():
+        return FileResponse(STATIC / "edit_team.html")
+
     @app.get("/api/platforms")
     def platforms():
         return platform_status(cfg)
