@@ -96,6 +96,11 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--box", action="append", default=[], metavar="파일명=x0,y0,x1,y1",
                     help="복잡한 배경 사진의 제품 위치(0~1). 예: 정면.jpg=0.14,0.33,0.94,0.75 (확대 컷 허용)")
 
+    hp = sub.add_parser("hypit-prepare", help="완료한 SHOP SHORTS 작업을 Hypit Agent용 제작 폴더로 준비 (API 호출 없음)")
+    hp.add_argument("result_json", help="output/v2/<작업ID>/result.json")
+    hp.add_argument("--out", help="Hypit 준비 폴더 (기본 작업 폴더/hypit)")
+    hp.add_argument("--no-copy", action="store_true", help="상품 사진 복사 없이 원래 경로 참조")
+
     mg = sub.add_parser("motiongfx", help="모션그래픽 21기법 영상 (상품 사진 1장 → 18초 루프 모션그래픽 MP4 + 기법 표)")
     mg.add_argument("photo", help="상품 사진 (배경이 단순하면 배경을 지워 쓰고, 아니면 사진 카드로 사용)")
     mg.add_argument("--name", required=True)
@@ -222,6 +227,12 @@ def _run(args, cfg) -> int:
         get_credentials(yt.get("client_secrets_file", "client_secret.json"),
                         yt.get("token_file", "youtube_token.json"), interactive=True)
         print("YouTube 로그인 완료")
+        return 0
+    if args.command == "hypit-prepare":
+        from .hypit_bridge import prepare_hypit
+        brief = prepare_hypit(args.result_json, args.out, copy_images=not args.no_copy)
+        print(f"Hypit 준비 완료: {brief}")
+        print("Hypit 실행/영상 생성/유료 API 호출은 아직 하지 않았습니다.")
         return 0
     if args.command == "studio":
         return _studio(args)
