@@ -25,7 +25,7 @@ def test_plan_defaults_9_16_and_background_only():
     assert "접이식 거치대" not in payload["prompt"]  # do not hallucinate a replacement product
 
 
-@pytest.mark.parametrize("size", ["", "720x999", "768x2048", "1280x1920", "256x", "100x100"])
+@pytest.mark.parametrize("size", ["", "720x999", "1600x1600", "1280x1920", "256x", "100x100"])
 def test_rejects_unsupported_sizes(size):
     with pytest.raises(ValueError):
         validate_size(size)
