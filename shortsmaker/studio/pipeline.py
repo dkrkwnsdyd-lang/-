@@ -423,6 +423,19 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 data["_director"] = "local:rule_director_v1"
             plan = direct_scenes(data, identity, p, mode)
             plan_edits = preview_mod.apply_plan_edits(plan, p.edits)
+            if result.get("strategy"):
+                # Preview 편집 뒤에는 이전 Conversion Audit PASS 를 재사용하지 않는다.
+                from .strategy.preview_review import recheck_edited_plan, requires_recheck
+                if requires_recheck(plan_edits):
+                    with job.step("STRATEGY_RECHECK"):
+                        result["strategy"] = recheck_edited_plan(result["strategy"], plan, sctx)
+                review_gate = result["strategy"].get("gate") or {"passed": False, "failures": [
+                    {"code": "audit_unavailable", "detail": "검증 결과가 없습니다"}]}
+                critical = {"unproven_claim", "audit_unavailable", "audit_scene_mismatch"}
+                unsafe = any(f.get("code") in critical for f in review_gate.get("failures", []))
+                if not review_gate.get("passed") and not p.preview and (unsafe or not p.strategy_force):
+                    result["director_data"] = data
+                    raise StrategyBlocked(review_gate)
             if p.preview:
                 result["director_data"] = data
             result["plan"] = plan.to_dict()
