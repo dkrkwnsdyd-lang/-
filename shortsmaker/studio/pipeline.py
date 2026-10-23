@@ -429,6 +429,10 @@ def run_job(inputs: dict, mode: str = "PRO", platforms: list[str] | None = None,
                 if requires_recheck(plan_edits):
                     with job.step("STRATEGY_RECHECK"):
                         result["strategy"] = recheck_edited_plan(result["strategy"], plan, sctx)
+                    if p.preview and result["strategy"].get("preview_review", {}).get("status") == "RECHECKED":
+                        # 다음 [영상 제작]에서도 사용자 수정 대본이 사라지지 않도록
+                        # 인수인계 데이터에 재감사한 스크립트를 보존한다.
+                        data = strategy_mod.to_director_data(sctx, result["strategy"])
                 review_gate = result["strategy"].get("gate") or {"passed": False, "failures": [
                     {"code": "audit_unavailable", "detail": "검증 결과가 없습니다"}]}
                 critical = {"unproven_claim", "audit_unavailable", "audit_scene_mismatch"}
