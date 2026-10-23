@@ -54,3 +54,29 @@ def test_preview_review_unmappable_scene_fails_closed():
     assert revised["conversion_audit"]["status"] == "STALE"
     assert not revised["gate"]["passed"]
     assert revised["gate"]["failures"][0]["code"] == "audit_scene_mismatch"
+
+
+def test_actual_preview_to_render_blocks_unsupported_user_edits(tmp_path):
+    """Integration: API-compatible state reuse must not bypass the new gate."""
+    from product_fixtures import PRODUCTS, make_photos
+    from shortsmaker.db import DB
+    from shortsmaker.studio.pipeline import run_job
+
+    item = PRODUCTS["kitchen_tumbler"]
+    photos = make_photos("kitchen_tumbler", tmp_path / "images", 3)
+    base = {"name": item["name"], "features": item["features"], "problem": item["problem"],
+            "category_hint": "주방", "photos": photos, "video_style": "STORY_AD"}
+    db = DB(tmp_path / "data.sqlite")
+    preview = run_job({**base, "preview": True}, "FAST", ["youtube"],
+                      out_root=tmp_path / "out", db=db, render=(270, 480, 10))
+    assert preview["status"] == "PREVIEW_READY", preview.get("error")
+    hook_id = preview["storyboard"]["scenes"][0]["scene_id"]
+    edited = {"scenes": {hook_id: {"narration": "역대급 무조건 꼭 사세요 90% 할인"}}}
+
+    blocked = run_job({**base, "preview": False, "director_data": preview["director_data"],
+                       "strategy_state": preview["strategy"], "edits": edited},
+                      "FAST", ["youtube"], out_root=tmp_path / "out", db=db,
+                      render=(270, 480, 10))
+    assert blocked["status"] == "STRATEGY_BLOCKED", blocked.get("error")
+    assert blocked["blocked"]["gate"]["failures"]
+    assert not list((tmp_path / "out" / blocked["job_id"]).rglob("*.mp4"))
