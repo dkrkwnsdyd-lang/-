@@ -101,6 +101,7 @@ def prepare(task_path: Path) -> Path:
 
 def doctor() -> dict:
     return {
+        "state": "DIAGNOSTIC",
         "python": sys.version.split()[0],
         "claude": command_available("claude"),
         "codex": command_available("codex"),
@@ -127,7 +128,15 @@ def run(task_path: Path, *, execute: bool, approve_ai_cost: bool, phase: str) ->
         raise RuntimeError("Claude Code CLI is not installed or not in PATH")
     if phase in ("review", "all") and not command_available("codex"):
         raise RuntimeError("Codex CLI is not installed or not in PATH")
-    status["branch"] = ensure_clean_branch(task_path)
+    if phase == "review":
+        if not command_available("git"):
+            raise RuntimeError("Git is required")
+        current = git(["branch", "--show-current"])
+        if not current.startswith("ai-team/"):
+            raise RuntimeError("Read-only review must run on an ai-team feature branch")
+        status["branch"] = current
+    else:
+        status["branch"] = ensure_clean_branch(task_path)
     status["ai_called"] = True
     write_status(folder, status)
     phases = ("plan", "implement", "review") if phase == "all" else (phase,)
