@@ -235,7 +235,15 @@ def register_studio(app: FastAPI, cfg: dict, output_dir: Path, upload_dir: Path)
         if not res.get("director_data"):
             raise HTTPException(400, "미리보기 대본 정보를 찾을 수 없어요")
         state = res.get("strategy")
-        if not preview and state and not (state.get("gate") or {}).get("passed", True) and not force:
+        # 새 텍스트/순서 편집이 있으면 기존 점수로 사전 차단하지 않고,
+        # 실제 적용된 편집을 파이프라인에서 다시 감사하여 차단 여부를 결정한다.
+        e = req_edits if isinstance(req_edits, dict) else {}
+        scene_edits = e.get("scenes") if isinstance(e.get("scenes"), dict) else {}
+        may_change_script = bool(e.get("order")) or any(
+            isinstance(v, dict) and (v.get("drop") or "narration" in v or "caption" in v)
+            for v in scene_edits.values()
+        )
+        if not preview and state and not (state.get("gate") or {}).get("passed", True) and not force and not may_change_script:
             fails = "; ".join(f"{f['code']}({f['detail']})" for f in state["gate"]["failures"])
             raise HTTPException(409, f"Quality Gate 미통과: {fails}. 수정하거나 '그래도 제작'을 선택하세요.")
         new_id = uuid.uuid4().hex[:10]

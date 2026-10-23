@@ -18,3 +18,6 @@ data/
 *.aac
 *.ogg
 *.flac
+
+# Local AI planning, prompts, logs and reports: may contain private project data
+.ai-team/
