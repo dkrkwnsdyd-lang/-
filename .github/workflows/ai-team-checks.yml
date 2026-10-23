@@ -37,7 +37,7 @@ jobs:
         run: python -m compileall -q shortsmaker
       - name: Run offline regression smoke
         run: |
-          python -m pytest -q tests/test_sources.py tests/test_platforms.py tests/test_moss_image.py tests/test_hypit_bridge.py
+          python -m pytest -q tests/test_sources.py tests/test_platforms.py tests/test_moss_image.py tests/test_hypit_bridge.py tests/test_preview_review.py
 
   full-suite:
     name: Full local pytest (manual)
