@@ -361,6 +361,7 @@ def rule_director(p: ProductInput, mode: str) -> dict:
 def llm_director(router, p: ProductInput, identity: ProductIdentity, mode: str, vision: dict | None = None) -> dict:
     """SYSTEM RULES 와 JOB DATA 를 분리해서 LLM 에 넘긴다. 결과는 grounding 검증을 통과해야 쓴다."""
     from . import grounding
+    from .korean_style import KO_STYLE_RULES
     core = brain.system("core_rules")
     facts = grounding.allowed_facts(p, vision)
     base_system = "\n".join([
@@ -374,6 +375,7 @@ def llm_director(router, p: ProductInput, identity: ProductIdentity, mode: str, 
         "beat 는 hook, problem, reveal, demo, detail, benefit, cta 중에서. 제품을 0초에 무조건 노출하지 않는다.",
         "입력에 없는 판매량, 후기수, 순위, 효능, 인증, 특허, 수치는 절대 만들지 않는다.",
         grounding.RULES_FOR_WRITER,
+        KO_STYLE_RULES,
         'JSON 으로만 답한다: {"angles":[{"angle","score","evidence","reason"}],"best_angle","story_pattern",'
         '"hook_candidates":[{"type","text","caption"}],"beats":[{"beat","tts_line","caption","feature"}],"tension","payoff"} '
         "(demo/detail 의 feature 에는 그 장면이 보여주는 특징 문장을 입력 그대로 넣는다)",

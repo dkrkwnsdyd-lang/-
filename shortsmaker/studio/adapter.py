@@ -48,6 +48,7 @@ def platform_copy(plan, p, router=None, vision=None, with_report: bool = False):
 
 def _platform_copy(plan, p, router, vision):
     from . import grounding
+    from .korean_style import KO_STYLE_RULES
     disclosure = brain.policy("korea")["disclosure_rules"].get(p.affiliate) if p.affiliate != "NONE" else ""
     hook = strip_marks(plan.hook_candidates[0]["text"]) if plan.hook_candidates else p.name
     feats = [f for f in p.features[:3]]
@@ -58,7 +59,7 @@ def _platform_copy(plan, p, router, vision):
 
         def produce(feedback):
             system = ("한국어 쇼핑 쇼츠 게시 문구 작성. 플랫폼마다 말투/길이/해시태그 수가 달라야 하며 같은 문장을 반복하지 않는다. " + VOICE +
-                      "입력에 없는 판매량/후기수/순위/효능/인증은 쓰지 않는다. " + grounding.RULES_FOR_WRITER + " JSON: "
+                      "입력에 없는 판매량/후기수/순위/효능/인증은 쓰지 않는다. " + grounding.RULES_FOR_WRITER + " " + KO_STYLE_RULES + " JSON: "
                       '{"youtube":{"title","description"},"instagram":{"caption"},"tiktok":{"caption"},"threads":{"post"}}'
                       + ("\n" + feedback if feedback else ""))
             job = {"name_exact": p.name, "allowed_facts": facts, "hook": hook, "price": p.price,

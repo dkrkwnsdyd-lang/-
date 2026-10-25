@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from ..director import KOR_CHARS_PER_SEC, clean_sentence, emphasis_of, product_short, strip_marks, tail_phrase
 from ..grounding import allowed_facts
+from ..korean_style import KO_STYLE_RULES
 from ..product import ProductInput
 from ..storyboard.scene_director import DATA_CLAIM, claim_reliability
 
@@ -125,7 +126,7 @@ def ask(router, system: str, payload: dict, temperature: float = 0.5, retries: i
         return None
     for attempt in range(retries + 1):
         try:
-            res = router.run("llm", "json", system=system + "\n" + SAFETY_RULES + "\nJSON 으로만 답한다.",
+            res = router.run("llm", "json", system=system + "\n" + SAFETY_RULES + "\n" + KO_STYLE_RULES + "\nJSON 으로만 답한다.",
                              user=json.dumps(payload, ensure_ascii=False), temperature=temperature, max_tokens=7000)
         except Exception as e:
             ERRORS.append(f"{type(e).__name__}: {str(e)[:120]}")
